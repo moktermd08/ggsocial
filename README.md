@@ -1,36 +1,162 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ggsocial
 
-## Getting Started
+One desk for every brand you run. Plan, approve, schedule and publish social content
+for ten companies without ten browser tabs and ten logins.
 
-First, run the development server:
+Built for the way agency-style work actually goes: content is written once per idea,
+fanned out to the channels that should carry it, tuned per platform, approved by
+whoever signs it off, and then either published automatically or handed to a person
+with the copy and files ready to paste.
+
+## What it does
+
+- **Brands** — one per company or project. Its own channels, media, calendar, team and timezone.
+- **Composer** — write base copy once, override it per channel, with live character counts
+  and per-platform rules (Reddit needs a title and a subreddit, YouTube needs a title,
+  Instagram needs media, X caps at 280 and can thread on blank lines).
+- **Calendar** — every brand on one month grid, colour-coded, drag a post to move it.
+- **Approvals** — draft → needs approval → approved → scheduled, with comments and
+  change requests. Approver role can sign off without being able to edit.
+- **Publish queue** — anything due on a manual channel, with copy buttons, the media to
+  download and platform-specific steps. Tick it off and it is marked published.
+- **Channels** — 109 platforms, each either *manual* (works immediately) or *live*
+  (the app calls the platform API itself). Searchable, grouped by category.
+- **Analytics** — what went out, where, and whatever metrics the platform hands back.
+
+## Channels
+
+**109 platforms in 11 categories. 45 publish by themselves; the other 64 have no write
+API for organic content, so ggsocial composes, validates, schedules and queues them with
+copy-ready blocks for a person to post.**
+
+| Category | Auto-publishing | Manual-only |
+| --- | --- | --- |
+| Social networks | Instagram, Facebook Pages, LinkedIn, X, Threads, Pinterest, Reddit, Bluesky, Mastodon, Tumblr, VK, Farcaster | Snapchat, Nextdoor, Facebook Groups, Instagram Broadcast |
+| Messaging & broadcast | Telegram, WhatsApp Business, Messenger, Discord, Slack, LINE, Viber | WhatsApp Channels |
+| Video, audio & live | YouTube, TikTok, Vimeo, Dailymotion, Twitch | YouTube Community, Rumble, Kick, SoundCloud, Spotify for Creators, Apple Podcasts, Restream |
+| Publishing & blogs | WordPress, Ghost, Webflow, Shopify Blog, DEV.to, Hashnode, Notion | Medium, Substack, SlideShare, Issuu, Flipboard |
+| Communities & forums | Discourse, Lemmy | Quora, Hacker News, Indie Hackers, Skool, Circle, Mighty Networks |
+| Email, SMS & push | beehiiv, Mailchimp, Brevo, Kit (ConvertKit), Klaviyo, Resend, SendGrid, Twilio SMS, OneSignal | — |
+| Local, maps & reviews | Google Business Profile | Apple Business Connect, Bing Places, Yelp, Tripadvisor, Trustpilot, G2, Capterra, Clutch |
+| Marketplaces & classifieds | — | Facebook Marketplace, Etsy, eBay, Amazon Posts, OLX, Craigslist, Gumtree, Bikroy, Daraz, Gumroad |
+| Developer, design & directories | GitHub | Product Hunt, Behance, Dribbble, Figma Community, AlternativeTo, BetaList, SaaSHub, Crunchbase, Wellfound, Upwork, Fiverr, Glassdoor |
+| Regional | — | WeChat, Weibo, Douyin, Xiaohongshu, Kuaishou, Bilibili, Zhihu, Naver, KakaoTalk, Zalo, ShareChat |
+| Automation & custom | Webhook / Zapier | — |
+
+A manual-only channel is not a stub: it gets the same composer validation, calendar slot,
+approval flow and publish-queue checklist — it just ends with a person clicking publish,
+because the platform offers no API to do it for them.
+
+## Running it locally
 
 ```bash
+cp .env.example .env.local   # then fill in DATABASE_URL and APP_SECRET
+npm install
+npm run db:push              # creates the tables
+npm run seed                 # optional demo data
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 and create an account (or sign in with the seeded
+`demo@ggsocial.app` / `demo1234`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Scheduled posts are dispatched by a scheduler tick, not by the web request. In
+development, run this in a second terminal:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run scheduler
+```
 
-## Learn More
+## Environment
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | What it is |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string. |
+| `APP_SECRET` | 32+ random characters. Signs sessions and encrypts stored platform tokens. Changing it logs everyone out and invalidates saved credentials. |
+| `CRON_SECRET` | Bearer token the `/api/cron/publish` endpoint requires. |
+| `APP_URL` | Public base URL. **Platform APIs fetch media from here**, so in production it must be reachable from the internet. |
+| `MEDIA_DRIVER` | `local` (default, writes to `.data/uploads`) or `s3`. |
+| `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_BASE` | Only for `MEDIA_DRIVER=s3`. |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploying
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Vercel plus any hosted Postgres (Neon, Supabase, RDS) works out of the box:
 
-## Deploy on Vercel
+1. Push the repo, import it into Vercel.
+2. Set the environment variables above. Use `MEDIA_DRIVER=s3` — serverless filesystems
+   are wiped between invocations, so local uploads will not survive.
+3. `vercel.json` already registers a cron that hits `/api/cron/publish` every five
+   minutes. Vercel sends `Authorization: Bearer $CRON_SECRET` automatically.
+4. Run `npm run db:push` once against the production database.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Anywhere else: any Node host works — just make sure something pings
+`/api/cron/publish` on a schedule.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Manual vs live channels
+
+Every channel starts in **manual** mode and is useful immediately: scheduled posts land
+in the publish queue at the right time with the copy, the first comment, the files and
+the steps for that platform.
+
+**Live** mode means the app publishes by itself. That needs credentials from the
+platform, and most platforms gate posting behind their own app review:
+
+| Platform | What you need | Review? |
+| --- | --- | --- |
+| Instagram | Meta app, `instagram_content_publish`, IG Business account linked to a Page | yes |
+| Facebook | Meta app, `pages_manage_posts`, long-lived Page token | yes |
+| Threads | Meta app with `threads_content_publish` | yes |
+| LinkedIn | Community Management API (`w_organization_social`) | yes, slowest |
+| X | API Basic tier or above, OAuth 2.0 with `tweet.write` | no, but paid |
+| TikTok | Content Posting API, `video.publish`, audited app | yes |
+| YouTube | Google Cloud project, `youtube.upload` (restricted scope) | yes |
+| Pinterest | Pinterest app; trial access works on your own account | for standard access |
+| Reddit | Script/web app at reddit.com/prefs/apps, `submit` scope | no |
+| Telegram | A bot from @BotFather, added to the channel as admin | no |
+| Bluesky | An App Password from account settings | no |
+| Mastodon | An application token from your instance | no |
+| Discord | A channel webhook URL | no |
+| Slack | Bot token with `chat:write` | no |
+| WhatsApp Business | Meta app + business verification + approved templates | verification |
+| Google Business Profile | Business Profile API access in Google Cloud | yes, days |
+| WordPress / Ghost / Webflow / Shopify | An application password or admin API key | no |
+| DEV.to / Hashnode / Notion / GitHub | A personal API token | no |
+| Mailchimp / Brevo / Kit / Klaviyo / Resend / SendGrid | An API key | no |
+| Twilio SMS / OneSignal | Account SID + token, or REST key + App ID | no |
+| Webhook / Zapier | Any https endpoint | no |
+
+Platforms needing more than a token (Twitch's client id, Twilio's Account SID, WhatsApp's
+Phone Number ID, Farcaster's signer UUID…) declare those fields themselves, and the
+Connect form renders them.
+
+To connect one: **Channels → Connect**, paste the access token and the account id.
+Tokens are encrypted with `APP_SECRET` before they are stored and are never sent back
+to the browser. Switch a channel back to manual at any time — nothing else changes.
+
+Adding platform 110 means one file in `src/lib/platforms/adapters/` implementing the
+`Platform` contract, and one line in the registry. Everything else — composer fields,
+validation, queue steps, calendar, filters — is driven off that contract. Channels with no
+write API skip the file entirely: add a row to `adapters/_catalog.ts` and the
+`manualPlatform()` factory builds the rest. The registry is typed
+`Record<PlatformId, Platform>`, so a missing adapter is a compile error, not a runtime one.
+
+## Layout
+
+```
+src/
+  app/(app)/          dashboard, calendar, posts, queue, library, channels, analytics, brands
+  app/api/cron/       the scheduler endpoint
+  components/         composer, calendar grid, queue cards, channel manager
+  lib/db/             drizzle schema + client
+  lib/platforms/      the platform contract, one adapter per network, validation
+  lib/auth/           sessions, password hashing, role checks
+  server/             queries, publish engine, server actions
+```
+
+## Roles
+
+`owner` (everything, can archive the brand) · `admin` (channels, team, content) ·
+`editor` (write, schedule, publish) · `approver` (review only, cannot edit) · `viewer` (read-only).
+
+Roles are per brand — someone can be an editor on one company and a viewer on another.
+Every server action re-checks the role; the UI hiding a button is not the security boundary.

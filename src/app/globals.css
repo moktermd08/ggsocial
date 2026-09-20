@@ -1,26 +1,110 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --border: #e3e3e8;
+  --text: #17171a;
+  --muted: #5f5f6b;
+  --accent: #4f46e5;
+  /* Text/icon colour for anything sitting on --accent. */
+  --accent-fg: #ffffff;
+  --accent-soft: #eef2ff;
+  --ok: #157a3c;
+  --warn: #9a4a06;
+  --danger: #b3191b;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d0f;
+    --surface: #161619;
+    --surface-2: #1e1e23;
+    --border: #2a2a31;
+    --text: #ececef;
+    --muted: #a2a2ae;
+    --accent: #8b87ff;
+    /* #8b87ff is a light violet — white on it is only 3:1, so go dark. */
+    --accent-fg: #14121f;
+    --accent-soft: #1e1b3a;
+    --ok: #5ddb92;
+    --warn: #fbbf24;
+    --danger: #ff8c8c;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+}
+
+/*
+ * Everything below MUST stay inside @layer base. Unlayered rules beat every
+ * Tailwind utility regardless of specificity, so an unlayered `button { color:
+ * inherit }` silently overrides `text-accent-fg` and leaves dark text on the
+ * accent fill. Layered, utilities win as intended.
+ */
+@layer base {
+  * { border-color: var(--border); }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Form controls inherit the theme instead of the browser default. */
+  input, textarea, select, button { font: inherit; color: inherit; }
+
+  input[type="text"], input[type="email"], input[type="password"], input[type="url"],
+  input[type="datetime-local"], input[type="date"], input[type="number"], input[type="search"],
+  input:not([type]), textarea, select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    width: 100%;
+    outline: none;
+  }
+  input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+  textarea { resize: vertical; }
+
+  input[type="color"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    width: 100%;
+    height: 2.25rem;
+    cursor: pointer;
+  }
+
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+  :disabled { opacity: 0.6; }
+
+  /* Keyboard focus has to be visible on buttons and links too. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 }
