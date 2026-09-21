@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, Loader2, Plus, Trash2, Upload, X, Zap } from "lucide-react";
+import { AlertCircle, Check, Loader2, Plus, Sparkles, Trash2, Upload, X, Zap } from "lucide-react";
 import { PlatformIcon } from "./platform-icon";
 import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
@@ -10,6 +10,7 @@ import { quickValidate, type PlatformMeta } from "@/lib/platforms/meta";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { savePostAction, type PostInput } from "@/server/actions/posts";
 import { uploadMediaAction } from "@/server/actions/media";
+import { generateDraftAction } from "@/server/actions/drafting";
 
 export type ComposerChannel = {
   id: string; platform: string; handle: string; displayName: string | null; mode: string;
@@ -26,6 +27,8 @@ export type ComposerBrand = {
 
 export type ComposerPost = {
   id: string;
+  /** The content-plan idea this post tells, if it was fanned out from one. */
+  ideaId?: string | null;
   title: string;
   body: string;
   scheduledAt: string | null;
@@ -60,6 +63,8 @@ export function Composer({
   const channels = channelsByBrand[brandId] ?? [];
   const [library, setLibrary] = useState<ComposerMedia[]>(mediaByBrand[brandId] ?? []);
 
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState<{ note: string; issues: string[] } | null>(null);
   const [title, setTitle] = useState(post?.title ?? "");
   const [body, setBody] = useState(post?.body ?? "");
   const [campaign, setCampaign] = useState(post?.campaign ?? "");
@@ -187,6 +192,42 @@ export function Composer({
   const activeMeta = activeChannel ? metaFor(activeChannel.platform) : null;
   const activeIssues = validation.find((v) => v.channelId === activeTab)?.issues ?? [];
 
+  /**
+   * Fills the editor with Claude's draft — base copy plus one override per
+   * ticked channel. Nothing is saved until the writer saves, so a bad draft
+   * costs one click of Undo-by-reload, not their work.
+   */
+  async function draftWithClaude() {
+    const hasCopy = body.trim() || targets.some((t) => t.bodyOverride?.trim());
+    if (hasCopy && !confirm("Replace the copy in the editor with Claude's draft? Nothing is saved until you save.")) return;
+    setDrafting(true);
+    setError(null);
+    setDraftNote(null);
+    try {
+      const res = await generateDraftAction({
+        brandId, postId: post?.id ?? null, ideaId: post?.ideaId ?? null,
+        title, body, channelIds: targets.map((t) => t.channelId),
+      });
+      if (!res.ok) { setError(res.error); return; }
+      const { draft } = res;
+      if (!title.trim()) setTitle(draft.title);
+      setBody(draft.body);
+      setTargets((prev) => prev.map((t) => {
+        const v = draft.channels.find((c) => c.channelId === t.channelId);
+        if (!v) return t;
+        const meta = metaFor(channels.find((c) => c.id === t.channelId)?.platform ?? "");
+        return {
+          ...t,
+          bodyOverride: v.body,
+          firstComment: meta?.constraints.supportsFirstComment && v.firstComment ? v.firstComment : t.firstComment,
+        };
+      }));
+      setDraftNote({ note: draft.note, issues: res.issues });
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-5">
@@ -195,7 +236,20 @@ export function Composer({
             title="The post"
             subtitle={brand?.brief ? brand.brief : "Write once, then tune it per platform below."}
             action={
-              !post && brands.length > 1 ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={draftWithClaude}
+                  disabled={drafting || pending || !brandId}
+                  className={buttonClass("subtle", "sm")}
+                  title={targets.length === 0
+                    ? "Drafts the base copy. Tick channels first to get a version for each."
+                    : `Drafts the base copy and a version for each of ${targets.length} channel${targets.length === 1 ? "" : "s"}.`}
+                >
+                  {drafting ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {drafting ? "Drafting…" : "Draft with Claude"}
+                </button>
+              {!post && brands.length > 1 ? (
                 <select
                   value={brandId}
                   onChange={(e) => {
@@ -209,7 +263,8 @@ export function Composer({
                 >
                   {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
-              ) : null
+              ) : null}
+              </div>
             }
           />
           <div className="space-y-3 p-4">
@@ -219,6 +274,19 @@ export function Composer({
             <Field label="Base copy" hint="Each channel starts from this and can override it.">
               <textarea rows={7} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What do you want to say?" />
             </Field>
+            {draftNote && (
+              <div className="rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-xs">
+                <p className="flex items-start gap-1.5">
+                  <Sparkles className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                  <span><span className="font-medium">Claude&apos;s note:</span> {draftNote.note} Review it, then save.</span>
+                </p>
+                {draftNote.issues.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5 pl-5 text-warn">
+                    {draftNote.issues.map((i) => <li key={i}>{i}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap gap-3">
               <div className="min-w-40 flex-1">
                 <Field label="Campaign (optional)">

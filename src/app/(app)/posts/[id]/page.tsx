@@ -119,6 +119,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           sidebarExtras={sidebar}
           post={{
             id: post.id,
+            ideaId: post.ideaId,
             title: post.title,
             body: post.body,
             scheduledAt: post.scheduledAt?.toISOString() ?? null,

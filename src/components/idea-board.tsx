@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ChevronRight, Loader2, Plus, Search, Split } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, Plus, Search, Sparkles, Split } from "lucide-react";
 import { Card, Field, buttonClass } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { STATUS_META, inZone } from "@/lib/format";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { IDEA_STATUSES, type IdeaStatus } from "@/lib/db/idea-status";
 import { saveIdeaAction, fanOutIdeaAction, type IdeaInput } from "@/server/actions/ideas";
+import { draftPostAction, draftingStatusAction } from "@/server/actions/drafting";
 import type { IdeaBoardRow } from "@/server/queries";
 
 const IDEA_STATUS_META: Record<IdeaStatus, { label: string; color: string }> = {
@@ -45,6 +46,7 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; failed: string[] } | null>(null);
 
   const [adding, setAdding] = useState("");
   const [query, setQuery] = useState("");
@@ -113,14 +115,47 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
     });
   }
 
-  function fanOut(ideaIds: string[]) {
+  /**
+   * Creates the missing lane posts, and optionally has Claude write each one.
+   *
+   * Drafting runs from the browser, one request per post, a few at a time: each
+   * call takes tens of seconds, and a single request drafting a dozen ideas
+   * would blow straight through the 120s proxy timeout on the live server.
+   * Only posts created by this click are drafted, so nothing a person has
+   * already edited is rewritten.
+   */
+  function fanOut(ideaIds: string[], withClaude = false) {
     setError(null);
     startTransition(async () => {
       try {
+        if (withClaude) {
+          const status = await draftingStatusAction();
+          if (!status.ok) { setError(status.error); return; }
+        }
+        const created: string[] = [];
         for (const id of ideaIds) {
-          await fanOutIdeaAction(id, lanes.map((l) => l.brand.id));
+          const res = await fanOutIdeaAction(id, lanes.map((l) => l.brand.id));
+          created.push(...res.createdPostIds);
         }
         setSelected(new Set());
+
+        if (withClaude && created.length > 0) {
+          const failed: string[] = [];
+          let done = 0;
+          setProgress({ done, total: created.length, failed });
+          const queue = [...created];
+          const worker = async () => {
+            for (let postId = queue.shift(); postId; postId = queue.shift()) {
+              const res = await draftPostAction(postId);
+              if (!res.ok) failed.push(res.error);
+              done += 1;
+              setProgress({ done, total: created.length, failed: [...failed] });
+            }
+          };
+          await Promise.all([worker(), worker(), worker()]);
+          // A missing key fails every call identically; say it once.
+          if (failed.length) setError([...new Set(failed)].join(" "));
+        }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not create the drafts.");
@@ -179,6 +214,20 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
         </p>
       )}
 
+      {progress && (
+        <p className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+          {progress.done < progress.total
+            ? <Loader2 className="size-3.5 animate-spin text-accent" />
+            : <Sparkles className="size-3.5 text-accent" />}
+          {progress.done < progress.total
+            ? `Claude is writing ${progress.done + 1} of ${progress.total}…`
+            : `Claude wrote ${progress.total - progress.failed.length} of ${progress.total} drafts. Open a lane to review.`}
+          {progress.done >= progress.total && (
+            <button type="button" onClick={() => setProgress(null)} className="ml-auto text-muted underline">Dismiss</button>
+          )}
+        </p>
+      )}
+
       {selectedRows.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-sm">
           <span className="font-medium">{selectedRows.length} idea{selectedRows.length === 1 ? "" : "s"} selected</span>
@@ -190,6 +239,15 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
           >
             <Split className="size-3.5" />
             Fan out — {draftsToCreate} draft{draftsToCreate === 1 ? "" : "s"}
+          </button>
+          <button
+            type="button"
+            disabled={pending || draftsToCreate === 0}
+            onClick={() => fanOut(selectedRows.map((r) => r.id), true)}
+            className={buttonClass("subtle", "sm")}
+            title="Creates the drafts, then has Claude write each one in its brand's voice"
+          >
+            <Sparkles className="size-3.5" /> Fan out + write with Claude
           </button>
           <button type="button" onClick={() => setSelected(new Set())} className={buttonClass("ghost", "sm")}>Clear</button>
         </div>
@@ -240,7 +298,7 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
                   })}
                   onToggle={() => setOpen(isOpen ? null : row.id)}
                   onPatch={(change) => patch(row, change)}
-                  onFanOut={() => fanOut([row.id])}
+                  onFanOut={(withClaude) => fanOut([row.id], withClaude)}
                 />
               );
             })}
@@ -287,7 +345,7 @@ function IdeaRow({
   onCheck: (on: boolean) => void;
   onToggle: () => void;
   onPatch: (change: Partial<Draft>) => void;
-  onFanOut: () => void;
+  onFanOut: (withClaude: boolean) => void;
 }) {
   const meta = IDEA_STATUS_META[draft.status];
   const missingLanes = row.lanes.filter((l) => !l.post).length;
@@ -415,14 +473,24 @@ function IdeaRow({
                 </label>
                 <button
                   type="button"
-                  onClick={onFanOut}
+                  onClick={() => onFanOut(true)}
                   disabled={pending || missingLanes === 0}
                   className={buttonClass("primary", "sm")}
-                  title={missingLanes === 0 ? "Every brand already has a draft for this idea" : undefined}
+                  title={missingLanes === 0 ? "Every brand already has a draft for this idea" : "Creates the drafts, then Claude writes each in its brand's voice"}
                 >
-                  <Split className="size-3.5" />
-                  {missingLanes === 0 ? "All lanes drafted" : `Fan out — ${missingLanes} draft${missingLanes === 1 ? "" : "s"}`}
+                  <Sparkles className="size-3.5" />
+                  {missingLanes === 0 ? "All lanes drafted" : `Write ${missingLanes} with Claude`}
                 </button>
+                {missingLanes > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onFanOut(false)}
+                    disabled={pending}
+                    className={buttonClass("subtle", "sm")}
+                  >
+                    <Split className="size-3.5" /> Empty drafts only
+                  </button>
+                )}
               </div>
               <Field label="Notes">
                 <textarea

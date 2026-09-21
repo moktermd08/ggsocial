@@ -142,7 +142,8 @@ export async function fanOutIdeaAction(ideaId: string, brandIds: string[]) {
 
   revalidatePath("/ideas");
   revalidatePath("/posts");
-  return { created: created.length, skipped };
+  // Ids, not just a count: the board drafts each one next, one request apiece.
+  return { created: created.length, createdPostIds: created, skipped };
 }
 
 /** The per-post plan fields the grid reports on but the composer does not own. */
