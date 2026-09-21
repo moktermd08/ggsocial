@@ -23,7 +23,7 @@ or the new build serves pages whose columns do not exist yet.
 **1. Back up.** Nothing is scheduled, so this is the only rollback point:
 
 ```bash
-ssh gglink-live 'docker exec ggsocial-pg pg_dump -U ggsocial ggsocial | gzip > /root/ggsocial-backups/ggsocial-$(date +%F-%H%M).sql.gz'
+ssh gglink-live "bash -c 'docker exec ggsocial-pg pg_dump -U ggsocial ggsocial | gzip > /root/ggsocial-backups/ggsocial-\$(date +%F-%H%M).sql.gz'"
 ```
 
 **2. Sync the code.** `--exclude .env` is not optional — see the warning below:
@@ -35,10 +35,10 @@ rsync -az --delete --exclude node_modules --exclude .next --exclude .data --excl
 **3. Install, migrate, build, restart:**
 
 ```bash
-ssh gglink-live 'bash -lc "cd /var/www/ggsocial.gglink.co.uk \
+ssh gglink-live 'bash -c "export PATH=/usr/bin:/usr/local/bin:/bin && cd /var/www/ggsocial.gglink.co.uk \
   && npm ci --no-audit --no-fund \
   && npm install --no-save --no-audit --no-fund @tailwindcss/oxide-linux-x64-gnu@\$(node -p \"require(\047./node_modules/@tailwindcss/oxide/package.json\047).version\") \
-  && npx drizzle-kit push --force \
+  && npx drizzle-kit push --verbose < /dev/null \
   && rm -rf .next && npm run build \
   && pm2 restart ggsocial-web ggsocial-scheduler --update-env"'
 ```
@@ -53,7 +53,7 @@ ssh gglink-live 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3200/
 `tick failed: fetch failed` during the restart window — that one is expected;
 repeated ones are not.
 
-### Three traps in this deploy, learned the hard way
+### Traps in this deploy, learned the hard way
 
 **`rsync --delete` will destroy the production secrets.** `.env` lives only on
 the server and is not in the repo, so without `--exclude .env` rsync deletes it
@@ -75,8 +75,41 @@ committed lockfile.
 error from `.next/build/chunks/` even once the real cause is fixed. Always
 `rm -rf .next` before rebuilding, which is why it is in the command above.
 
+**A login shell builds with the wrong Node.** `bash -lc` sources nvm, which puts
+Node 18.20.8 first on the PATH. Next 16 refuses to build on it
+(`Node.js version ">=20.9.0" is required`), while pm2 runs `/usr/bin/node`
+(20.20.2). The commands above use `bash -c` with `/usr/bin` first so install,
+build and runtime all agree — installing under 18 also resolves a different set
+of optional dependencies (412 packages vs 420). Worse, the failure lands *after*
+`rm -rf .next`, so a running server is left without its build directory: check
+`/login` immediately if a build ever fails mid-deploy.
+
+**The login shell is fish.** Anything with `$(...)` passed straight to `ssh`
+fails to parse and nothing runs — step 1 silently produced no backup until it was
+wrapped in `bash -c`. Always wrap remote commands in `bash -c`.
+
+**Push the schema without `--force`.** Every change so far has been additive,
+and drizzle applies additive changes without asking. Without `--force` it stops
+instead of auto-approving a drop if the live schema has drifted; `< /dev/null`
+makes that stop fail fast rather than hang on a prompt.
+
 Note `rsync` flattens when you pass individual files — always sync directories
 (`./scripts/` → `…/scripts/`) or the whole tree.
+
+## Before sharing tracked links
+
+Short links (`/l/<code>`) are followed by strangers, so they have to get past
+the basic-auth wall too — otherwise every reader gets a 401 password prompt.
+They only redirect: the route does no auth and returns nothing but a 302 to the
+link's destination, and codes are random 7-character strings. Add this to
+**both** vhosts beside the media block below, then `apachectl configtest &&
+systemctl reload apache2`:
+
+```apache
+<Location /l/>
+    Require all granted
+</Location>
+```
 
 ## Before switching a channel to live mode
 
