@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getCalendarPosts } from "@/server/queries";
@@ -71,6 +71,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader
+        icon={CalendarDays}
         title={label}
         subtitle={`Times shown in ${scope.activeBrand ? timezone : "each brand's own timezone"} · drag a post to move it`}
         action={

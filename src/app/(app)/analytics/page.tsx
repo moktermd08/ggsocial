@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { BarChart3, ExternalLink, Eye, Heart, Rocket, Share2, Table2, TrendingUp } from "lucide-react";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getAnalytics } from "@/server/queries";
-import { Card, CardHeader, EmptyState, PageHeader, buttonClass } from "@/components/ui";
+import { Card, CardHeader, EmptyState, PageHeader, StatTile, buttonClass } from "@/components/ui";
+import { BarList, ColumnChart, type ChartSeries } from "@/components/charts";
+import { platformOrNull } from "@/lib/platforms";
 import { PlatformIcon } from "@/components/platform-icon";
-import { inZone, truncate } from "@/lib/format";
+import { inZone, truncate, utcDays } from "@/lib/format";
 
 const RANGES = [7, 30, 90];
 
@@ -16,7 +18,13 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const { days } = await searchParams;
   const window = RANGES.includes(Number(days)) ? Number(days) : 30;
 
-  const rows = await getAnalytics(scope.brandIds, window);
+  // Fetch two windows so every headline number can say how it moved.
+  const both = await getAnalytics(scope.brandIds, window * 2);
+  // Whole UTC days, so the headline numbers and the daily chart agree.
+  const calendar = utcDays(-(window - 1), 0);
+  const dayOf = (r: (typeof both)[number]) => r.target.publishedAt?.toISOString().slice(0, 10) ?? "";
+  const rows = both.filter((r) => dayOf(r) >= calendar[0].key);
+  const prev = both.filter((r) => dayOf(r) < calendar[0].key);
 
   const byPlatform = new Map<string, { posts: number; impressions: number; engagements: number }>();
   for (const r of rows) {
@@ -26,12 +34,39 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     cur.engagements += (r.metrics?.likes ?? 0) + (r.metrics?.commentCount ?? 0) + (r.metrics?.shares ?? 0) + (r.metrics?.saves ?? 0);
     byPlatform.set(r.channel.platform, cur);
   }
-  const maxPosts = Math.max(1, ...[...byPlatform.values()].map((v) => v.posts));
   const liveNumbers = rows.some((r) => r.metrics);
+  const ranked = [...byPlatform.entries()].sort((a, b) => b[1].posts - a[1].posts);
+
+  const sum = (list: typeof rows, f: (r: (typeof rows)[number]) => number) => list.reduce((n, r) => n + f(r), 0);
+  const impressions = (r: (typeof rows)[number]) => r.metrics?.impressions ?? 0;
+  const engagements = (r: (typeof rows)[number]) =>
+    (r.metrics?.likes ?? 0) + (r.metrics?.commentCount ?? 0) + (r.metrics?.shares ?? 0) + (r.metrics?.saves ?? 0);
+  const pct = (now: number, before: number) => (before > 0 ? Math.round(((now - before) / before) * 100) : 0);
+  const totalImpr = sum(rows, impressions);
+  const totalEng = sum(rows, engagements);
+
+  // Daily output, stacked by the three busiest platforms; the rest fold into "Other".
+  const leaders = ranked.slice(0, 3).map(([p]) => p);
+  const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"];
+  const series: ChartSeries[] = [
+    ...leaders.map((p, i) => ({ key: p, label: platformOrNull(p)?.name ?? p, color: colors[i] })),
+    ...(ranked.length > 3 ? [{ key: "other", label: "Other", color: "#8b8b96" }] : []),
+  ];
+  const perDay = new Map<string, Record<string, number>>();
+  for (const r of rows) {
+    const key = dayOf(r);
+    const bucket = perDay.get(key) ?? {};
+    const k = leaders.includes(r.channel.platform) ? r.channel.platform : "other";
+    bucket[k] = (bucket[k] ?? 0) + 1;
+    perDay.set(key, bucket);
+  }
+  const daily = calendar.map((d) => ({ label: d.label, tip: d.tip, values: perDay.get(d.key) ?? {} }));
+  const dailyCounts = calendar.map((d) => Object.values(perDay.get(d.key) ?? {}).reduce((a, b) => a + b, 0));
 
   return (
     <>
       <PageHeader
+        icon={BarChart3}
         title="Analytics"
         subtitle={`${rows.length} published post${rows.length === 1 ? "" : "s"} in the last ${window} days`}
         action={
@@ -52,30 +87,52 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </p>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile label="Deliveries" value={rows.length} icon={Rocket} tone="#4f46e5" trend={dailyCounts}
+          delta={{ value: pct(rows.length, prev.length) }} hint={`vs ${prev.length} the ${window} days before`} />
+        <StatTile label="Platforms reached" value={byPlatform.size} icon={Share2} tone="#0d9488"
+          hint={ranked[0] ? `Busiest: ${platformOrNull(ranked[0][0])?.name ?? ranked[0][0]}` : "None yet"} />
+        <StatTile label="Impressions" value={liveNumbers ? totalImpr.toLocaleString() : "—"} icon={Eye} tone="#7c3aed"
+          delta={liveNumbers ? { value: pct(totalImpr, sum(prev, impressions)) } : undefined} hint={liveNumbers ? undefined : "Live channels only"} />
+        <StatTile label="Engagements" value={liveNumbers ? totalEng.toLocaleString() : "—"} icon={Heart} tone="#db2777"
+          delta={liveNumbers ? { value: pct(totalEng, sum(prev, engagements)) } : undefined}
+          hint={liveNumbers && totalImpr > 0 ? `${((totalEng / totalImpr) * 100).toFixed(1)}% engagement rate` : "Likes, comments, shares, saves"} />
+      </div>
+
+      <div className="mb-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>
-          <CardHeader title="Output by platform" subtitle="Posts shipped in this window" />
-          <div className="space-y-2.5 p-4">
-            {byPlatform.size === 0 && <p className="py-4 text-center text-sm text-muted">No published posts yet.</p>}
-            {[...byPlatform.entries()].sort((a, b) => b[1].posts - a[1].posts).map(([platform, v]) => (
-              <div key={platform}>
-                <div className="mb-1 flex items-center gap-2 text-xs">
-                  <PlatformIcon platform={platform} size={16} />
-                  <span className="flex-1 capitalize">{platform}</span>
-                  <span className="tabular-nums text-muted">{v.posts}</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-                  <div className="h-full rounded-full bg-accent" style={{ width: `${(v.posts / maxPosts) * 100}%` }} />
-                </div>
-              </div>
-            ))}
+          <CardHeader icon={TrendingUp} title="Daily output" subtitle={`Deliveries per day, by platform · last ${window} days`} />
+          <div className="p-4">
+            <ColumnChart data={daily} series={series} emptyLabel="Nothing published in this window" />
           </div>
         </Card>
 
+        <Card>
+          <CardHeader icon={Share2} title="Output by platform" subtitle="Share of deliveries in this window" />
+          <div className="p-4">
+            {byPlatform.size === 0 ? (
+              <p className="py-4 text-center text-sm text-muted">No published posts yet.</p>
+            ) : (
+              <BarList
+                valueLabel="deliveries"
+                items={ranked.map(([platform, v]) => ({
+                  key: platform,
+                  icon: <PlatformIcon platform={platform} size={16} />,
+                  label: platformOrNull(platform)?.name ?? platform,
+                  sub: `${Math.round((v.posts / rows.length) * 100)}%`,
+                  value: v.posts,
+                }))}
+              />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div>
         <Card className="overflow-hidden">
-          <CardHeader title="Published posts" />
+          <CardHeader icon={Table2} title="Published posts" />
           {rows.length === 0 ? (
-            <EmptyState title="Nothing published yet" body="Once posts go out, they show up here with whatever metrics the platform gives back." />
+            <EmptyState icon={Rocket} title="Nothing published yet" body="Once posts go out, they show up here with whatever metrics the platform gives back." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

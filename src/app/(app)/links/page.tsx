@@ -3,7 +3,10 @@ import { getScope } from "@/lib/scope";
 import { getLinks, getTrafficSummary, getBrandChannels } from "@/server/queries";
 import { LinkTable, type LinkTableBrand } from "@/components/link-table";
 import { PlatformIcon } from "@/components/platform-icon";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, CardHeader, PageHeader, StatTile } from "@/components/ui";
+import { AreaChart, BarList } from "@/components/charts";
+import { Globe, Link2, MousePointerClick, Repeat, TrendingUp, Users } from "lucide-react";
+import { utcDays } from "@/lib/format";
 import { appOrigin } from "@/lib/links";
 import { platformOrNull } from "@/lib/platforms";
 
@@ -27,52 +30,57 @@ export default async function LinksPage() {
 
   const origin = appOrigin();
   const top = traffic.byPlatform.slice(0, 6);
-  const mostClicks = top[0]?.clicks ?? 0;
+  const perDay = new Map(traffic.byDay.map((d) => [d.day, d.clicks]));
+  const series = utcDays(-29, 0, traffic.now).map((d) => ({ label: d.label, tip: d.tip, value: perDay.get(d.key) ?? 0 }));
+  const activeLinks = rows.filter((l) => !l.archivedAt).length;
 
   return (
     <>
       <PageHeader
+        icon={Link2}
         title="Traffic"
         subtitle="Tracked links, and what they actually sent. Last 30 days."
       />
 
-      <div className="mb-4 grid gap-3 lg:grid-cols-[repeat(2,minmax(0,12rem))_minmax(0,1fr)]">
-        <Card className="px-4 py-3">
-          <p className="text-xs text-muted">Clicks</p>
-          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{traffic.clicks.toLocaleString()}</p>
-        </Card>
-        <Card className="px-4 py-3">
-          <p className="text-xs text-muted">People</p>
-          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{traffic.uniques.toLocaleString()}</p>
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile label="Clicks" value={traffic.clicks.toLocaleString()} icon={MousePointerClick} tone="#4f46e5"
+          trend={series.map((d) => d.value)} hint="Bots filtered out" />
+        <StatTile label="People" value={traffic.uniques.toLocaleString()} icon={Users} tone="#0d9488" hint="Unique visitors" />
+        <StatTile label="Clicks per person" value={traffic.uniques ? (traffic.clicks / traffic.uniques).toFixed(1) : "—"}
+          icon={Repeat} tone="#d97706" hint="Higher means they come back" />
+        <StatTile label="Active links" value={activeLinks} icon={Link2} tone="#7c3aed" hint={`${rows.length - activeLinks} archived`} />
+      </div>
+
+      <div className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <Card>
+          <CardHeader icon={TrendingUp} title="Clicks over time" subtitle="Per day, last 30 days" />
+          <div className="p-4">
+            <AreaChart data={series} label="Clicks" emptyLabel="No clicks yet — put a tracked link in a post" />
+          </div>
         </Card>
 
-        <Card className="px-4 py-3">
-          <p className="mb-2 text-xs text-muted">Where they came from</p>
-          {top.length === 0 ? (
-            <p className="text-sm text-muted">
-              Nothing yet. Issue a link on a post, put it in the copy, and this fills in.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {top.map((p) => (
-                <div key={p.platform} className="flex items-center gap-2">
-                  <span className="flex w-36 shrink-0 items-center gap-1.5 text-xs">
-                    {p.platform === "direct"
-                      ? <span className="size-4 shrink-0 rounded bg-surface-2" />
-                      : <PlatformIcon platform={p.platform} size={16} />}
-                    <span className="truncate">{platformOrNull(p.platform)?.name ?? "Untagged"}</span>
-                  </span>
-                  <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
-                    <span
-                      className="block h-full rounded-full bg-accent"
-                      style={{ width: `${mostClicks > 0 ? Math.max(3, (p.clicks / mostClicks) * 100) : 0}%` }}
-                    />
-                  </span>
-                  <span className="w-12 shrink-0 text-right text-xs tabular-nums">{p.clicks.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <Card>
+          <CardHeader icon={Globe} title="Where they came from" subtitle="Clicks by source" />
+          <div className="p-4">
+            {top.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted">
+                Nothing yet. Issue a link on a post, put it in the copy, and this fills in.
+              </p>
+            ) : (
+              <BarList
+                valueLabel="clicks"
+                items={top.map((p) => ({
+                  key: p.platform,
+                  icon: p.platform === "direct"
+                    ? <span className="grid size-4 shrink-0 place-items-center rounded bg-surface-2"><Globe className="size-3 text-muted" /></span>
+                    : <PlatformIcon platform={p.platform} size={16} />,
+                  label: platformOrNull(p.platform)?.name ?? (p.platform === "direct" ? "Direct / untagged" : p.platform),
+                  sub: traffic.clicks ? `${Math.round((p.clicks / traffic.clicks) * 100)}%` : undefined,
+                  value: p.clicks,
+                }))}
+              />
+            )}
+          </div>
         </Card>
       </div>
 

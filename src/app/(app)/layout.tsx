@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-dvh">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-4 md:flex">
         <Link href="/" className="mb-4 flex items-center gap-2 px-1">
-          <span className="grid size-7 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-fg">gg</span>
+          <span className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-accent to-chart-2 text-sm font-bold text-accent-fg shadow-sm">gg</span>
           <span className="text-sm font-semibold tracking-tight">ggsocial</span>
         </Link>
 
@@ -62,7 +62,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur md:hidden">
-          <Link href="/" className="grid size-7 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-fg">gg</Link>
+          <Link href="/" className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-accent to-chart-2 text-sm font-bold text-accent-fg shadow-sm">gg</Link>
           <div className="min-w-0 flex-1"><BrandSwitcher brands={brands} value={scope.value} /></div>
           <Link href="/posts/new" className={buttonClass("primary", "sm")}><Plus className="size-4" /></Link>
         </header>

@@ -1,3 +1,4 @@
+import { PenSquare, Lock } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getComposerData } from "@/server/composer-data";
@@ -14,6 +15,7 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
     return (
       <Card>
         <EmptyState
+          icon={Lock}
           title="No brand to write for"
           body="You need editor access on at least one brand before you can create content."
           action={<LinkButton href="/brands" variant="primary">Brands</LinkButton>}
@@ -28,7 +30,7 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
-      <PageHeader title="New post" subtitle="One draft, every channel that should carry it." />
+      <PageHeader icon={PenSquare} title="New post" subtitle="One draft, every channel that should carry it." />
       <Composer
         brands={data.composerBrands}
         channelsByBrand={data.channelsByBrand}

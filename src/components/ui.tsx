@@ -1,6 +1,9 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
+import { Sparkline } from "./charts";
 
 export function Card({ children, className = "", ...rest }: ComponentProps<"div">) {
   return (
@@ -10,11 +13,14 @@ export function Card({ children, className = "", ...rest }: ComponentProps<"div"
   );
 }
 
-export function CardHeader({ title, action, subtitle }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode }) {
+export function CardHeader({ title, action, subtitle, icon: Icon }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-text">{title}</h2>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+          {Icon && <Icon className="size-4 text-muted" />}
+          {title}
+        </h2>
         {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
       </div>
       {action}
@@ -72,9 +78,27 @@ export function Badge({ children, color, className = "" }: { children: ReactNode
   );
 }
 
-export function EmptyState({ title, body, action }: { title: string; body?: string; action?: ReactNode }) {
+/** A soft tinted square holding an icon — the visual anchor for tiles and headers. */
+export function IconChip({ icon: Icon, tone = "#4f46e5", size = "md" }: { icon: LucideIcon; tone?: string; size?: "sm" | "md" | "lg" }) {
+  const box = { sm: "size-7 rounded-lg", md: "size-9 rounded-xl", lg: "size-14 rounded-2xl" }[size];
+  const glyph = { sm: "size-3.5", md: "size-4.5", lg: "size-7" }[size];
+  return (
+    <span className={`grid shrink-0 place-items-center ${box}`} style={{ background: tintedSurface(tone, 16), color: tintedInk(tone, 80) }}>
+      <Icon className={glyph} strokeWidth={size === "lg" ? 1.75 : 2} />
+    </span>
+  );
+}
+
+export function EmptyState({ title, body, action, icon }: { title: string; body?: string; action?: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
+      {icon && (
+        <div className="relative mb-2">
+          <span className="absolute -inset-3 rounded-full bg-accent-soft opacity-60" />
+          <span className="absolute -inset-6 rounded-full border border-dashed border-border" />
+          <span className="relative"><IconChip icon={icon} size="lg" /></span>
+        </div>
+      )}
       <p className="text-sm font-medium text-text">{title}</p>
       {body && <p className="max-w-md text-sm text-muted">{body}</p>}
       {action && <div className="mt-2">{action}</div>}
@@ -82,12 +106,48 @@ export function EmptyState({ title, body, action }: { title: string; body?: stri
   );
 }
 
-export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: ReactNode; action?: ReactNode }) {
+/**
+ * A headline number with its icon, an optional trend line and an optional
+ * change vs the previous period. The number is the data; the sparkline is context.
+ */
+export function StatTile({ label, value, icon, tone = "#4f46e5", href, trend, delta, hint }: {
+  label: string; value: ReactNode; icon: LucideIcon; tone?: string; href?: string;
+  trend?: number[]; delta?: { value: number; goodWhenUp?: boolean }; hint?: string;
+}) {
+  const up = delta && delta.value > 0;
+  const good = delta && (delta.goodWhenUp ?? true) === up;
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <IconChip icon={icon} tone={tone} size="sm" />
+        {trend && trend.some((v) => v > 0) && <Sparkline values={trend} color={tintedInk(tone, 85)} className="h-7 w-20" />}
+      </div>
+      <p className="mt-3 text-2xl font-semibold tracking-tight">{value}</p>
+      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+        <span className="truncate">{label}</span>
+        {delta && delta.value !== 0 && (
+          <span className={`inline-flex items-center font-medium ${good ? "text-ok" : "text-danger"}`}>
+            {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+            {Math.abs(delta.value)}%
+          </span>
+        )}
+      </div>
+      {hint && <p className="mt-0.5 truncate text-[11px] text-muted">{hint}</p>}
+    </>
+  );
+  const cls = "block rounded-xl border border-border bg-surface p-4 transition-colors";
+  return href ? <Link href={href} className={`${cls} hover:border-accent/40 hover:bg-surface-2`}>{body}</Link> : <div className={cls}>{body}</div>;
+}
+
+export function PageHeader({ title, subtitle, action, icon }: { title: string; subtitle?: ReactNode; action?: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-text">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
+      <div className="flex min-w-0 items-center gap-3">
+        {icon && <IconChip icon={icon} />}
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-text">{title}</h1>
+          {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+        </div>
       </div>
       {action}
     </div>

@@ -1,3 +1,4 @@
+import { Building2 } from "lucide-react";
 import { createBrandAction } from "@/server/actions/brands";
 import { Card, CardHeader, Field, PageHeader, buttonClass } from "@/components/ui";
 import { COMMON_TIMEZONES } from "@/lib/format";
@@ -10,6 +11,7 @@ export default async function NewBrandPage() {
   return (
     <>
       <PageHeader
+        icon={Building2}
         title="Add a brand"
         subtitle="A company, a client or a side project — anything with its own accounts. Only the name is required; the full brand profile opens as soon as you create it."
       />

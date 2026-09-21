@@ -1,3 +1,4 @@
+import { ListChecks, PartyPopper } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getPublishQueue } from "@/server/queries";
@@ -51,6 +52,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
   return (
     <>
       <PageHeader
+        icon={ListChecks}
         title="Publish queue"
         subtitle="Everything due on a manual channel, plus anything that failed. Copy, post, tick off."
         action={<LinkButton href={filter === "all" ? "/queue" : "/queue?filter=all"} size="sm">
@@ -61,6 +63,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
       {items.length === 0 ? (
         <Card>
           <EmptyState
+            icon={PartyPopper}
             title="Queue is clear"
             body="Nothing is waiting on a human right now. Scheduled posts on live channels go out on their own."
             action={<LinkButton href="/calendar" variant="primary">Open calendar</LinkButton>}

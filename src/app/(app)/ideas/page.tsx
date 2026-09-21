@@ -1,3 +1,4 @@
+import { Lightbulb } from "lucide-react";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getIdeaBoard } from "@/server/queries";
@@ -16,6 +17,7 @@ export default async function IdeasPage() {
   return (
     <>
       <PageHeader
+        icon={Lightbulb}
         title="Content plan"
         subtitle={
           rows.length === 0

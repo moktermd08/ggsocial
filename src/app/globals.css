@@ -14,6 +14,10 @@
   --ok: #157a3c;
   --warn: #9a4a06;
   --danger: #b3191b;
+  /* Chart series, fixed order. Validated as a set (CVD ΔE ≥ 9) against --surface. */
+  --chart-1: #4f46e5;
+  --chart-2: #1baf7a;
+  --chart-3: #eb6834;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -31,6 +35,10 @@
     --ok: #5ddb92;
     --warn: #fbbf24;
     --danger: #ff8c8c;
+    /* Stepped for the dark surface, not flipped: #8b87ff is too light for a mark. */
+    --chart-1: #7f7af0;
+    --chart-2: #199e70;
+    --chart-3: #d95926;
   }
 }
 
@@ -47,6 +55,9 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
 }
 
 /*

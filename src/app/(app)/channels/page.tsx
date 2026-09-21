@@ -1,3 +1,4 @@
+import { Plug, Building2 } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getBrandChannels } from "@/server/queries";
@@ -16,13 +17,14 @@ export default async function ChannelsPage() {
   return (
     <>
       <PageHeader
+        icon={Plug}
         title="Channels"
         subtitle="Every account, per brand. Manual channels work immediately; connected ones publish by themselves."
       />
 
       {shown.length === 0 ? (
         <Card>
-          <EmptyState title="No brands yet" action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>} />
+          <EmptyState icon={Building2} title="No brands yet" action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>} />
         </Card>
       ) : (
         <div className="space-y-5">

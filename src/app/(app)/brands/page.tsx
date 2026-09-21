@@ -1,3 +1,4 @@
+import { Building2 } from "lucide-react";
 import Link from "next/link";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getBrandChannels } from "@/server/queries";
@@ -23,6 +24,7 @@ export default async function BrandsPage() {
   return (
     <>
       <PageHeader
+        icon={Building2}
         title="Brands & team"
         subtitle="One brand per company or project. Channels, media, calendar, permissions and the brand book are scoped to it."
         action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>}
@@ -31,6 +33,7 @@ export default async function BrandsPage() {
       {brands.length === 0 ? (
         <Card>
           <EmptyState
+            icon={Building2}
             title="No brands yet"
             body="Add the companies you manage — you can bulk-add all ten and fill in channels as you go."
             action={<LinkButton href="/brands/new" variant="primary">Add your first brand</LinkButton>}

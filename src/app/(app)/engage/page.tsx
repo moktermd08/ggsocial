@@ -1,3 +1,4 @@
+import { MessagesSquare } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getEngagementQueue, getEngagementCounts, getBrandChannels } from "@/server/queries";
@@ -36,6 +37,7 @@ export default async function EngagePage() {
   return (
     <>
       <PageHeader
+        icon={MessagesSquare}
         title="Engagement"
         subtitle="Every comment, message, review and outreach task across your brands, worst first."
       />

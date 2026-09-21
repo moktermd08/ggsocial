@@ -1,3 +1,4 @@
+import { Images, Building2 } from "lucide-react";
 import { desc, inArray } from "drizzle-orm";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
@@ -17,10 +18,10 @@ export default async function LibraryPage() {
 
   return (
     <>
-      <PageHeader title="Media" subtitle="Assets live per brand, so nothing crosses between clients by accident." />
+      <PageHeader icon={Images} title="Media" subtitle="Assets live per brand, so nothing crosses between clients by accident." />
       {shown.length === 0 ? (
         <Card>
-          <EmptyState title="No brands yet" action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>} />
+          <EmptyState icon={Building2} title="No brands yet" action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>} />
         </Card>
       ) : (
         <div className="space-y-5">

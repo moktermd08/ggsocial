@@ -27,7 +27,10 @@ export function PostCard({ post, showBrand = true }: { post: PostBundle; showBra
                 {post.brand.name}
               </Badge>
             )}
-            <Badge color={meta.color}>{meta.label}</Badge>
+            <Badge color={meta.color}>
+              <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
+              {meta.label}
+            </Badge>
           </div>
 
           <p className="mt-1.5 text-sm font-medium">{post.title || truncate(post.body, 60) || "Untitled"}</p>

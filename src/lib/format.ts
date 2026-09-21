@@ -98,3 +98,21 @@ export const COMMON_TIMEZONES = [
   "Asia/Dubai", "Asia/Karachi", "Asia/Dhaka", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo",
   "Australia/Sydney",
 ];
+
+/**
+ * Consecutive UTC days from `startOffset` to `endOffset` days relative to
+ * `now`, for charts that need a column even on days nothing happened.
+ */
+export function utcDays(startOffset: number, endOffset: number, now = Date.now()) {
+  const out: { key: string; label: string; tip: string; offset: number }[] = [];
+  for (let i = startOffset; i <= endOffset; i++) {
+    const d = new Date(now + i * 86400_000);
+    out.push({
+      key: d.toISOString().slice(0, 10),
+      label: new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(d),
+      tip: i === 0 ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(d),
+      offset: i,
+    });
+  }
+  return out;
+}

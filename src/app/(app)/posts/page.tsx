@@ -1,3 +1,4 @@
+import { PenSquare, Inbox } from "lucide-react";
 import Link from "next/link";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
@@ -40,6 +41,7 @@ export default async function PostsPage({
   return (
     <>
       <PageHeader
+        icon={PenSquare}
         title="Content"
         subtitle={`${posts.length} post${posts.length === 1 ? "" : "s"}${scope.activeBrand ? ` in ${scope.activeBrand.name}` : " across all brands"}`}
         action={<LinkButton href="/posts/new" variant="primary">New post</LinkButton>}
@@ -76,6 +78,7 @@ export default async function PostsPage({
       {posts.length === 0 ? (
         <Card>
           <EmptyState
+            icon={Inbox}
             title="Nothing here yet"
             body={`No ${filter.label.toLowerCase()} posts${scope.activeBrand ? ` for ${scope.activeBrand.name}` : ""}.`}
             action={<LinkButton href="/posts/new" variant="primary">Write something</LinkButton>}

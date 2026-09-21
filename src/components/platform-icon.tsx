@@ -1,6 +1,6 @@
 import { platformOrNull } from "@/lib/platforms";
 import { PLATFORM_GLYPHS } from "@/lib/platforms/glyphs";
-import { readableOn } from "@/lib/color";
+import { luminance, readableOn } from "@/lib/color";
 
 /**
  * Short marks for the handful of platforms with no authentic logo available
@@ -41,9 +41,11 @@ export function PlatformIcon({
   const path = PLATFORM_GLYPHS[platform];
 
   if (variant === "glyph") {
-    // On its own the mark keeps the brand hex, but near-black brands (X, Ghost,
-    // Notion) would vanish in dark mode, so blend toward the current text colour.
-    const ink = `color-mix(in oklab, ${brand} 78%, var(--text))`;
+    // On its own the mark keeps the brand hex. Near-black brands (X, TikTok,
+    // Threads, GitHub, Notion) have no hue worth keeping and a blend still sinks
+    // into a dark page, so they take the text colour outright: white on dark,
+    // black on light — which is how those companies draw their own marks.
+    const ink = luminance(brand) < 0.03 ? "var(--text)" : `color-mix(in oklab, ${brand} 78%, var(--text))`;
     if (!path) {
       return (
         <span

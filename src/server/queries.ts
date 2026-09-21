@@ -155,6 +155,36 @@ export async function getDashboard(brandIds: string[]) {
   };
 }
 
+/**
+ * Channel deliveries per UTC day: what went out over the last `pastDays`, and
+ * what is lined up for the next `futureDays`. Keyed by YYYY-MM-DD; the caller
+ * fills the gaps so an empty day still gets a column.
+ */
+export async function getActivity(brandIds: string[], pastDays = 14, futureDays = 7) {
+  if (brandIds.length === 0) return { published: new Map<string, number>(), scheduled: new Map<string, number>() };
+  const now = Date.now();
+  const from = new Date(now - pastDays * 86400_000);
+  const to = new Date(now + futureDays * 86400_000);
+  const dayOf = (col: typeof postTargets.publishedAt | typeof postTargets.scheduledAt) =>
+    sql<string>`to_char(${col} at time zone 'UTC', 'YYYY-MM-DD')`;
+
+  const [published, scheduled] = await Promise.all([
+    db.select({ day: dayOf(postTargets.publishedAt), n: sql<number>`count(*)::int` })
+      .from(postTargets).innerJoin(posts, eq(posts.id, postTargets.postId))
+      .where(and(inArray(posts.brandId, brandIds), eq(postTargets.status, "published"), gte(postTargets.publishedAt, from)))
+      .groupBy(dayOf(postTargets.publishedAt)),
+    db.select({ day: dayOf(postTargets.scheduledAt), n: sql<number>`count(*)::int` })
+      .from(postTargets).innerJoin(posts, eq(posts.id, postTargets.postId))
+      .where(and(inArray(posts.brandId, brandIds), inArray(postTargets.status, ["scheduled", "awaiting_manual"]),
+        gte(postTargets.scheduledAt, from), lte(postTargets.scheduledAt, to)))
+      .groupBy(dayOf(postTargets.scheduledAt)),
+  ]);
+  return {
+    published: new Map(published.map((r) => [r.day, r.n])),
+    scheduled: new Map(scheduled.map((r) => [r.day, r.n])),
+  };
+}
+
 /** The manual publish queue: prepared posts waiting for a human. */
 export async function getPublishQueue(brandIds: string[]) {
   if (brandIds.length === 0) return [];
