@@ -107,7 +107,10 @@ export async function savePostAction(input: PostInput) {
     const prior = existing.find((e) => e.channelId === t.channelId);
     const channel = await db.query.channels.findFirst({ where: eq(channels.id, t.channelId) });
     if (!channel || channel.brandId !== input.brandId) throw new Error("That channel is not on this brand.");
-    const options = { ...defaultOptions(channel.platform), ...(t.options ?? {}) };
+    // Platform defaults, then this channel's saved defaults, then whatever the
+    // writer typed for this post. Last one wins.
+    const channelDefaults = (channel.settings ?? {}) as Record<string, unknown>;
+    const options = { ...defaultOptions(channel.platform), ...channelDefaults, ...(t.options ?? {}) };
     const targetStatus = input.intent === "schedule" || input.intent === "publish_now" ? "scheduled" : "pending";
 
     if (prior) {

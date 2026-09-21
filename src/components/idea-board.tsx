@@ -1,0 +1,499 @@
+"use client";
+import Link from "next/link";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, ChevronRight, Loader2, Plus, Search, Split } from "lucide-react";
+import { Card, Field, buttonClass } from "./ui";
+import { PlatformIcon } from "./platform-icon";
+import { STATUS_META, inZone } from "@/lib/format";
+import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
+import { IDEA_STATUSES, type IdeaStatus } from "@/lib/db/idea-status";
+import { saveIdeaAction, fanOutIdeaAction, type IdeaInput } from "@/server/actions/ideas";
+import type { IdeaBoardRow } from "@/server/queries";
+
+const IDEA_STATUS_META: Record<IdeaStatus, { label: string; color: string }> = {
+  backlog: { label: "Backlog", color: "#8b8b96" },
+  planned: { label: "Planned", color: "#0f766e" },
+  drafting: { label: "Drafting", color: "#b45309" },
+  scheduled: { label: "Scheduled", color: "#4f46e5" },
+  published: { label: "Published", color: "#15803d" },
+  parked: { label: "Parked", color: "#6b7280" },
+};
+
+/** Fields the grid edits in place. Everything else is derived from the posts. */
+type Draft = Pick<IdeaBoardRow, "status" | "postType" | "tone" | "needsMedia" | "targetImpressions" | "keyLearning" | "series" | "notes" | "title">;
+
+function draftOf(row: IdeaBoardRow): Draft {
+  return {
+    status: row.status, postType: row.postType, tone: row.tone, needsMedia: row.needsMedia,
+    targetImpressions: row.targetImpressions, keyLearning: row.keyLearning, series: row.series,
+    notes: row.notes, title: row.title,
+  };
+}
+
+/**
+ * The content plan as a grid: one row per idea, one column per brand.
+ *
+ * Only the left-hand fields are stored on the idea. Every lane cell — status,
+ * date, channels, impressions — is read back from the post that idea spawned,
+ * so the plan cannot drift from what actually shipped.
+ */
+export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLabel: string | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState<string | null>(null);
+
+  const [adding, setAdding] = useState("");
+  const [query, setQuery] = useState("");
+  const [pillar, setPillar] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [onlyUnstarted, setOnlyUnstarted] = useState(false);
+
+  const pillars = useMemo(
+    () => [...new Set(rows.map((r) => r.pillar).filter(Boolean))] as string[],
+    [rows],
+  );
+
+  const current = (row: IdeaBoardRow): Draft => drafts[row.id] ?? draftOf(row);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (pillar !== "all" && r.pillar !== pillar) return false;
+      if (status !== "all" && (drafts[r.id] ?? r).status !== status) return false;
+      if (onlyUnstarted && r.liveLanes > 0) return false;
+      if (!q) return true;
+      return [r.problem, r.action, r.outcome, r.title, r.pillar, r.series]
+        .filter(Boolean).some((v) => (v as string).toLowerCase().includes(q));
+    });
+  }, [rows, query, pillar, status, onlyUnstarted, drafts]);
+
+  const lanes = rows[0]?.lanes ?? [];
+  const selectedRows = visible.filter((r) => selected.has(r.id));
+  const draftsToCreate = selectedRows.reduce((n, r) => n + r.lanes.filter((l) => !l.post).length, 0);
+
+  function patch(row: IdeaBoardRow, change: Partial<Draft>) {
+    const next = { ...current(row), ...change };
+    setDrafts((d) => ({ ...d, [row.id]: next }));
+    setError(null);
+    startTransition(async () => {
+      try {
+        const input: IdeaInput = {
+          ideaId: row.id,
+          problem: row.problem, action: row.action, outcome: row.outcome, pillar: row.pillar,
+          hashtags: row.hashtags,
+          ...next,
+        };
+        await saveIdeaAction(input);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save that change.");
+        setDrafts((d) => ({ ...d, [row.id]: draftOf(row) }));
+      }
+    });
+  }
+
+  /** One line in, one idea out: "problem → action → outcome", beats optional. */
+  function addIdea() {
+    const line = adding.trim();
+    if (!line) return;
+    const [problem, action, outcome] = line.split("→").map((part) => part.trim());
+    setError(null);
+    startTransition(async () => {
+      try {
+        await saveIdeaAction({ problem, action: action ?? null, outcome: outcome ?? null });
+        setAdding("");
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not add that idea.");
+      }
+    });
+  }
+
+  function fanOut(ideaIds: string[]) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        for (const id of ideaIds) {
+          await fanOutIdeaAction(id, lanes.map((l) => l.brand.id));
+        }
+        setSelected(new Set());
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not create the drafts.");
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-3">
+      <form
+        onSubmit={(e) => { e.preventDefault(); addIdea(); }}
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 p-2"
+      >
+        <input
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          placeholder="Add an idea — problem → what you do about it → the outcome"
+          className="!w-auto flex-1 !py-1.5 !text-sm"
+        />
+        <button type="submit" disabled={pending || !adding.trim()} className={buttonClass("primary", "sm")}>
+          <Plus className="size-3.5" /> Add idea
+        </button>
+      </form>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-52 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search the plan — security, migration, hiring…"
+            className="!w-full !py-1.5 !pl-8 !text-sm"
+          />
+        </label>
+        <select value={pillar} onChange={(e) => setPillar(e.target.value)} className="!w-auto !py-1.5 !text-sm">
+          <option value="all">All pillars</option>
+          {pillars.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="!w-auto !py-1.5 !text-sm">
+          <option value="all">Any status</option>
+          {IDEA_STATUSES.map((s) => <option key={s} value={s}>{IDEA_STATUS_META[s].label}</option>)}
+        </select>
+        <button
+          type="button"
+          onClick={() => setOnlyUnstarted((v) => !v)}
+          className={buttonClass(onlyUnstarted ? "primary" : "subtle", "sm")}
+        >
+          Not started yet
+        </button>
+        {pending && <Loader2 className="size-4 animate-spin text-muted" />}
+      </div>
+
+      {error && (
+        <p className="flex items-start gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-2 text-xs text-danger">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" /> {error}
+        </p>
+      )}
+
+      {selectedRows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-sm">
+          <span className="font-medium">{selectedRows.length} idea{selectedRows.length === 1 ? "" : "s"} selected</span>
+          <button
+            type="button"
+            disabled={pending || draftsToCreate === 0}
+            onClick={() => fanOut(selectedRows.map((r) => r.id))}
+            className={buttonClass("primary", "sm")}
+          >
+            <Split className="size-3.5" />
+            Fan out — {draftsToCreate} draft{draftsToCreate === 1 ? "" : "s"}
+          </button>
+          <button type="button" onClick={() => setSelected(new Set())} className={buttonClass("ghost", "sm")}>Clear</button>
+        </div>
+      )}
+
+      {lanes.length === 0 && (
+        <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          No brands in view, so there is nothing to fan out into. Add a brand, or widen the brand switcher.
+        </p>
+      )}
+
+      <Card className="overflow-x-auto">
+        <table className="w-full min-w-[72rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
+              <th className="w-8 px-2 py-2 font-semibold"></th>
+              <th className="w-[28rem] px-2 py-2 font-semibold">Idea</th>
+              <th className="w-32 px-2 py-2 font-semibold">Status</th>
+              <th className="w-24 px-2 py-2 font-semibold">Type</th>
+              <th className="w-24 px-2 py-2 font-semibold">Tone</th>
+              {lanes.map((l) => (
+                <th key={l.brand.id} className="w-32 px-2 py-2 font-semibold" style={{ color: tintedInk(l.brand.color) }}>
+                  {l.brand.name}
+                </th>
+              ))}
+              <th className="w-20 px-2 py-2 text-right font-semibold" title="Impressions you are aiming at, per post">Target</th>
+              <th className="w-20 px-2 py-2 text-right font-semibold" title="Impressions reported across every lane">Reached</th>
+              <th className="w-16 px-2 py-2 text-right font-semibold">Comments</th>
+              <th className="w-16 px-2 py-2 text-right font-semibold" title="Clicks on every tracked link these posts carried">Clicks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((row) => {
+              const d = current(row);
+              const isOpen = open === row.id;
+              return (
+                <IdeaRow
+                  key={row.id}
+                  row={row}
+                  draft={d}
+                  open={isOpen}
+                  pending={pending}
+                  checked={selected.has(row.id)}
+                  onCheck={(on) => setSelected((s) => {
+                    const next = new Set(s);
+                    if (on) next.add(row.id); else next.delete(row.id);
+                    return next;
+                  })}
+                  onToggle={() => setOpen(isOpen ? null : row.id)}
+                  onPatch={(change) => patch(row, change)}
+                  onFanOut={() => fanOut([row.id])}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+
+        {rows.length === 0 && (
+          <p className="px-4 py-10 text-center text-sm text-muted">
+            The plan sits above your brands: write an idea once, then fan it out so each brand tells it in its own
+            voice. Add one above, or load a whole plan from a file with <code>npm run seed:ideas</code>.
+          </p>
+        )}
+
+        {rows.length > 0 && visible.length === 0 && (
+          <p className="px-4 py-10 text-center text-sm text-muted">
+            Nothing matches those filters.{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => { setQuery(""); setPillar("all"); setStatus("all"); setOnlyUnstarted(false); }}
+            >
+              Clear them
+            </button>
+          </p>
+        )}
+      </Card>
+
+      <p className="text-[11px] text-muted">
+        Lane cells read straight from the posts each idea spawned — status, dates, channels and impressions are never
+        typed twice. {scopeLabel ? `Showing the ${scopeLabel} lane only; switch to all brands to see the rest.` : ""}
+      </p>
+    </div>
+  );
+}
+
+function IdeaRow({
+  row, draft, open, pending, checked, onCheck, onToggle, onPatch, onFanOut,
+}: {
+  row: IdeaBoardRow;
+  draft: Draft;
+  open: boolean;
+  pending: boolean;
+  checked: boolean;
+  onCheck: (on: boolean) => void;
+  onToggle: () => void;
+  onPatch: (change: Partial<Draft>) => void;
+  onFanOut: () => void;
+}) {
+  const meta = IDEA_STATUS_META[draft.status];
+  const missingLanes = row.lanes.filter((l) => !l.post).length;
+
+  return (
+    <>
+      <tr className="border-b border-border align-top hover:bg-surface-2">
+        <td className="px-2 py-2">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => onCheck(e.target.checked)}
+            aria-label={`Select "${row.problem}"`}
+            className="!w-auto"
+          />
+        </td>
+
+        <td className="px-2 py-2">
+          <button type="button" onClick={onToggle} className="flex w-full items-start gap-1.5 text-left">
+            <ChevronRight className={`mt-0.5 size-3.5 shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`} />
+            <span className="min-w-0">
+              <span className="block truncate font-medium leading-tight">
+                <span className="mr-1.5 tabular-nums text-muted">{row.sequence}</span>
+                {draft.title || row.problem}
+              </span>
+              {row.action && (
+                <span className="mt-0.5 line-clamp-1 block text-xs leading-tight text-muted">
+                  {row.action}{row.outcome ? ` → ${row.outcome}` : ""}
+                </span>
+              )}
+              <span className="mt-1 flex flex-wrap items-center gap-1">
+                {row.pillar && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{row.pillar}</span>
+                )}
+                {draft.series && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Series: {draft.series}</span>
+                )}
+                {draft.needsMedia && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Needs media</span>
+                )}
+              </span>
+            </span>
+          </button>
+        </td>
+
+        <td className="px-2 py-2">
+          <select
+            value={draft.status}
+            onChange={(e) => onPatch({ status: e.target.value as IdeaStatus })}
+            className="!w-full !px-1.5 !py-1 !text-xs"
+            style={{ borderColor: tintedBorder(meta.color), background: tintedSurface(meta.color), color: tintedInk(meta.color) }}
+          >
+            {IDEA_STATUSES.map((s) => <option key={s} value={s}>{IDEA_STATUS_META[s].label}</option>)}
+          </select>
+        </td>
+
+        <td className="px-2 py-2">
+          <CellInput value={draft.postType ?? ""} placeholder="—" onCommit={(v) => onPatch({ postType: v || null })} />
+        </td>
+        <td className="px-2 py-2">
+          <CellInput value={draft.tone ?? ""} placeholder="—" onCommit={(v) => onPatch({ tone: v || null })} />
+        </td>
+
+        {row.lanes.map((lane) => (
+          <td key={lane.brand.id} className="px-2 py-2">
+            <LaneCell lane={lane} />
+          </td>
+        ))}
+
+        <td className="px-2 py-2 text-right">
+          <CellInput
+            value={draft.targetImpressions == null ? "" : String(draft.targetImpressions)}
+            placeholder="—"
+            align="right"
+            inputMode="numeric"
+            onCommit={(v) => onPatch({ targetImpressions: v.trim() === "" ? null : Number(v.replace(/\D/g, "")) || null })}
+          />
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {row.reachedImpressions > 0 ? row.reachedImpressions.toLocaleString() : <span className="text-muted">—</span>}
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {row.totalComments > 0 ? row.totalComments.toLocaleString() : <span className="text-muted">—</span>}
+        </td>
+        <td className="px-2 py-2 text-right font-medium tabular-nums">
+          {row.clicks > 0 ? row.clicks.toLocaleString() : <span className="font-normal text-muted">—</span>}
+        </td>
+      </tr>
+
+      {open && (
+        <tr className="border-b border-border bg-surface-2">
+          <td />
+          <td colSpan={99} className="px-2 py-3">
+            <div className="grid gap-3 pr-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Working title" hint="Blank uses the problem line.">
+                <input
+                  defaultValue={draft.title}
+                  onBlur={(e) => e.target.value !== draft.title && onPatch({ title: e.target.value })}
+                  className="!py-1 !text-sm"
+                />
+              </Field>
+              <Field label="Series" hint="Blank means a one-off.">
+                <input
+                  defaultValue={draft.series ?? ""}
+                  onBlur={(e) => e.target.value !== (draft.series ?? "") && onPatch({ series: e.target.value || null })}
+                  className="!py-1 !text-sm"
+                />
+              </Field>
+              <Field label="Key learning" hint="What this idea taught you, after it ran.">
+                <input
+                  defaultValue={draft.keyLearning ?? ""}
+                  onBlur={(e) => e.target.value !== (draft.keyLearning ?? "") && onPatch({ keyLearning: e.target.value || null })}
+                  className="!py-1 !text-sm"
+                />
+              </Field>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-xs font-medium text-muted">
+                  <input
+                    type="checkbox"
+                    checked={draft.needsMedia}
+                    onChange={(e) => onPatch({ needsMedia: e.target.checked })}
+                    className="!w-auto"
+                  />
+                  Needs media
+                </label>
+                <button
+                  type="button"
+                  onClick={onFanOut}
+                  disabled={pending || missingLanes === 0}
+                  className={buttonClass("primary", "sm")}
+                  title={missingLanes === 0 ? "Every brand already has a draft for this idea" : undefined}
+                >
+                  <Split className="size-3.5" />
+                  {missingLanes === 0 ? "All lanes drafted" : `Fan out — ${missingLanes} draft${missingLanes === 1 ? "" : "s"}`}
+                </button>
+              </div>
+              <Field label="Notes">
+                <textarea
+                  rows={2}
+                  defaultValue={draft.notes ?? ""}
+                  onBlur={(e) => e.target.value !== (draft.notes ?? "") && onPatch({ notes: e.target.value || null })}
+                  className="!py-1 !text-sm"
+                />
+              </Field>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** A lane: this brand's post for this idea, or the button that creates it. */
+function LaneCell({ lane }: { lane: IdeaBoardRow["lanes"][number] }) {
+  if (!lane.post) {
+    return <span className="text-xs text-muted">—</span>;
+  }
+  const meta = STATUS_META[lane.post.status];
+  return (
+    <Link href={`/posts/${lane.post.id}`} className="block space-y-1 rounded-md p-1 hover:bg-surface">
+      <span
+        className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
+        style={{ borderColor: tintedBorder(meta.color), background: tintedSurface(meta.color), color: tintedInk(meta.color) }}
+      >
+        {meta.label}
+      </span>
+      {lane.post.scheduledAt && (
+        <span className="block text-[10px] tabular-nums text-muted">
+          {inZone(lane.post.scheduledAt, lane.brand.timezone)}
+        </span>
+      )}
+      {lane.channels.length > 0 && (
+        <span className="flex flex-wrap gap-0.5">
+          {lane.channels.slice(0, 4).map((c) => <PlatformIcon key={c.id} platform={c.platform} size={13} />)}
+        </span>
+      )}
+      {lane.impressions > 0 && (
+        <span className="block text-[10px] tabular-nums text-muted">{lane.impressions.toLocaleString()} impr.</span>
+      )}
+    </Link>
+  );
+}
+
+/**
+ * A grid cell that looks like text until you click it. Saving happens on blur
+ * so typing never fires a round-trip per keystroke.
+ */
+function CellInput({
+  value, placeholder, onCommit, align = "left", inputMode,
+}: {
+  value: string;
+  placeholder?: string;
+  onCommit: (value: string) => void;
+  align?: "left" | "right";
+  inputMode?: "numeric";
+}) {
+  return (
+    <input
+      defaultValue={value}
+      key={value}
+      placeholder={placeholder}
+      inputMode={inputMode}
+      onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
+      className={`!border-transparent !bg-transparent !px-1 !py-0.5 !text-xs hover:!border-border focus:!border-accent ${
+        align === "right" ? "text-right" : ""
+      }`}
+    />
+  );
+}

@@ -4,6 +4,7 @@ import { Plus, LogOut } from "lucide-react";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, postTargets, posts } from "@/lib/db";
+import { getEngagementCounts } from "@/server/queries";
 import { BrandSwitcher } from "@/components/brand-switcher";
 import { Nav } from "@/components/nav";
 import { signOutAction } from "@/server/actions/auth";
@@ -14,13 +15,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
 
-  const queueCount = scope.brandIds.length
-    ? (await db.select({ id: postTargets.id })
-        .from(postTargets)
-        .innerJoin(posts, eq(posts.id, postTargets.postId))
-        .where(and(inArray(posts.brandId, scope.brandIds), inArray(postTargets.status, ["awaiting_manual", "failed"])))
-      ).length
-    : 0;
+  const [queueRows, engagement] = await Promise.all([
+    scope.brandIds.length
+      ? db.select({ id: postTargets.id })
+          .from(postTargets)
+          .innerJoin(posts, eq(posts.id, postTargets.postId))
+          .where(and(inArray(posts.brandId, scope.brandIds), inArray(postTargets.status, ["awaiting_manual", "failed"])))
+      : Promise.resolve([]),
+    getEngagementCounts(scope.brandIds),
+  ]);
+  const counts = { queue: queueRows.length, engage: engagement.overdue };
 
   return (
     <div className="flex min-h-dvh">
@@ -33,7 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <BrandSwitcher brands={brands} value={scope.value} />
 
         <div className="mt-4 flex-1">
-          <Nav counts={{ queue: queueCount }} />
+          <Nav counts={counts} />
         </div>
 
         <Link href="/posts/new" className={`${buttonClass("primary")} mb-3 w-full`}>
@@ -66,7 +70,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8">{children}</div>
 
         <nav className="sticky bottom-0 z-20 border-t border-border bg-surface px-2 py-1 md:hidden">
-          <Nav counts={{ queue: queueCount }} variant="bar" />
+          <Nav counts={counts} variant="bar" />
         </nav>
       </div>
     </div>

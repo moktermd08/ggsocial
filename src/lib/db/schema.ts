@@ -94,6 +94,13 @@ export const brands = pgTable("brands", {
   /* ---------------------------------------------------------------- links */
   links: jsonb("links").$type<BrandLink[]>().notNull().default([]),
 
+  /**
+   * How long a comment or message may sit before it counts as late. Reach on
+   * every platform rewards a fast first hour, so this is a real target rather
+   * than a nicety.
+   */
+  replySlaMinutes: integer("reply_sla_minutes").notNull().default(60),
+
   /** Anything else the team needs to know. Never published. */
   notes: text("notes"),
 
@@ -161,6 +168,58 @@ export const media = pgTable("media", {
   createdAt: now(),
 }, (t) => [index("media_brand_idx").on(t.brandId)]);
 
+/* ------------------------------------------------------------ content plan */
+
+export { IDEA_STATUSES } from "./idea-status";
+import type { IdeaStatus } from "./idea-status";
+export type { IdeaStatus };
+
+/**
+ * One row of the content plan, above and across the brands.
+ *
+ * An idea is not a post: it is the thing you want to say, which then fans out
+ * into one post per brand — the same insight told as a practitioner, as a
+ * product, as a small studio and as an agency. Posts point back here, so the
+ * plan can show what actually shipped without anyone retyping it.
+ *
+ * Ideas belong to the person planning them rather than to a brand, because the
+ * whole point is that they cross brands. Sharing a plan with a team is a later
+ * problem.
+ */
+export const contentIdeas = pgTable("content_ideas", {
+  id: id(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Position in the plan — the numbering you work down. */
+  sequence: integer("sequence").notNull().default(0),
+  /** Theme this idea sits under, e.g. "Security & Trust". */
+  pillar: text("pillar"),
+
+  /* The three beats every idea in the bank follows. */
+  problem: text("problem").notNull(),
+  action: text("action"),
+  outcome: text("outcome"),
+  /** Working title. Blank falls back to the problem line. */
+  title: text("title").notNull().default(""),
+
+  /** null = a one-off. A name groups the idea into a run. */
+  series: text("series"),
+  /** Carousel, hook, case study… mirrored onto the posts it spawns. */
+  postType: text("post_type"),
+  tone: text("tone"),
+  needsMedia: boolean("needs_media").notNull().default(false),
+  hashtags: jsonb("hashtags").$type<string[]>().notNull().default([]),
+  status: text("status").$type<IdeaStatus>().notNull().default("backlog"),
+  /** What you are aiming at per post. What you reached comes from metrics. */
+  targetImpressions: integer("target_impressions"),
+  notes: text("notes"),
+  /** Filled in after the fact — what this idea taught you. */
+  keyLearning: text("key_learning"),
+
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("content_ideas_owner_idx").on(t.ownerId, t.sequence)]);
+
 /* -------------------------------------------------------------------- posts */
 
 export const POST_STATUSES = [
@@ -189,6 +248,19 @@ export const posts = pgTable("posts", {
   publishedAt: timestamp("published_at", { withTimezone: true }),
   campaign: text("campaign"),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
+
+  /* ------------------------------------------------- link back to the plan */
+  /** The idea this post tells in this brand's voice. */
+  ideaId: text("idea_id").references(() => contentIdeas.id, { onDelete: "set null" }),
+  postType: text("post_type"),
+  tone: text("tone"),
+  /** The number this post was aiming at, copied from the idea but editable. */
+  targetImpressions: integer("target_impressions"),
+  /** When the author got back to the comments — the sheet's reply time. */
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  keyLearning: text("key_learning"),
+  /** Internal working notes. Never published. */
+  notes: text("notes"),
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -198,6 +270,7 @@ export const posts = pgTable("posts", {
   index("posts_brand_idx").on(t.brandId),
   index("posts_scheduled_idx").on(t.scheduledAt),
   index("posts_status_idx").on(t.status),
+  index("posts_idea_idx").on(t.ideaId),
 ]);
 
 export const TARGET_STATUSES = [
@@ -242,6 +315,155 @@ export const attachments = pgTable("attachments", {
   mediaId: text("media_id").notNull().references(() => media.id, { onDelete: "cascade" }),
   position: integer("position").notNull().default(0),
 }, (t) => [index("attachments_post_idx").on(t.postId)]);
+
+/* --------------------------------------------------------------- engagement */
+
+export {
+  INTERACTION_KINDS, INTERACTION_DIRECTIONS, INTERACTION_STATUSES,
+  INTERACTION_PRIORITIES, INTERACTION_SENTIMENTS, OPEN_INTERACTION_STATUSES,
+} from "./engagement";
+import type {
+  InteractionKind, InteractionDirection, InteractionStatus,
+  InteractionPriority, InteractionSentiment,
+} from "./engagement";
+export type { InteractionKind, InteractionDirection, InteractionStatus, InteractionPriority, InteractionSentiment };
+
+/**
+ * One unit of engagement work: a comment to answer, a DM to reply to, a
+ * recommendation to ask for, someone else's thread to show up in.
+ *
+ * Publishing is only half the job. This table is the other half — the part
+ * that actually compounds reach — and it works the same way the publish queue
+ * does: whatever a platform's API will hand over gets pulled in, and the rest
+ * is logged by a person and worked from one list instead of nine apps.
+ */
+export const interactions = pgTable("interactions", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  /** Where it happened. Null for work that has no account yet (cold outreach). */
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "set null" }),
+  /** The post it landed on, when it came from something we published. */
+  postId: text("post_id").references(() => posts.id, { onDelete: "set null" }),
+  targetId: text("target_id").references(() => postTargets.id, { onDelete: "set null" }),
+
+  kind: text("kind").$type<InteractionKind>().notNull().default("comment"),
+  direction: text("direction").$type<InteractionDirection>().notNull().default("inbound"),
+  status: text("status").$type<InteractionStatus>().notNull().default("new"),
+  priority: text("priority").$type<InteractionPriority>().notNull().default("normal"),
+  sentiment: text("sentiment").$type<InteractionSentiment>(),
+
+  /* --------------------------------------------------------- the other side */
+  authorName: text("author_name"),
+  authorHandle: text("author_handle"),
+  authorUrl: text("author_url"),
+  /** Rough audience size, when the platform shows it. Drives triage order. */
+  authorReach: integer("author_reach"),
+
+  /** What they said, or what we mean to say for outbound work. */
+  body: text("body").notNull().default(""),
+  externalId: text("external_id"),
+  externalUrl: text("external_url"),
+
+  /* ------------------------------------------------------------- the clock */
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  /** receivedAt + the brand's SLA. Past this, the row is late. */
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+
+  assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
+  /** Written here, then posted on the platform by hand or by the adapter. */
+  replyBody: text("reply_body"),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  replyUrl: text("reply_url"),
+
+  notes: text("notes"),
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("interactions_brand_status_idx").on(t.brandId, t.status, t.dueAt),
+  index("interactions_post_idx").on(t.postId),
+  // Re-importing the same comment from an API must not create a second row.
+  uniqueIndex("interactions_external_idx").on(t.channelId, t.externalId),
+]);
+
+/* ------------------------------------------------------------ tracked links */
+
+/**
+ * A short link that stands in for a real destination, issued per channel.
+ *
+ * Impressions tell you a post was seen. Only this tells you it sent anyone
+ * anywhere — and because a link carries its post, channel and idea, traffic
+ * can be read back all the way up the plan: which idea, in which brand's
+ * voice, on which platform, actually moved people.
+ *
+ * UTMs are built at redirect time rather than baked into the stored URL, so
+ * fixing a campaign name never means reissuing links that are already posted.
+ */
+export const links = pgTable("links", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  /** The bit after /l/. Short, unguessable, never reused. */
+  code: text("code").notNull(),
+  /** Where the visitor actually ends up, before UTMs are appended. */
+  destination: text("destination").notNull(),
+  /** What this link is for, in your words. */
+  label: text("label").notNull().default(""),
+
+  /* ------------------------------------------------ what it is attached to */
+  postId: text("post_id").references(() => posts.id, { onDelete: "set null" }),
+  /** The channel this copy went out on — how traffic splits by platform. */
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "set null" }),
+  /** The exact post target, when the link was issued against a saved post. */
+  targetId: text("target_id").references(() => postTargets.id, { onDelete: "set null" }),
+  ideaId: text("idea_id").references(() => contentIdeas.id, { onDelete: "set null" }),
+
+  /* ------------------------------------------------------------------ utm */
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium").notNull().default("social"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+
+  /** Kept alongside the click rows so listing a hundred links stays one query. */
+  clickCount: integer("click_count").notNull().default(0),
+  uniqueCount: integer("unique_count").notNull().default(0),
+  lastClickAt: timestamp("last_click_at", { withTimezone: true }),
+
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+}, (t) => [
+  uniqueIndex("links_code_idx").on(t.code),
+  index("links_brand_idx").on(t.brandId),
+  index("links_post_idx").on(t.postId),
+  index("links_idea_idx").on(t.ideaId),
+]);
+
+/**
+ * One row per redirect served.
+ *
+ * No IP address is stored. `visitorHash` is a keyed digest of the IP, the user
+ * agent and the date, which is enough to tell one person's ten clicks from ten
+ * people's and useless for anything else — and it stops being linkable to
+ * anyone at midnight.
+ */
+export const linkClicks = pgTable("link_clicks", {
+  id: id(),
+  linkId: text("link_id").notNull().references(() => links.id, { onDelete: "cascade" }),
+  clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
+  referrer: text("referrer"),
+  /** Two-letter country, when the host's edge supplies one. */
+  country: text("country"),
+  /** "mobile" | "desktop" | "bot" — coarse on purpose. */
+  device: text("device"),
+  visitorHash: text("visitor_hash"),
+  /** Obvious crawlers still get their redirect; they just do not count. */
+  isBot: boolean("is_bot").notNull().default(false),
+}, (t) => [
+  index("link_clicks_link_idx").on(t.linkId, t.clickedAt),
+  index("link_clicks_visitor_idx").on(t.linkId, t.visitorHash),
+]);
 
 /* ------------------------------------------------------- review & activity */
 
@@ -317,8 +539,14 @@ export const channelsRelations = relations(channels, ({ one, many }) => ({
   targets: many(postTargets),
 }));
 
+export const contentIdeasRelations = relations(contentIdeas, ({ one, many }) => ({
+  owner: one(users, { fields: [contentIdeas.ownerId], references: [users.id] }),
+  posts: many(posts),
+}));
+
 export const postsRelations = relations(posts, ({ one, many }) => ({
   brand: one(brands, { fields: [posts.brandId], references: [brands.id] }),
+  idea: one(contentIdeas, { fields: [posts.ideaId], references: [contentIdeas.id] }),
   author: one(users, { fields: [posts.createdBy], references: [users.id] }),
   targets: many(postTargets),
   attachments: many(attachments),
@@ -344,6 +572,26 @@ export const commentsRelations = relations(comments, ({ one }) => ({
 
 export const mediaRelations = relations(media, ({ one }) => ({
   brand: one(brands, { fields: [media.brandId], references: [brands.id] }),
+}));
+
+export const linksRelations = relations(links, ({ one, many }) => ({
+  brand: one(brands, { fields: [links.brandId], references: [brands.id] }),
+  channel: one(channels, { fields: [links.channelId], references: [channels.id] }),
+  post: one(posts, { fields: [links.postId], references: [posts.id] }),
+  target: one(postTargets, { fields: [links.targetId], references: [postTargets.id] }),
+  idea: one(contentIdeas, { fields: [links.ideaId], references: [contentIdeas.id] }),
+  clicks: many(linkClicks),
+}));
+
+export const linkClicksRelations = relations(linkClicks, ({ one }) => ({
+  link: one(links, { fields: [linkClicks.linkId], references: [links.id] }),
+}));
+
+export const interactionsRelations = relations(interactions, ({ one }) => ({
+  brand: one(brands, { fields: [interactions.brandId], references: [brands.id] }),
+  channel: one(channels, { fields: [interactions.channelId], references: [channels.id] }),
+  post: one(posts, { fields: [interactions.postId], references: [posts.id] }),
+  assignee: one(users, { fields: [interactions.assigneeId], references: [users.id] }),
 }));
 
 export const metricsRelations = relations(metrics, ({ one }) => ({

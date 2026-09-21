@@ -4,6 +4,7 @@ import { db, posts, postTargets, channels, brands, media, attachments, activity,
 import { getPlatform, NotConnectedError, type MediaItem, type PublishContext } from "@/lib/platforms";
 import { decryptJson } from "@/lib/crypto";
 import { publicUrl } from "./media";
+import { openPostEngagement } from "@/server/actions/engagement";
 
 const MAX_ATTEMPTS = 3;
 
@@ -133,6 +134,17 @@ export async function rollupPostStatus(postId: string) {
     publishedAt: published > 0 ? (targets.find((t) => t.publishedAt)?.publishedAt ?? new Date()) : null,
     updatedAt: new Date(),
   }).where(eq(posts.id, postId));
+
+  // Anything live has comments coming, so open the engagement work now rather
+  // than hoping someone remembers. Never let that be the reason a publish
+  // reports failure — the post is already out.
+  if (published > 0) {
+    try {
+      await openPostEngagement(postId);
+    } catch (err) {
+      console.error("Could not open engagement for post", postId, err);
+    }
+  }
 }
 
 /**

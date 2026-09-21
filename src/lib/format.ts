@@ -31,10 +31,15 @@ export function inZone(date: Date | string | null | undefined, timezone: string,
   }).format(d);
 }
 
-export function relativeTime(date: Date | string | null | undefined) {
+/**
+ * `now` is a parameter so a server render and its hydration can be handed the
+ * same instant — otherwise a row that crosses a minute boundary between the two
+ * renders different text on each side and React tears the tree down.
+ */
+export function relativeTime(date: Date | string | null | undefined, now = Date.now()) {
   if (!date) return "—";
   const d = typeof date === "string" ? new Date(date) : date;
-  const diff = d.getTime() - Date.now();
+  const diff = d.getTime() - now;
   const abs = Math.abs(diff);
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
   const units: [Intl.RelativeTimeFormatUnit, number][] = [

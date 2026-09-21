@@ -91,8 +91,8 @@ export function CalendarGrid({
                   >
                     <div className="flex items-center gap-1">
                       <span className="tabular-nums text-muted">{item.time}</span>
-                      <div className="flex -space-x-0.5">
-                        {item.platforms.slice(0, 3).map((p, i) => <PlatformIcon key={i} platform={p} size={11} />)}
+                      <div className="flex gap-0.5">
+                        {item.platforms.slice(0, 3).map((p, i) => <PlatformIcon key={i} platform={p} size={13} />)}
                       </div>
                     </div>
                     <p className="mt-0.5 line-clamp-2">{item.title}</p>

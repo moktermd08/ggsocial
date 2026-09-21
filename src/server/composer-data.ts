@@ -16,6 +16,7 @@ export async function getComposerData(brands: BrandWithRole[]) {
   for (const c of channels) {
     (channelsByBrand[c.brandId] ??= []).push({
       id: c.id, platform: c.platform, handle: c.handle, displayName: c.displayName, mode: c.mode,
+      settings: (c.settings ?? {}) as Record<string, unknown>,
     });
   }
 

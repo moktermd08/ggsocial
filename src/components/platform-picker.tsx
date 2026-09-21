@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { Search, Zap } from "lucide-react";
 import { buttonClass } from "./ui";
+import { tintedSurface } from "@/lib/color";
 import { PlatformIcon } from "./platform-icon";
 import { CATEGORY_LABELS, CATEGORY_ORDER, type PlatformCategory } from "@/lib/platforms/types";
 import type { PlatformMeta } from "@/lib/platforms/meta";
@@ -73,18 +74,26 @@ export function PlatformPicker({
             <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
               {CATEGORY_LABELS[g.category]}
             </p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-1.5">
               {g.items.map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => onPick(p.id)}
                   title={`${p.blurb}${p.manualOnly ? " (manual — no write API)" : ""}`}
-                  className={`${buttonClass("subtle", "sm")} ${p.manualOnly ? "opacity-70" : ""}`}
+                  className="group relative flex flex-col items-center gap-1.5 rounded-xl border border-border bg-surface px-1.5 py-2.5 text-center transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-sm"
                 >
-                  <PlatformIcon platform={p.id} size={14} />
-                  {p.name}
-                  {!p.manualOnly && <Zap className="size-3 text-ok" />}
+                  {/* The mark washes the tile on hover, so the whole card reads as one target. */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
+                    style={{ background: tintedSurface(p.color, 10) }}
+                  />
+                  <PlatformIcon platform={p.id} size={30} className={p.manualOnly ? "opacity-80" : ""} />
+                  <span className="relative line-clamp-2 text-[11px] leading-tight text-text">{p.name}</span>
+                  {!p.manualOnly && (
+                    <Zap className="absolute right-1 top-1 size-2.5 text-ok" aria-label="Publishes automatically" />
+                  )}
                 </button>
               ))}
             </div>

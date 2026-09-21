@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "icons": "node scripts/generate-platform-icons.mjs",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "seed:ideas": "node --env-file=.env.local scripts/seed-ideas.mjs",
     "scheduler": "node --env-file=.env.local scripts/scheduler.mjs"
   },
   "dependencies": {
@@ -36,6 +38,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "simple-icons": "^16.32.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"

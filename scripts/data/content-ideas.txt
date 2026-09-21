@@ -1,0 +1,124 @@
+// The content plan, one idea per line: problem -> action -> outcome (with a real arrow).
+// "# " starts a new pillar. Blank lines and "//" lines are ignored.
+// Edit this file and re-run `npm run seed:ideas` — ideas are matched on their
+// problem line, so edits update in place instead of duplicating.
+
+# Deciding What to Build
+Vague idea, no direction → Moksy prepares a discovery & requirements document → Clear plan, signed off before build starts
+Tech spend misaligned with goals → Moksy delivers a strategic roadmap document → Every investment tied to a business outcome
+Scope creep risk → Moksy documents a locked MVP scope → No surprises, on-time launch
+Conflicting department needs → Moksy produces a unified requirements document → One source everyone agrees to upfront
+Leadership misalignment → Moksy documents a shared vision & decision log → Faster approvals, no back-and-forth
+Hidden cost risk → Moksy delivers a full cost breakdown document → Budget certainty from day one
+Build vs buy confusion → Moksy prepares a comparative evaluation document → Decision made with confidence, on paper
+Legacy system risk → Moksy documents a modernization assessment → Clear plan before anything breaks
+Vendor selection confusion → Moksy prepares a vendor evaluation matrix → Right choice, documented and justified
+No ROI proof for leadership → Moksy delivers a business case document → Budget approved, backed by data
+
+# Designing the Right Foundation
+Architecture that can't scale → Moksy documents a scalable design blueprint → Growth handled before it happens
+Fragile, tightly coupled systems → Moksy prepares a modular architecture spec → Changes made safely, documented in advance
+Team overlap and conflict → Moksy documents clear service boundaries → Teams work independently, by design
+Systems that won't integrate → Moksy delivers an integration architecture document → Connections planned before build begins
+Data structure can't scale → Moksy documents a future-proof data model → Insights that scale with the business
+No resilience plan → Moksy prepares a high-availability design document → Downtime planned for before it occurs
+Overengineered solutions → Moksy documents a right-sized architecture → Lower cost, defined upfront
+Lost decision history → Moksy maintains architecture decision records → Nothing lost when people move on
+Multi-tenant data risk → Moksy documents secure tenancy design → Customer trust protected by design
+Peak load risk → Moksy prepares a capacity planning document → Demand spikes handled before they hit
+
+# Building It Well
+Inconsistent coding practices → Moksy documents team-wide coding standards → Consistency built in from day one
+Technical debt building up → Moksy delivers a technical debt assessment → Debt addressed before it compounds
+Duplicated development effort → Moksy documents a reusable component library → Less rework, planned from the start
+Poor version control practices → Moksy prepares a branching strategy document → Clean history, no lost work
+Missed code quality issues → Moksy documents a code review framework → Quality gates set before development starts
+Slow new hire ramp-up → Moksy prepares onboarding documentation → New hires productive from week one
+Environment inconsistencies → Moksy documents environment setup standards → "Works on my machine" never happens
+Dependency conflicts → Moksy prepares a dependency management guide → Conflicts prevented, not fixed later
+Undocumented, fragile code → Moksy delivers full codebase documentation → Maintenance made easy, by design
+Unpredictable sprints → Moksy documents an agile delivery framework → Predictable delivery, planned upfront
+
+# Connecting Information & Systems
+Data trapped in silos → Moksy documents a unified data access plan → Visibility designed in from the start
+Unreliable data quality → Moksy prepares a data quality framework → Trustworthy data by design
+Conflicting reports → Moksy documents a single source of truth model → Alignment before confusion starts
+Integration challenges with legacy → Moksy delivers an integration blueprint → Smooth connections, mapped in advance
+Disconnected tools → Moksy documents an API-first integration plan → Automation designed before build
+Delayed reporting → Moksy prepares a real-time data architecture document → Instant insight, planned from day one
+Migration risk → Moksy delivers a zero-loss migration plan → Safe transitions, documented step by step
+Silent pipeline failures → Moksy documents resilient ETL design → Reliability built in, not patched later
+No data traceability → Moksy prepares a data lineage framework → Transparency by design
+Partner data mismatches → Moksy documents data exchange standards → Frictionless integration from day one
+
+# Managing Costs & Infrastructure
+Cloud overspend risk → Moksy delivers a cloud cost optimization plan → Savings built in before deployment
+Risky migrations → Moksy documents a migration runbook → Zero disruption, planned in detail
+Manual infrastructure risk → Moksy prepares an automation blueprint → Errors prevented before they occur
+Vendor lock-in risk → Moksy documents a cloud-agnostic strategy → Flexibility designed in from the start
+Overpaying for capacity → Moksy delivers an auto-scaling design document → Efficient spend, planned upfront
+Infrastructure performance risk → Moksy documents a network optimization plan → Speed engineered in advance
+Environment portability risk → Moksy prepares a containerization strategy → Reliability designed before deployment
+Untested disaster recovery → Moksy delivers a DR & failover plan → Confidence before a crisis, not after
+Wasted resources → Moksy documents a resource optimization plan → Efficiency built in from day one
+Vendor dependency risk → Moksy prepares a multi-cloud exit strategy → Freedom planned in advance
+
+# Speeding Up Delivery
+Slow release cycles → Moksy documents a CI/CD implementation plan → Speed engineered before launch
+Deployment error risk → Moksy delivers an automated deployment blueprint → Errors prevented, not fixed after
+Late bug discovery → Moksy prepares an automated testing strategy → Issues caught before code ships
+Environment mismatch risk → Moksy documents environment parity standards → Consistency planned upfront
+No rollback plan → Moksy delivers a rollback strategy document → Recovery planned before it's needed
+Release chaos risk → Moksy prepares a release management framework → Order built in from day one
+Late issue detection → Moksy documents a monitoring & alerting plan → Problems caught before customers notice
+Risky full rollouts → Moksy delivers a feature flagging strategy → Safe rollouts, planned in advance
+Slow build performance → Moksy documents a build optimization plan → Speed engineered before scaling
+Change traceability risk → Moksy prepares GitOps implementation guidelines → Control built in from the start
+
+# Quality & Reliability
+Bug risk in production → Moksy delivers a test coverage strategy → Quality planned before code ships
+Regression risk → Moksy documents a regression testing framework → Stability engineered in advance
+Load failure risk → Moksy prepares a performance testing plan → Resilience proven before launch
+Test data risk → Moksy documents a secure test data strategy → Safety designed in from day one
+Dev-QA friction risk → Moksy delivers a QA handoff framework → Smooth collaboration planned upfront
+Testing bottleneck risk → Moksy documents a QA acceleration plan → Speed built in before scaling
+Accessibility risk → Moksy prepares an accessibility compliance checklist → Inclusion designed in from the start
+Critical journey failure risk → Moksy delivers end-to-end test scenarios → Reliability mapped before launch
+Test reliability risk → Moksy documents a test stability framework → Trustworthy results by design
+Product-market mismatch risk → Moksy prepares a usability testing plan → Real user validation before launch
+
+# Security & Trust
+Common vulnerability risk → Moksy delivers a security baseline document → Gaps closed before exploitation
+Late-stage security risk → Moksy documents a DevSecOps framework → Security engineered from day one
+Access control risk → Moksy prepares an access management policy → Right access, planned in advance
+Compliance risk → Moksy delivers a regulatory compliance checklist → Violations prevented before they happen
+Unknown vulnerability risk → Moksy documents a penetration testing plan → Weaknesses found before attackers do
+API exposure risk → Moksy prepares an API security framework → Protection built in before launch
+Credential exposure risk → Moksy documents secrets management standards → Security designed in from the start
+Audit trail risk → Moksy delivers an audit logging framework → Accountability built in before it's needed
+Breach response risk → Moksy prepares an incident response plan → Readiness in place before a crisis
+Data exposure risk → Moksy documents an encryption standard → Protection designed in from day one
+
+# Speed & Customer Experience
+Slow application risk → Moksy delivers a performance optimization plan → Speed engineered before launch
+Slow query risk → Moksy documents a database tuning strategy → Speed built in from the start
+Traffic spike risk → Moksy prepares a caching strategy document → Stability planned in advance
+Sluggish UX risk → Moksy delivers a front-end performance plan → Responsiveness engineered upfront
+Scalability risk → Moksy documents a horizontal scaling plan → Growth handled before it happens
+Late performance detection → Moksy prepares a real-time monitoring plan → Issues caught before impact
+Performance degradation risk → Moksy documents a resource management plan → Stability engineered in advance
+Global latency risk → Moksy delivers a CDN strategy document → Speed planned for every region
+Query inefficiency risk → Moksy prepares a database indexing plan → Speed engineered before scale
+Server overload risk → Moksy documents a load balancing strategy → Reliability planned in advance
+
+# Keeping Things Running
+Outage risk → Moksy delivers an observability framework → Problems caught before escalation
+Support ambiguity risk → Moksy documents SLAs and SLOs → Expectations set before issues arise
+Knowledge loss risk → Moksy prepares full system documentation → Continuity planned before turnover
+Legacy firefighting risk → Moksy delivers a modernization roadmap → Stability planned before crisis
+Disruptive change risk → Moksy documents a change management framework → Smooth transitions planned in advance
+Ownership ambiguity risk → Moksy prepares a RACI ownership document → Accountability defined upfront
+Team misalignment risk → Moksy delivers a collaboration framework → Alignment planned before conflict
+Scaling risk → Moksy documents a team scaling plan → Growth planned without losing speed
+Visibility risk → Moksy prepares a delivery metrics framework → Performance tracked from day one
+Platform longevity risk → Moksy delivers a sustainability roadmap → Longevity planned, not left to chance

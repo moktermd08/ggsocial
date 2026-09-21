@@ -38,6 +38,7 @@ export default async function ChannelsPage() {
                 .map((c) => ({
                   id: c.id, platform: c.platform, handle: c.handle, displayName: c.displayName,
                   mode: c.mode, status: c.status, hasCredentials: Boolean(c.credentials),
+                  settings: (c.settings ?? {}) as Record<string, unknown>,
                   lastError: c.lastError, externalId: c.externalId,
                 }))}
             />

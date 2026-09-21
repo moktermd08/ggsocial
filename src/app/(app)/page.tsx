@@ -148,7 +148,7 @@ export default async function DashboardPage() {
               ) : (
                 channels.map((c) => (
                   <Badge key={c.id} color={c.mode === "live" ? "#15803d" : "#8b8b96"}>
-                    <PlatformIcon platform={c.platform} size={12} />
+                    <PlatformIcon platform={c.platform} size={13} variant="glyph" />
                     {c.handle}
                   </Badge>
                 ))

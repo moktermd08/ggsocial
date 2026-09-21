@@ -116,3 +116,36 @@ export async function archiveChannelAction(channelId: string) {
   await db.update(channels).set({ archivedAt: new Date() }).where(eq(channels.id, channelId));
   revalidatePath("/", "layout");
 }
+
+/**
+ * Saves this channel's default option values — the ones the composer prefills
+ * into every new post for it.
+ *
+ * SendGrid is the reason this exists: a single send needs a list id, a sender
+ * id and a suppression group id every time, and none of them change between
+ * newsletters. The same is true of a subreddit, a Pinterest board and a
+ * YouTube privacy setting.
+ */
+export async function setChannelSettingsAction(channelId: string, formData: FormData) {
+  const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
+  if (!channel) throw new Error("Channel not found");
+  await requireBrandRole(channel.brandId, "admin");
+
+  const platform = getPlatform(channel.platform);
+  const settings: Record<string, unknown> = {};
+  for (const field of platform.optionFields) {
+    const raw = formData.get(`opt_${field.key}`);
+    if (raw === null) continue;
+    const value = String(raw).trim();
+    // A blank means "no default", not an empty default — otherwise every post
+    // would start with a field the writer has to clear before typing.
+    if (value === "") continue;
+    settings[field.key] =
+      field.type === "number" ? Number(value)
+      : field.type === "boolean" ? value === "on" || value === "true"
+      : value;
+  }
+
+  await db.update(channels).set({ settings }).where(eq(channels.id, channelId));
+  revalidatePath("/", "layout");
+}

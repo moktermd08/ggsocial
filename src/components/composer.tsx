@@ -1,16 +1,21 @@
 "use client";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, Plus, Trash2, Upload, X, Zap } from "lucide-react";
 import { PlatformIcon } from "./platform-icon";
 import { Card, CardHeader, Field, buttonClass } from "./ui";
+import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { BrandBook, findBannedWords } from "./brand-book";
 import { quickValidate, type PlatformMeta } from "@/lib/platforms/meta";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { savePostAction, type PostInput } from "@/server/actions/posts";
 import { uploadMediaAction } from "@/server/actions/media";
 
-export type ComposerChannel = { id: string; platform: string; handle: string; displayName: string | null; mode: string };
+export type ComposerChannel = {
+  id: string; platform: string; handle: string; displayName: string | null; mode: string;
+  /** This channel's saved option defaults — prefilled into every new target. */
+  settings: Record<string, unknown>;
+};
 export type ComposerMedia = { id: string; url: string; kind: string; originalName: string };
 export type ComposerBrand = {
   id: string; name: string; color: string; timezone: string;
@@ -91,9 +96,14 @@ export function Composer({
         return next;
       }
       const meta = metaFor(channel.platform);
-      const options = Object.fromEntries(
-        meta.optionFields.filter((f) => f.defaultValue !== undefined).map((f) => [f.key, f.defaultValue!]),
-      );
+      const options = {
+        ...Object.fromEntries(
+          meta.optionFields.filter((f) => f.defaultValue !== undefined).map((f) => [f.key, f.defaultValue!]),
+        ),
+        // Saved on the channel, so a SendGrid list id or a subreddit is typed
+        // once rather than on every post.
+        ...channel.settings,
+      };
       setActiveTab(channel.id);
       return [...prev, { channelId: channel.id, bodyOverride: null, firstComment: "", options }];
     });
@@ -407,19 +417,26 @@ export function Composer({
               const issues = validation.find((v) => v.channelId === c.id)?.issues ?? [];
               const bad = issues.some((i) => i.level === "error");
               const locked = publishedTargets.has(c.id);
+              const meta = metaFor(c.platform);
               return (
                 <div key={c.id} className="flex items-center gap-2">
                   <button
                     onClick={() => toggleChannel(c)}
                     disabled={locked}
-                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm transition-colors ${
-                      on ? "border-accent bg-accent-soft" : "border-border hover:bg-surface-2"
+                    // Selected rows pick up the platform's own colour rather than
+                    // one shared accent, so a nine-channel list stays scannable.
+                    style={on ? { borderColor: tintedBorder(meta.color), background: tintedSurface(meta.color) } : undefined}
+                    className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                      on ? "" : "border-border hover:bg-surface-2"
                     } ${locked ? "opacity-60" : ""}`}
                   >
-                    <PlatformIcon platform={c.platform} size={18} />
-                    <span className="min-w-0 flex-1 truncate">{c.handle}</span>
-                    {c.mode === "live" && <span className="text-[10px] text-ok">live</span>}
-                    {on && <Check className="size-3.5 shrink-0 text-accent" />}
+                    <PlatformIcon platform={c.platform} size={26} className={on ? "" : "opacity-85"} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm leading-tight">{c.handle}</span>
+                      <span className="block truncate text-[11px] leading-tight text-muted">{meta.name}</span>
+                    </span>
+                    {c.mode === "live" && <Zap className="size-3 shrink-0 text-ok" aria-label="Publishes automatically" />}
+                    {on && <Check className="size-3.5 shrink-0" style={{ color: tintedInk(meta.color) }} />}
                   </button>
                   {on && (
                     <button

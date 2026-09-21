@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
 import { Copy } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
-import { getPost } from "@/server/queries";
+import { getPost, getPostLinks } from "@/server/queries";
 import { getComposerData } from "@/server/composer-data";
 import { Composer } from "@/components/composer";
 import { ReviewPanel } from "@/components/review-panel";
 import { TargetStatusList } from "@/components/target-status-list";
+import { PlanPanel } from "@/components/plan-panel";
+import { LinkPanel } from "@/components/link-panel";
 import { PageHeader, Badge, buttonClass } from "@/components/ui";
 import { STATUS_META, inZone } from "@/lib/format";
 import { duplicatePostAction } from "@/server/actions/posts";
+import { appOrigin } from "@/lib/links";
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,6 +24,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   if (!membership) notFound();
 
   const data = await getComposerData(brands.filter((b) => b.id === post.brandId));
+  const postLinks = await getPostLinks(post.id);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
 
@@ -38,6 +42,43 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           lastError: t.lastError,
           attempts: t.attempts,
         }))}
+      />
+      <LinkPanel
+        brandId={post.brandId}
+        postId={post.id}
+        campaign={post.campaign}
+        canEdit={can.edit(membership.role)}
+        channels={post.targets.map((t) => ({ id: t.channelId, platform: t.channel.platform, handle: t.channel.handle }))}
+        existing={postLinks.map((l) => ({
+          id: l.link.id,
+          code: l.link.code,
+          url: `${appOrigin()}/l/${l.link.code}`,
+          label: l.link.label,
+          destination: l.link.destination,
+          platform: l.channel?.platform ?? null,
+          handle: l.channel?.handle ?? null,
+          clickCount: l.link.clickCount,
+          uniqueCount: l.link.uniqueCount,
+        }))}
+      />
+      <PlanPanel
+        canEdit={can.edit(membership.role)}
+        post={{
+          id: post.id,
+          targetImpressions: post.targetImpressions,
+          keyLearning: post.keyLearning,
+          notes: post.notes,
+          repliedAt: post.repliedAt?.toISOString() ?? null,
+          publishedAt: post.publishedAt?.toISOString() ?? null,
+          timezone: post.brand.timezone,
+        }}
+        idea={post.idea && {
+          id: post.idea.id,
+          sequence: post.idea.sequence,
+          problem: post.idea.problem,
+          pillar: post.idea.pillar,
+          title: post.idea.title,
+        }}
       />
       <ReviewPanel
         postId={post.id}

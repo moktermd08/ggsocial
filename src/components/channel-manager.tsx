@@ -1,17 +1,20 @@
 "use client";
 import { useState, useTransition } from "react";
-import { ExternalLink, Plug, Power, Settings2, Trash2 } from "lucide-react";
+import { ExternalLink, Plug, Power, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Card, CardHeader, Field, buttonClass, Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { PlatformPicker } from "./platform-picker";
 import type { PlatformMeta } from "@/lib/platforms/meta";
 import {
   addChannelAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
+  setChannelSettingsAction,
 } from "@/server/actions/channels";
 
 export type ChannelRow = {
   id: string; platform: string; handle: string; displayName: string | null;
   mode: string; status: string; hasCredentials: boolean; lastError: string | null; externalId: string | null;
+  /** Saved option defaults, prefilled into every post for this channel. */
+  settings: Record<string, unknown>;
 };
 
 export function ChannelManager({
@@ -22,6 +25,7 @@ export function ChannelManager({
   const [adding, setAdding] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [tuning, setTuning] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +69,15 @@ export function ChannelManager({
                         <Plug className="size-3.5" /> {c.hasCredentials ? "Re-connect" : "Connect"}
                       </button>
                     )}
+                    {(meta?.optionFields.length ?? 0) > 0 && (
+                      <button
+                        onClick={() => setTuning(tuning === c.id ? null : c.id)}
+                        className={buttonClass("subtle", "sm")}
+                        title="Values this channel should prefill on every post"
+                      >
+                        <SlidersHorizontal className="size-3.5" /> Defaults
+                      </button>
+                    )}
                     {c.hasCredentials && (
                       <button
                         disabled={pending}
@@ -91,6 +104,47 @@ export function ChannelManager({
 
               {meta?.manualOnly && (
                 <p className="mt-1.5 text-[11px] text-muted">{meta.liveSetup.notes}</p>
+              )}
+
+              {tuning === c.id && meta && (
+                <form
+                  action={(fd) => run(async () => { await setChannelSettingsAction(c.id, fd); setTuning(null); })}
+                  className="mt-3 space-y-2 rounded-lg border border-border bg-surface-2 p-3"
+                >
+                  <p className="text-xs text-muted">
+                    Prefilled into every new post for {c.handle}. Leave one blank for no default — you can still
+                    override any of them per post.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {meta.optionFields.map((f) => {
+                      const saved = c.settings[f.key];
+                      const label = f.required ? `${f.label} (required each send)` : f.label;
+                      return (
+                        <Field key={f.key} label={label} hint={f.help}>
+                          {f.type === "boolean" ? (
+                            <input type="checkbox" name={`opt_${f.key}`} defaultChecked={Boolean(saved)} className="!w-auto" />
+                          ) : f.type === "select" ? (
+                            <select name={`opt_${f.key}`} defaultValue={saved === undefined ? "" : String(saved)}>
+                              <option value="">No default</option>
+                              {f.choices?.map((ch) => <option key={ch.value} value={ch.value}>{ch.label}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              name={`opt_${f.key}`}
+                              type={f.type === "number" ? "number" : "text"}
+                              defaultValue={saved === undefined ? "" : String(saved)}
+                              placeholder={f.placeholder}
+                            />
+                          )}
+                        </Field>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className={buttonClass("primary", "sm")} disabled={pending}>Save defaults</button>
+                    <button type="button" onClick={() => setTuning(null)} className={buttonClass("ghost", "sm")}>Cancel</button>
+                  </div>
+                </form>
               )}
 
               {connecting === c.id && meta && !meta.manualOnly && (
