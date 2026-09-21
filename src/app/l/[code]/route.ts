@@ -19,7 +19,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
 
   const link = await db.query.links.findFirst({ where: eq(links.code, code) });
   if (!link || link.archivedAt) {
-    return NextResponse.redirect(new URL("/", req.url), { status: 302 });
+    // Not a redirect to "/": behind the proxy req.url is the internal address,
+    // and the app root is a password prompt to anyone following a link.
+    return new NextResponse("This link has expired or does not exist.", {
+      status: 404,
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    });
   }
 
   const destination = withUtm(link.destination, {
