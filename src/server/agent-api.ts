@@ -36,6 +36,6 @@ export function pickBrands(all: BrandWithRole[], ref: string | null | undefined)
   const wanted = ref.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const picked = all.filter((b) => wanted.includes(b.id.toLowerCase()) || wanted.includes(b.slug.toLowerCase()));
   const missing = wanted.filter((w) => !picked.some((b) => b.id.toLowerCase() === w || b.slug.toLowerCase() === w));
-  if (missing.length) throw new AgentError(`Unknown brand: ${missing.join(", ")}. Use GET /api/agent/activities to list brands.`, 404);
+  if (missing.length) throw new AgentError(`Unknown brand: ${missing.join(", ")}. Use GET /api/agent/brands to list brands.`, 404);
   return picked;
 }

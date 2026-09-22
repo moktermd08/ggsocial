@@ -142,7 +142,8 @@ that is not acceptable for a client's unreleased content, move media to S3
 ## AI agent access
 
 The activity checklists and goals have an API for agents (Claude, ChatGPT,
-scripts) at `/api/agent/activities` and `/api/agent/goals`, with tokens issued
+scripts) at `/api/agent/activities`, `/api/agent/goals` and `/api/agent/brands`
+(brand voice), with tokens issued
 from **Activities → AI agents**.
 Basic auth already occupies the `Authorization` header, so agents send their
 token as `X-Agent-Token: ggs_…`. The agent API is let past the wall — every

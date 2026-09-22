@@ -42,6 +42,9 @@ export function AgentAccess({ tokens, appUrl }: { tokens: AgentTokenView[]; appU
 API base: ${base}
 Send the header  X-Agent-Token: ${tokenText}  with every request.
 
+0. GET ${root}/brands
+   Each brand's voice: brief, tone, audience, key messages, words to avoid, hashtags, emoji policy, call to action, links, and its channels with each platform's character limit. Follow the brand's "writingGuide" in everything you write for it, and respect each channel's limits.
+
 1. GET ${base}?open=1
    Lists every brand you can work on and, for each frequency (daily, every_2_days, weekly, monthly, quarterly, half_yearly, yearly), the activities still open in the current period. Each activity has a code, title, description (how to do it), target, unit, proof, and a per-brand status.
 2. Do the activities you are able to do (performer "ai" or "either" first). Never post, message or change a profile without the access and approval you have been given; when you can only draft, put the draft in "notes" and use status "partial".
