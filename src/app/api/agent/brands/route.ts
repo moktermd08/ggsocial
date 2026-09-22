@@ -71,7 +71,7 @@ export async function GET(req: Request) {
 /** The brand book as instructions, skipping anything the brand has not filled in. */
 function writingGuide(b: BrandWithRole) {
   const lines = [
-    `Write as ${b.name}${b.tagline ? ` — ${b.tagline}` : ""}.`,
+    `Write as ${b.name}${b.tagline ? ` — ${b.tagline.trim().replace(/[.!?]+$/, "")}` : ""}.`,
     b.description && `What the company does: ${b.description}`,
     b.brief && `Brief: ${b.brief}`,
     b.voice && `Tone of voice: ${b.voice}`,
