@@ -29,10 +29,12 @@ const RECHECK_MS = 6 * 60 * 60_000;
 const FRESH_MS = 24 * 60 * 60_000;
 const TIMEOUT_MS = 15_000;
 const MAX_REDIRECTS = 5;
-const MAX_BODY = 256 * 1024;
+/** YouTube and Pinterest put the <title> over a megabyte into the page; reading stops once it arrives. */
+const MAX_BODY = 3 * 1024 * 1024;
 const PARALLEL = 4;
 
 const GONE = /page not found|page isn.t available|content isn.t available|this account doesn.t exist|account (?:has been )?suspended|user not found|channel (?:does not|doesn.t) exist|this page (?:does not|doesn.t) exist|sorry, this page|\b404\b/i;
+const GENERIC_TITLE = /^(?:instagram|threads|reddit(?: - .*)?|tiktok(?: - make your day)?|pinterest|x|twitter|facebook|linkedin|error|log ?in(?: .*)?|sign ?up(?: .*)?)$/i;
 const LOGIN_WALL = /\/(?:login|signin|sign-in|accounts\/login|authwall|checkpoint|uas\/login)\b/i;
 
 /** Only public web pages; never the server's own network. */
@@ -75,16 +77,18 @@ async function assertPublicHost(url: URL): Promise<PageResult | null> {
 async function readHead(res: Response) {
   if (!res.body) return "";
   const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (size < MAX_BODY) {
+  const decoder = new TextDecoder();
+  let html = "";
+  while (html.length < MAX_BODY) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
-    size += value.length;
+    html += decoder.decode(value, { stream: true });
+    // og:title sits next to <title> wherever a page puts it, so a little past it is enough.
+    const end = html.search(/<\/title>/i);
+    if (end >= 0 && html.length > end + 4096) break;
   }
   await reader.cancel().catch(() => {});
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return html;
 }
 
 function pageTitle(html: string) {
@@ -137,7 +141,12 @@ export async function checkPageUrl(raw: string): Promise<PageResult> {
     }
     const title = pageTitle(await readHead(res).catch(() => ""));
     if (title && GONE.test(title)) return { status: "down", note: `The page says: ${title.slice(0, 120)}` };
-    return { status: "live", note: title ? `Loaded: ${title.slice(0, 120)}` : `Loaded (HTTP ${res.status})` };
+    // Instagram, Threads, Reddit, TikTok and Pinterest answer 200 with the same bare shell
+    // for accounts that don't exist, so a 200 only counts when the page names someone.
+    if (!title || title.split(" · ").every((part) => GENERIC_TITLE.test(part))) {
+      return { status: "unknown", note: "The platform only showed its sign-in shell, so the page couldn't be confirmed" };
+    }
+    return { status: "live", note: `Loaded: ${title.slice(0, 120)}` };
   }
   return { status: "unknown", note: "Too many redirects" };
 }
