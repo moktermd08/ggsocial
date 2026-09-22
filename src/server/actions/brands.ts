@@ -1,6 +1,7 @@
 "use server";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import { db, brands, memberships, activity, users, invites, media, type Role } from "@/lib/db";
 import { requireUser, requireBrandRole } from "@/lib/auth";
@@ -124,32 +125,36 @@ const MAX_LOGO_BYTES = 10 * 1024 * 1024;
 
 /** Uploads a logo into the brand's media library and points the brand at it. */
 export async function uploadBrandLogoAction(brandId: string, formData: FormData) {
-  const { user } = await requireBrandRole(brandId, "admin");
-  const file = formData.get("logo");
-  if (!(file instanceof File) || file.size === 0) throw new Error("Choose an image to upload.");
-  if (file.size > MAX_LOGO_BYTES) throw new Error("Logos are capped at 10 MB.");
-  if (!file.type.startsWith("image/")) throw new Error("A logo has to be an image.");
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "admin");
+    const file = formData.get("logo");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Choose an image to upload.");
+    if (file.size > MAX_LOGO_BYTES) throw new Error("Logos are capped at 10 MB.");
+    if (!file.type.startsWith("image/")) throw new Error("A logo has to be an image.");
 
-  const stored = await storeUpload(file);
-  await db.insert(media).values({
-    brandId,
-    kind: kindFromMime(file.type),
-    url: stored.url,
-    originalName: file.name,
-    mimeType: file.type,
-    size: stored.size,
-    uploadedBy: user.id,
-    tags: ["logo"],
+    const stored = await storeUpload(file);
+    await db.insert(media).values({
+      brandId,
+      kind: kindFromMime(file.type),
+      url: stored.url,
+      originalName: file.name,
+      mimeType: file.type,
+      size: stored.size,
+      uploadedBy: user.id,
+      tags: ["logo"],
+    });
+    await db.update(brands).set({ logoUrl: stored.url }).where(eq(brands.id, brandId));
+    revalidatePath("/", "layout");
+    return { url: stored.url };
   });
-  await db.update(brands).set({ logoUrl: stored.url }).where(eq(brands.id, brandId));
-  revalidatePath("/", "layout");
-  return stored.url;
 }
 
 export async function clearBrandLogoAction(brandId: string) {
-  await requireBrandRole(brandId, "admin");
-  await db.update(brands).set({ logoUrl: null }).where(eq(brands.id, brandId));
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    await requireBrandRole(brandId, "admin");
+    await db.update(brands).set({ logoUrl: null }).where(eq(brands.id, brandId));
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function archiveBrandAction(brandId: string) {
@@ -160,38 +165,44 @@ export async function archiveBrandAction(brandId: string) {
 }
 
 export async function inviteMemberAction(brandId: string, formData: FormData) {
-  const { user } = await requireBrandRole(brandId, "admin");
-  const email = String(formData.get("email") ?? "").toLowerCase().trim();
-  const role = String(formData.get("role") ?? "editor") as Role;
-  if (!email) throw new Error("Enter an email address.");
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "admin");
+    const email = String(formData.get("email") ?? "").toLowerCase().trim();
+    const role = String(formData.get("role") ?? "editor") as Role;
+    if (!email) throw new Error("Enter an email address.");
 
-  const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
-  if (existing) {
-    const already = await db.query.memberships.findFirst({
-      where: and(eq(memberships.userId, existing.id), eq(memberships.brandId, brandId)),
-    });
-    if (!already) await db.insert(memberships).values({ userId: existing.id, brandId, role });
+    const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
+    if (existing) {
+      const already = await db.query.memberships.findFirst({
+        where: and(eq(memberships.userId, existing.id), eq(memberships.brandId, brandId)),
+      });
+      if (!already) await db.insert(memberships).values({ userId: existing.id, brandId, role });
+      revalidatePath(`/brands/${brandId}`);
+      return { added: true as const, email };
+    }
+
+    // No account yet: hand back a link the admin can send however they like.
+    // Nothing is emailed from here — wire an email provider if you want that.
+    const [invite] = await db.insert(invites).values({ email, brandId, role, invitedBy: user.id }).returning();
     revalidatePath(`/brands/${brandId}`);
-    return { added: true as const, email };
-  }
-
-  // No account yet: hand back a link the admin can send however they like.
-  // Nothing is emailed from here — wire an email provider if you want that.
-  const [invite] = await db.insert(invites).values({ email, brandId, role, invitedBy: user.id }).returning();
-  revalidatePath(`/brands/${brandId}`);
-  return { added: false as const, email, inviteUrl: `/signup?invite=${invite.token}` };
+    return { added: false as const, email, inviteUrl: `/signup?invite=${invite.token}` };
+  });
 }
 
 export async function removeMemberAction(brandId: string, userId: string) {
-  await requireBrandRole(brandId, "admin");
-  await db.delete(memberships).where(and(eq(memberships.brandId, brandId), eq(memberships.userId, userId)));
-  revalidatePath(`/brands/${brandId}`);
+  return asResult(async () => {
+    await requireBrandRole(brandId, "admin");
+    await db.delete(memberships).where(and(eq(memberships.brandId, brandId), eq(memberships.userId, userId)));
+    revalidatePath(`/brands/${brandId}`);
+  });
 }
 
 export async function setMemberRoleAction(brandId: string, userId: string, role: string) {
-  await requireBrandRole(brandId, "admin");
-  await db.update(memberships)
-    .set({ role: role as Role })
-    .where(and(eq(memberships.brandId, brandId), eq(memberships.userId, userId)));
-  revalidatePath(`/brands/${brandId}`);
+  return asResult(async () => {
+    await requireBrandRole(brandId, "admin");
+    await db.update(memberships)
+      .set({ role: role as Role })
+      .where(and(eq(memberships.brandId, brandId), eq(memberships.userId, userId)));
+    revalidatePath(`/brands/${brandId}`);
+  });
 }

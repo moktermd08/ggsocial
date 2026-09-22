@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { db, brandActivitySettings, channels, goalRevisions, goalTemplates, goals, memberships } from "@/lib/db";
 import { requireUser, can, atLeast, type SessionUser } from "@/lib/auth";
 import { CURVES, GOAL_METRICS, GOAL_STATUSES, METRIC_META, type Curve, type DriverSpec, type GoalDriver, type GoalMetric, type GoalStatus } from "@/lib/goals/meta";
@@ -40,22 +41,24 @@ const finite = (n: unknown) => typeof n === "number" && Number.isFinite(n);
  * brand's follower count, which audience-scaled yields are worked at.
  */
 export async function goalStartingPointAction(input: { brandId: string; metric: GoalMetric; platform: string | null }) {
-  const user = await requireUser();
-  await requireBrand(user, input.brandId, can.view, "view");
-  if (!GOAL_METRICS.includes(input.metric)) throw new Error("Bad metric.");
-  const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, input.brandId), columns: { id: true, name: true, timezone: true } });
-  if (!brand) throw new Error("Brand not found.");
-  const today = todayIn(brand.timezone);
-  const followers = await stockSeries(brand.id, "followers", input.platform);
-  let current: number | null;
-  if (METRIC_META[input.metric].kind === "stock") {
-    current = input.metric === "followers" ? followers.at(today) : (await stockSeries(brand.id, input.metric, input.platform)).at(today);
-  } else {
-    const daily = await flowDaily(brand, input.metric, input.platform, addDays(today, -28), addDays(today, -1));
-    const total = [...daily.values()].reduce((s, n) => s + n, 0);
-    current = Math.round((total * 30.44) / 28);
-  }
-  return { today, current, audience: followers.at(today), latestReading: followers.latest };
+  return asResult(async () => {
+    const user = await requireUser();
+    await requireBrand(user, input.brandId, can.view, "view");
+    if (!GOAL_METRICS.includes(input.metric)) throw new Error("Bad metric.");
+    const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, input.brandId), columns: { id: true, name: true, timezone: true } });
+    if (!brand) throw new Error("Brand not found.");
+    const today = todayIn(brand.timezone);
+    const followers = await stockSeries(brand.id, "followers", input.platform);
+    let current: number | null;
+    if (METRIC_META[input.metric].kind === "stock") {
+      current = input.metric === "followers" ? followers.at(today) : (await stockSeries(brand.id, input.metric, input.platform)).at(today);
+    } else {
+      const daily = await flowDaily(brand, input.metric, input.platform, addDays(today, -28), addDays(today, -1));
+      const total = [...daily.values()].reduce((s, n) => s + n, 0);
+      current = Math.round((total * 30.44) / 28);
+    }
+    return { today, current, audience: followers.at(today), latestReading: followers.latest };
+  });
 }
 
 /* ------------------------------------------------------------ brand goals */
@@ -103,103 +106,115 @@ function mergeDrivers(base: GoalDriver[], edits: DriverEdit[] | undefined) {
 }
 
 export async function createGoalAction(input: GoalInput) {
-  const user = await requireUser();
-  await requireBrand(user, input.brandId, can.manageBrand, "admin");
-  await ensureGoalLibrary();
-  const template = await db.query.goalTemplates.findFirst({ where: eq(goalTemplates.id, input.templateId) });
-  if (!template || template.archivedAt) throw new Error("Pick a goal template.");
-  const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, input.brandId), columns: { timezone: true } });
-  const today = todayIn(brand?.timezone ?? "UTC");
-  validateNumbers(input, today);
+  return asResult(async () => {
+    const user = await requireUser();
+    await requireBrand(user, input.brandId, can.manageBrand, "admin");
+    await ensureGoalLibrary();
+    const template = await db.query.goalTemplates.findFirst({ where: eq(goalTemplates.id, input.templateId) });
+    if (!template || template.archivedAt) throw new Error("Pick a goal template.");
+    const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, input.brandId), columns: { timezone: true } });
+    const today = todayIn(brand?.timezone ?? "UTC");
+    validateNumbers(input, today);
 
-  const [byCode, platforms] = await Promise.all([activitiesByCode(template.drivers.map((d) => d.activityCode)), brandPlatforms(input.brandId)]);
-  if (input.platform && !platforms.has(input.platform)) throw new Error("This brand has no channel on that platform.");
-  const base: GoalDriver[] = template.drivers.map((d) => ({
-    ...d, priorYield: d.yield, enabled: driverFits(byCode.get(d.activityCode), platforms, input.platform),
-  }));
-  const drivers = mergeDrivers(base, input.drivers);
-  if (!drivers.some((d) => d.enabled)) throw new Error("Switch on at least one activity to drive this goal.");
+    const [byCode, platforms] = await Promise.all([activitiesByCode(template.drivers.map((d) => d.activityCode)), brandPlatforms(input.brandId)]);
+    if (input.platform && !platforms.has(input.platform)) throw new Error("This brand has no channel on that platform.");
+    const base: GoalDriver[] = template.drivers.map((d) => ({
+      ...d, priorYield: d.yield, enabled: driverFits(byCode.get(d.activityCode), platforms, input.platform),
+    }));
+    const drivers = mergeDrivers(base, input.drivers);
+    if (!drivers.some((d) => d.enabled)) throw new Error("Switch on at least one activity to drive this goal.");
 
-  const [row] = await db.insert(goals).values({
-    brandId: input.brandId, templateId: template.id, metric: template.metric,
-    name: input.name?.trim() || template.name,
-    platform: input.platform, curve: input.curve,
-    startDate: today, startValue: input.startValue, targetValue: input.targetValue, deadline: input.deadline,
-    drivers, createdBy: user.id,
-  }).returning({ id: goals.id });
-  await recalibrateGoal(row.id, { userId: user.id, kind: "initial" });
-  done(row.id);
-  return { id: row.id };
+    const [row] = await db.insert(goals).values({
+      brandId: input.brandId, templateId: template.id, metric: template.metric,
+      name: input.name?.trim() || template.name,
+      platform: input.platform, curve: input.curve,
+      startDate: today, startValue: input.startValue, targetValue: input.targetValue, deadline: input.deadline,
+      drivers, createdBy: user.id,
+    }).returning({ id: goals.id });
+    await recalibrateGoal(row.id, { userId: user.id, kind: "initial" });
+    done(row.id);
+    return { id: row.id };
+  });
 }
 
 export async function updateGoalAction(input: {
   goalId: string; name: string; targetValue: number; deadline: string; curve: Curve;
   approvalThreshold: number; notes: string | null; drivers: DriverEdit[];
 }) {
-  const user = await requireUser();
-  const goal = await loadGoal(input.goalId);
-  await requireBrand(user, goal.brandId, can.manageBrand, "admin");
-  const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, goal.brandId), columns: { timezone: true } });
-  validateNumbers({ startValue: goal.startValue, targetValue: input.targetValue, deadline: input.deadline, curve: input.curve }, todayIn(brand?.timezone ?? "UTC"));
-  const drivers = mergeDrivers(goal.drivers, input.drivers);
-  if (!drivers.some((d) => d.enabled)) throw new Error("Switch on at least one activity to drive this goal.");
-  await db.update(goals).set({
-    name: input.name.trim() || goal.name,
-    targetValue: input.targetValue, deadline: input.deadline, curve: input.curve,
-    approvalThreshold: Math.min(500, Math.max(5, Math.round(input.approvalThreshold) || 30)),
-    notes: input.notes?.trim() || null,
-    drivers, updatedAt: new Date(),
-  }).where(eq(goals.id, goal.id));
-  // A person changed the goal: re-plan now and put it straight into force.
-  await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
-  done(goal.id);
+  return asResult(async () => {
+    const user = await requireUser();
+    const goal = await loadGoal(input.goalId);
+    await requireBrand(user, goal.brandId, can.manageBrand, "admin");
+    const brand = await db.query.brands.findFirst({ where: (b, { eq }) => eq(b.id, goal.brandId), columns: { timezone: true } });
+    validateNumbers({ startValue: goal.startValue, targetValue: input.targetValue, deadline: input.deadline, curve: input.curve }, todayIn(brand?.timezone ?? "UTC"));
+    const drivers = mergeDrivers(goal.drivers, input.drivers);
+    if (!drivers.some((d) => d.enabled)) throw new Error("Switch on at least one activity to drive this goal.");
+    await db.update(goals).set({
+      name: input.name.trim() || goal.name,
+      targetValue: input.targetValue, deadline: input.deadline, curve: input.curve,
+      approvalThreshold: Math.min(500, Math.max(5, Math.round(input.approvalThreshold) || 30)),
+      notes: input.notes?.trim() || null,
+      drivers, updatedAt: new Date(),
+    }).where(eq(goals.id, goal.id));
+    // A person changed the goal: re-plan now and put it straight into force.
+    await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
+    done(goal.id);
+  });
 }
 
 /** Back to the master template's drivers and benchmarks, forgetting what was learned. */
 export async function resetGoalDriversAction(goalId: string) {
-  const user = await requireUser();
-  const goal = await loadGoal(goalId);
-  await requireBrand(user, goal.brandId, can.manageBrand, "admin");
-  const template = goal.templateId ? await db.query.goalTemplates.findFirst({ where: eq(goalTemplates.id, goal.templateId) }) : null;
-  if (!template) throw new Error("This goal's template no longer exists.");
-  const [byCode, platforms] = await Promise.all([activitiesByCode(template.drivers.map((d) => d.activityCode)), brandPlatforms(goal.brandId)]);
-  const drivers: GoalDriver[] = template.drivers.map((d) => ({
-    ...d, priorYield: d.yield, enabled: driverFits(byCode.get(d.activityCode), platforms, goal.platform),
-  }));
-  await db.update(goals).set({ drivers, baseline: 0, updatedAt: new Date() }).where(eq(goals.id, goal.id));
-  await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
-  done(goal.id);
+  return asResult(async () => {
+    const user = await requireUser();
+    const goal = await loadGoal(goalId);
+    await requireBrand(user, goal.brandId, can.manageBrand, "admin");
+    const template = goal.templateId ? await db.query.goalTemplates.findFirst({ where: eq(goalTemplates.id, goal.templateId) }) : null;
+    if (!template) throw new Error("This goal's template no longer exists.");
+    const [byCode, platforms] = await Promise.all([activitiesByCode(template.drivers.map((d) => d.activityCode)), brandPlatforms(goal.brandId)]);
+    const drivers: GoalDriver[] = template.drivers.map((d) => ({
+      ...d, priorYield: d.yield, enabled: driverFits(byCode.get(d.activityCode), platforms, goal.platform),
+    }));
+    await db.update(goals).set({ drivers, baseline: 0, updatedAt: new Date() }).where(eq(goals.id, goal.id));
+    await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
+    done(goal.id);
+  });
 }
 
 export async function setGoalStatusAction(goalId: string, status: GoalStatus) {
-  const user = await requireUser();
-  if (!GOAL_STATUSES.includes(status)) throw new Error("Bad status.");
-  const goal = await loadGoal(goalId);
-  await requireBrand(user, goal.brandId, can.manageBrand, "admin");
-  await db.update(goals).set({ status, updatedAt: new Date() }).where(eq(goals.id, goal.id));
-  if (status === "active") await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
-  else await applyActivityTargets(goal.brandId);
-  done(goal.id);
+  return asResult(async () => {
+    const user = await requireUser();
+    if (!GOAL_STATUSES.includes(status)) throw new Error("Bad status.");
+    const goal = await loadGoal(goalId);
+    await requireBrand(user, goal.brandId, can.manageBrand, "admin");
+    await db.update(goals).set({ status, updatedAt: new Date() }).where(eq(goals.id, goal.id));
+    if (status === "active") await recalibrateGoal(goal.id, { userId: user.id, kind: "edit" });
+    else await applyActivityTargets(goal.brandId);
+    done(goal.id);
+  });
 }
 
 /** Runs the weekly learn-and-replan now. Big changes still wait for approval. */
 export async function recalibrateGoalAction(goalId: string) {
-  const user = await requireUser();
-  const goal = await loadGoal(goalId);
-  await requireBrand(user, goal.brandId, can.edit, "editor");
-  const rev = await recalibrateGoal(goal.id, { userId: user.id });
-  done(goal.id);
-  return { status: rev.status, summary: rev.summary };
+  return asResult(async () => {
+    const user = await requireUser();
+    const goal = await loadGoal(goalId);
+    await requireBrand(user, goal.brandId, can.edit, "editor");
+    const rev = await recalibrateGoal(goal.id, { userId: user.id });
+    done(goal.id);
+    return { status: rev.status, summary: rev.summary };
+  });
 }
 
 export async function decideRevisionAction(revisionId: string, approve: boolean) {
-  const user = await requireUser();
-  const rev = await db.query.goalRevisions.findFirst({ where: eq(goalRevisions.id, revisionId), columns: { goalId: true } });
-  if (!rev) throw new Error("Plan not found.");
-  const goal = await loadGoal(rev.goalId);
-  await requireBrand(user, goal.brandId, (r) => can.manageBrand(r) || can.approve(r), "admin or approver");
-  await decideRevision(revisionId, approve, user.id);
-  done(goal.id);
+  return asResult(async () => {
+    const user = await requireUser();
+    const rev = await db.query.goalRevisions.findFirst({ where: eq(goalRevisions.id, revisionId), columns: { goalId: true } });
+    if (!rev) throw new Error("Plan not found.");
+    const goal = await loadGoal(rev.goalId);
+    await requireBrand(user, goal.brandId, (r) => can.manageBrand(r) || can.approve(r), "admin or approver");
+    await decideRevision(revisionId, approve, user.id);
+    done(goal.id);
+  });
 }
 
 /**
@@ -207,58 +222,66 @@ export async function decideRevisionAction(revisionId: string, approve: boolean)
  * plan can move it again.
  */
 export async function handBackActivityAction(input: { brandId: string; activityCode: string; goalId?: string }) {
-  const user = await requireUser();
-  await requireBrand(user, input.brandId, can.manageBrand, "admin");
-  const t = (await activitiesByCode([input.activityCode])).get(input.activityCode);
-  if (!t) throw new Error("No such activity.");
-  await db.delete(brandActivitySettings).where(and(eq(brandActivitySettings.brandId, input.brandId), eq(brandActivitySettings.templateId, t.id)));
-  await applyActivityTargets(input.brandId);
-  done(input.goalId);
+  return asResult(async () => {
+    const user = await requireUser();
+    await requireBrand(user, input.brandId, can.manageBrand, "admin");
+    const t = (await activitiesByCode([input.activityCode])).get(input.activityCode);
+    if (!t) throw new Error("No such activity.");
+    await db.delete(brandActivitySettings).where(and(eq(brandActivitySettings.brandId, input.brandId), eq(brandActivitySettings.templateId, t.id)));
+    await applyActivityTargets(input.brandId);
+    done(input.goalId);
+  });
 }
 
 /* -------------------------------------------------------------- numbers */
 
 export async function logSnapshotsAction(entries: SnapshotInput[]) {
-  const user = await requireUser();
-  const clean = entries.filter((e) => finite(e.value) && e.value >= 0);
-  if (clean.some((e) => !isDateKey(e.date) || !GOAL_METRICS.includes(e.metric))) throw new Error("Bad reading.");
-  const brandIds = [...new Set(clean.map((e) => e.brandId))];
-  for (const id of brandIds) await requireBrand(user, id, can.edit, "editor");
-  const channelIds = [...new Set(clean.flatMap((e) => (e.channelId ? [e.channelId] : [])))];
-  const owned = channelIds.length
-    ? await db.select({ id: channels.id, brandId: channels.brandId }).from(channels).where(inArray(channels.id, channelIds))
-    : [];
-  for (const e of clean) {
-    if (e.channelId && owned.find((c) => c.id === e.channelId)?.brandId !== e.brandId) throw new Error("That channel belongs to another brand.");
-  }
-  const saved = await saveSnapshots(clean, "manual", user.id);
-  done();
-  return { saved };
+  return asResult(async () => {
+    const user = await requireUser();
+    const clean = entries.filter((e) => finite(e.value) && e.value >= 0);
+    if (clean.some((e) => !isDateKey(e.date) || !GOAL_METRICS.includes(e.metric))) throw new Error("Bad reading.");
+    const brandIds = [...new Set(clean.map((e) => e.brandId))];
+    for (const id of brandIds) await requireBrand(user, id, can.edit, "editor");
+    const channelIds = [...new Set(clean.flatMap((e) => (e.channelId ? [e.channelId] : [])))];
+    const owned = channelIds.length
+      ? await db.select({ id: channels.id, brandId: channels.brandId }).from(channels).where(inArray(channels.id, channelIds))
+      : [];
+    for (const e of clean) {
+      if (e.channelId && owned.find((c) => c.id === e.channelId)?.brandId !== e.brandId) throw new Error("That channel belongs to another brand.");
+    }
+    const saved = await saveSnapshots(clean, "manual", user.id);
+    done();
+    return { saved };
+  });
 }
 
 export async function deleteSnapshotAction(input: { brandId: string; channelId: string | null; metric: GoalMetric; date: string }) {
-  const user = await requireUser();
-  await requireBrand(user, input.brandId, can.edit, "editor");
-  await deleteSnapshot(input.brandId, input.channelId, input.metric, input.date);
-  done();
+  return asResult(async () => {
+    const user = await requireUser();
+    await requireBrand(user, input.brandId, can.edit, "editor");
+    await deleteSnapshot(input.brandId, input.channelId, input.metric, input.date);
+    done();
+  });
 }
 
 /** Reads follower counts from every live channel of these brands now. */
 export async function pullStatsAction(brandIds: string[]) {
-  const user = await requireUser();
-  const rows = brandIds.length
-    ? await db.select({ brandId: memberships.brandId, role: memberships.role }).from(memberships)
-        .where(and(eq(memberships.userId, user.id), inArray(memberships.brandId, brandIds)))
-    : [];
-  const allowed = rows.filter((r) => can.edit(r.role)).map((r) => r.brandId);
-  if (allowed.length === 0) throw new Error("You need editor access to pull numbers.");
-  const results = await pullAccountStats({ brandIds: allowed });
-  done();
-  return {
-    pulled: results.filter((r) => r.followers !== undefined).length,
-    errors: results.filter((r) => r.error).map((r) => `${r.handle}: ${r.error}`),
-    checked: results.length,
-  };
+  return asResult(async () => {
+    const user = await requireUser();
+    const rows = brandIds.length
+      ? await db.select({ brandId: memberships.brandId, role: memberships.role }).from(memberships)
+          .where(and(eq(memberships.userId, user.id), inArray(memberships.brandId, brandIds)))
+      : [];
+    const allowed = rows.filter((r) => can.edit(r.role)).map((r) => r.brandId);
+    if (allowed.length === 0) throw new Error("You need editor access to pull numbers.");
+    const results = await pullAccountStats({ brandIds: allowed });
+    done();
+    return {
+      pulled: results.filter((r) => r.followers !== undefined).length,
+      errors: results.filter((r) => r.error).map((r) => `${r.handle}: ${r.error}`),
+      checked: results.length,
+    };
+  });
 }
 
 /* ------------------------------------------------------ master templates */
@@ -275,45 +298,49 @@ async function requireLibraryEditor() {
 export async function saveGoalTemplateAction(input: {
   id?: string; metric: GoalMetric; name: string; description: string; drivers: DriverSpec[];
 }) {
-  const user = await requireLibraryEditor();
-  await ensureGoalLibrary();
-  const name = input.name.trim();
-  if (!name) throw new Error("Give the template a name.");
-  if (!GOAL_METRICS.includes(input.metric)) throw new Error("Bad metric.");
-  const byCode = await activitiesByCode(input.drivers.map((d) => d.activityCode));
-  const drivers: DriverSpec[] = [];
-  for (const d of input.drivers) {
-    const code = d.activityCode.trim().toUpperCase();
-    if (!code) continue;
-    if (!byCode.has(code)) throw new Error(`There is no activity ${code} in the master list.`);
-    if (drivers.some((x) => x.activityCode === code)) throw new Error(`${code} is listed twice.`);
-    if (!(d.yield > 0)) throw new Error(`${code}: the yield has to be above zero.`);
-    drivers.push({
-      activityCode: code,
-      label: d.label.trim() || byCode.get(code)!.title,
-      unitLabel: d.unitLabel.trim() || "units",
-      yield: d.yield,
-      scale: d.scale === "audience" ? "audience" : "fixed",
-      share: Math.max(0, d.share || 0),
-      maxPerWeek: Math.max(1, Math.round(d.maxPerWeek) || 1),
-    });
-  }
-  if (drivers.length === 0) throw new Error("Add at least one activity that drives this goal.");
-  // Shares are proportions: normalise so they always add up to 1.
-  const total = drivers.reduce((s, d) => s + d.share, 0) || drivers.length;
-  for (const d of drivers) d.share = Math.round(((d.share || (total === drivers.length ? 1 : 0)) / total) * 1000) / 1000;
+  return asResult(async () => {
+    const user = await requireLibraryEditor();
+    await ensureGoalLibrary();
+    const name = input.name.trim();
+    if (!name) throw new Error("Give the template a name.");
+    if (!GOAL_METRICS.includes(input.metric)) throw new Error("Bad metric.");
+    const byCode = await activitiesByCode(input.drivers.map((d) => d.activityCode));
+    const drivers: DriverSpec[] = [];
+    for (const d of input.drivers) {
+      const code = d.activityCode.trim().toUpperCase();
+      if (!code) continue;
+      if (!byCode.has(code)) throw new Error(`There is no activity ${code} in the master list.`);
+      if (drivers.some((x) => x.activityCode === code)) throw new Error(`${code} is listed twice.`);
+      if (!(d.yield > 0)) throw new Error(`${code}: the yield has to be above zero.`);
+      drivers.push({
+        activityCode: code,
+        label: d.label.trim() || byCode.get(code)!.title,
+        unitLabel: d.unitLabel.trim() || "units",
+        yield: d.yield,
+        scale: d.scale === "audience" ? "audience" : "fixed",
+        share: Math.max(0, d.share || 0),
+        maxPerWeek: Math.max(1, Math.round(d.maxPerWeek) || 1),
+      });
+    }
+    if (drivers.length === 0) throw new Error("Add at least one activity that drives this goal.");
+    // Shares are proportions: normalise so they always add up to 1.
+    const total = drivers.reduce((s, d) => s + d.share, 0) || drivers.length;
+    for (const d of drivers) d.share = Math.round(((d.share || (total === drivers.length ? 1 : 0)) / total) * 1000) / 1000;
 
-  const values = { metric: input.metric, name, description: input.description.trim(), drivers, updatedAt: new Date() };
-  if (input.id) {
-    await db.update(goalTemplates).set(values).where(eq(goalTemplates.id, input.id));
-  } else {
-    await db.insert(goalTemplates).values({ ...values, code: `G-C-${Date.now().toString(36).toUpperCase()}`, isCustom: true, sortOrder: 100_000, createdBy: user.id });
-  }
-  done();
+    const values = { metric: input.metric, name, description: input.description.trim(), drivers, updatedAt: new Date() };
+    if (input.id) {
+      await db.update(goalTemplates).set(values).where(eq(goalTemplates.id, input.id));
+    } else {
+      await db.insert(goalTemplates).values({ ...values, code: `G-C-${Date.now().toString(36).toUpperCase()}`, isCustom: true, sortOrder: 100_000, createdBy: user.id });
+    }
+    done();
+  });
 }
 
 export async function archiveGoalTemplateAction(templateId: string, archived: boolean) {
-  await requireLibraryEditor();
-  await db.update(goalTemplates).set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() }).where(eq(goalTemplates.id, templateId));
-  done();
+  return asResult(async () => {
+    await requireLibraryEditor();
+    await db.update(goalTemplates).set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() }).where(eq(goalTemplates.id, templateId));
+    done();
+  });
 }

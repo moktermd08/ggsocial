@@ -12,6 +12,7 @@ import {
 import {
   archiveTemplateAction, saveTemplateAction, setBrandActivityAction, type TemplateInput,
 } from "@/server/actions/activities";
+import type { ActionResult } from "@/lib/action-result";
 
 export type LibraryTemplate = {
   id: string;
@@ -63,11 +64,12 @@ export function ActivityLibrary({
   const [showRetired, setShowRetired] = useState(false);
   const [editing, setEditing] = useState<string | "new" | null>(null);
 
-  function run(work: () => Promise<unknown>, after?: () => void) {
+  function run(work: () => Promise<ActionResult>, after?: () => void) {
     setError(null);
     startTransition(async () => {
       try {
-        await work();
+        const res = await work();
+        if (!res.ok) { setError(res.error); return; }
         after?.();
         router.refresh();
       } catch (e) {

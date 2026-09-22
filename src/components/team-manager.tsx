@@ -40,7 +40,7 @@ export function TeamManager({
               <select
                 value={m.role}
                 disabled={pending}
-                onChange={(e) => start(() => { void setMemberRoleAction(brandId, m.userId, e.target.value); })}
+                onChange={(e) => { const role = e.target.value; setError(null); start(async () => { const res = await setMemberRoleAction(brandId, m.userId, role); if (!res.ok) setError(res.error); }); }}
                 className="!w-32 !py-1 !text-xs"
                 title={ROLE_HELP[m.role]}
               >
@@ -52,7 +52,7 @@ export function TeamManager({
             {canManage && m.userId !== currentUserId && (
               <button
                 disabled={pending}
-                onClick={() => { if (confirm(`Remove ${m.name}?`)) start(() => { void removeMemberAction(brandId, m.userId); }); }}
+                onClick={() => { if (confirm(`Remove ${m.name}?`)) { setError(null); start(async () => { const res = await removeMemberAction(brandId, m.userId); if (!res.ok) setError(res.error); }); } }}
                 className={buttonClass("ghost", "sm")}
               >
                 <X className="size-3.5" />
@@ -69,7 +69,8 @@ export function TeamManager({
               setError(null);
               try {
                 const res = await inviteMemberAction(brandId, fd);
-                setInvite(res && !res.added ? { url: res.inviteUrl!, email: res.email } : null);
+                if (!res.ok) { setError(res.error); return; }
+                setInvite(res.added ? null : { url: res.inviteUrl, email: res.email });
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Could not invite.");
               }

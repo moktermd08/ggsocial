@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore, Loader2, Pencil, Plus, Trash2 } from "lucide-r
 import { Badge, Button, Card, CardHeader, Field } from "./ui";
 import { GOAL_METRICS, METRIC_META, singular, type DriverSpec, type GoalMetric } from "@/lib/goals/meta";
 import { archiveGoalTemplateAction, saveGoalTemplateAction } from "@/server/actions/goals";
+import type { ActionResult } from "@/lib/action-result";
 
 export type TemplateView = {
   id: string; code: string; metric: GoalMetric; name: string; description: string; drivers: DriverSpec[];
@@ -28,11 +29,12 @@ export function GoalTemplates({ templates, activities, canEdit }: {
   const [showArchived, setShowArchived] = useState(false);
   const titleOf = new Map(activities.map((a) => [a.code, a.title]));
 
-  const run = (fn: () => Promise<unknown>, after?: () => void) => {
+  const run = (fn: () => Promise<ActionResult>, after?: () => void) => {
     setError(null);
     start(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (!res.ok) { setError(res.error); return; }
         after?.();
         router.refresh();
       } catch (e) {

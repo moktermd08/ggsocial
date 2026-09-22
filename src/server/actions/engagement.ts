@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import {
   db, interactions, brands, channels, posts, postTargets, activity,
   type InteractionKind, type InteractionDirection, type InteractionStatus, type InteractionPriority,
@@ -32,37 +33,39 @@ function dueFrom(receivedAt: Date, slaMinutes: number) {
 }
 
 export async function logInteractionAction(input: InteractionInput) {
-  const { user, role } = await requireBrandRole(input.brandId, "editor");
-  if (!can.edit(role)) throw new Error("You need editor access to log engagement.");
+  return asResult(async () => {
+    const { user, role } = await requireBrandRole(input.brandId, "editor");
+    if (!can.edit(role)) throw new Error("You need editor access to log engagement.");
 
-  const brand = await db.query.brands.findFirst({ where: eq(brands.id, input.brandId) });
-  if (!brand) throw new Error("Brand not found.");
+    const brand = await db.query.brands.findFirst({ where: eq(brands.id, input.brandId) });
+    if (!brand) throw new Error("Brand not found.");
 
-  const body = input.body.trim();
-  if (!body) throw new Error("Write what was said, or what you mean to say.");
+    const body = input.body.trim();
+    if (!body) throw new Error("Write what was said, or what you mean to say.");
 
-  const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
-  const [row] = await db.insert(interactions).values({
-    brandId: input.brandId,
-    channelId: input.channelId || null,
-    postId: input.postId || null,
-    kind: input.kind,
-    direction: input.direction ?? "inbound",
-    priority: input.priority ?? "normal",
-    sentiment: input.sentiment ?? null,
-    authorName: input.authorName?.trim() || null,
-    authorHandle: input.authorHandle?.trim() || null,
-    authorUrl: input.authorUrl?.trim() || null,
-    authorReach: input.authorReach ?? null,
-    body,
-    externalUrl: input.externalUrl?.trim() || null,
-    receivedAt,
-    dueAt: dueFrom(receivedAt, brand.replySlaMinutes),
-    createdBy: user.id,
-  }).returning({ id: interactions.id });
+    const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
+    const [row] = await db.insert(interactions).values({
+      brandId: input.brandId,
+      channelId: input.channelId || null,
+      postId: input.postId || null,
+      kind: input.kind,
+      direction: input.direction ?? "inbound",
+      priority: input.priority ?? "normal",
+      sentiment: input.sentiment ?? null,
+      authorName: input.authorName?.trim() || null,
+      authorHandle: input.authorHandle?.trim() || null,
+      authorUrl: input.authorUrl?.trim() || null,
+      authorReach: input.authorReach ?? null,
+      body,
+      externalUrl: input.externalUrl?.trim() || null,
+      receivedAt,
+      dueAt: dueFrom(receivedAt, brand.replySlaMinutes),
+      createdBy: user.id,
+    }).returning({ id: interactions.id });
 
-  revalidatePath("/engage");
-  return { id: row.id };
+    revalidatePath("/engage");
+    return { id: row.id };
+  });
 }
 
 /** Throws unless the row exists and the user can edit its brand. */
@@ -85,26 +88,28 @@ export async function updateInteractionAction(input: {
   /** ISO. Sets status to "snoozed" and pushes the row down the queue. */
   snoozeUntil?: string | null;
 }) {
-  const { row, user } = await requireInteraction(input.interactionId);
+  return asResult(async () => {
+    const { row, user } = await requireInteraction(input.interactionId);
 
-  const patch: Partial<typeof interactions.$inferInsert> = { updatedAt: new Date() };
-  if (input.status) patch.status = input.status;
-  if (input.priority) patch.priority = input.priority;
-  if (input.sentiment !== undefined) patch.sentiment = input.sentiment;
-  if (input.replyBody !== undefined) patch.replyBody = input.replyBody?.trim() || null;
-  if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
-  if (input.assignToMe) patch.assigneeId = user.id;
-  if (input.snoozeUntil !== undefined) {
-    patch.snoozedUntil = input.snoozeUntil ? new Date(input.snoozeUntil) : null;
-    if (input.snoozeUntil) {
-      patch.status = "snoozed";
-      // The clock moves with the snooze, or the row comes back already late.
-      patch.dueAt = new Date(input.snoozeUntil);
+    const patch: Partial<typeof interactions.$inferInsert> = { updatedAt: new Date() };
+    if (input.status) patch.status = input.status;
+    if (input.priority) patch.priority = input.priority;
+    if (input.sentiment !== undefined) patch.sentiment = input.sentiment;
+    if (input.replyBody !== undefined) patch.replyBody = input.replyBody?.trim() || null;
+    if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
+    if (input.assignToMe) patch.assigneeId = user.id;
+    if (input.snoozeUntil !== undefined) {
+      patch.snoozedUntil = input.snoozeUntil ? new Date(input.snoozeUntil) : null;
+      if (input.snoozeUntil) {
+        patch.status = "snoozed";
+        // The clock moves with the snooze, or the row comes back already late.
+        patch.dueAt = new Date(input.snoozeUntil);
+      }
     }
-  }
 
-  await db.update(interactions).set(patch).where(eq(interactions.id, row.id));
-  revalidatePath("/engage");
+    await db.update(interactions).set(patch).where(eq(interactions.id, row.id));
+    revalidatePath("/engage");
+  });
 }
 
 /**
@@ -113,29 +118,31 @@ export async function updateInteractionAction(input: {
  * stops the clock.
  */
 export async function markRepliedAction(input: { interactionId: string; replyBody?: string; replyUrl?: string }) {
-  const { row, user } = await requireInteraction(input.interactionId);
-  const repliedAt = new Date();
+  return asResult(async () => {
+    const { row, user } = await requireInteraction(input.interactionId);
+    const repliedAt = new Date();
 
-  await db.update(interactions).set({
-    status: "replied",
-    replyBody: input.replyBody?.trim() || row.replyBody,
-    replyUrl: input.replyUrl?.trim() || null,
-    repliedAt,
-    assigneeId: row.assigneeId ?? user.id,
-    updatedAt: repliedAt,
-  }).where(eq(interactions.id, row.id));
+    await db.update(interactions).set({
+      status: "replied",
+      replyBody: input.replyBody?.trim() || row.replyBody,
+      replyUrl: input.replyUrl?.trim() || null,
+      repliedAt,
+      assigneeId: row.assigneeId ?? user.id,
+      updatedAt: repliedAt,
+    }).where(eq(interactions.id, row.id));
 
-  await db.insert(activity).values({
-    brandId: row.brandId, actorId: user.id, action: "interaction.replied",
-    entity: "interaction", entityId: row.id,
-    meta: {
-      kind: row.kind,
-      // Minutes from arrival to reply — the number this whole queue exists to hold down.
-      minutes: Math.max(0, Math.round((repliedAt.getTime() - row.receivedAt.getTime()) / 60_000)),
-    },
+    await db.insert(activity).values({
+      brandId: row.brandId, actorId: user.id, action: "interaction.replied",
+      entity: "interaction", entityId: row.id,
+      meta: {
+        kind: row.kind,
+        // Minutes from arrival to reply — the number this whole queue exists to hold down.
+        minutes: Math.max(0, Math.round((repliedAt.getTime() - row.receivedAt.getTime()) / 60_000)),
+      },
+    });
+
+    revalidatePath("/engage");
   });
-
-  revalidatePath("/engage");
 }
 
 /**
@@ -183,28 +190,30 @@ export async function openPostEngagement(postId: string) {
 
 /** Bulk triage from the queue's selection bar. */
 export async function bulkUpdateInteractionsAction(ids: string[], status: InteractionStatus) {
-  if (ids.length === 0) return;
-  const user = await requireUser();
-  const rows = await db.select({ id: interactions.id, brandId: interactions.brandId })
-    .from(interactions).where(inArray(interactions.id, ids));
+  return asResult(async () => {
+    if (ids.length === 0) return;
+    const user = await requireUser();
+    const rows = await db.select({ id: interactions.id, brandId: interactions.brandId })
+      .from(interactions).where(inArray(interactions.id, ids));
 
-  // Check each brand once rather than once per row.
-  const brandIds = [...new Set(rows.map((r) => r.brandId))];
-  const allowed = new Set<string>();
-  for (const brandId of brandIds) {
-    const { role } = await requireBrandRole(brandId, "editor");
-    if (can.edit(role)) allowed.add(brandId);
-  }
+    // Check each brand once rather than once per row.
+    const brandIds = [...new Set(rows.map((r) => r.brandId))];
+    const allowed = new Set<string>();
+    for (const brandId of brandIds) {
+      const { role } = await requireBrandRole(brandId, "editor");
+      if (can.edit(role)) allowed.add(brandId);
+    }
 
-  const touch = rows.filter((r) => allowed.has(r.brandId)).map((r) => r.id);
-  if (touch.length === 0) return;
+    const touch = rows.filter((r) => allowed.has(r.brandId)).map((r) => r.id);
+    if (touch.length === 0) return;
 
-  await db.update(interactions).set({
-    status,
-    repliedAt: status === "replied" ? new Date() : undefined,
-    assigneeId: status === "replied" ? user.id : undefined,
-    updatedAt: new Date(),
-  }).where(inArray(interactions.id, touch));
+    await db.update(interactions).set({
+      status,
+      repliedAt: status === "replied" ? new Date() : undefined,
+      assigneeId: status === "replied" ? user.id : undefined,
+      updatedAt: new Date(),
+    }).where(inArray(interactions.id, touch));
 
-  revalidatePath("/engage");
+    revalidatePath("/engage");
+  });
 }

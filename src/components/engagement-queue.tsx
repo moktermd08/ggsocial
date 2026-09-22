@@ -16,6 +16,7 @@ import {
 import {
   logInteractionAction, markRepliedAction, updateInteractionAction, bulkUpdateInteractionsAction,
 } from "@/server/actions/engagement";
+import type { ActionResult } from "@/lib/action-result";
 
 export type QueueItem = {
   id: string;
@@ -100,11 +101,12 @@ export function EngagementQueue({
     });
   }, [items, query, kind, brandId, lens, now]);
 
-  function run(work: () => Promise<unknown>) {
+  function run(work: () => Promise<ActionResult>) {
     setError(null);
     startTransition(async () => {
       try {
-        await work();
+        const res = await work();
+        if (!res.ok) { setError(res.error); return; }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "That did not go through.");
@@ -177,8 +179,9 @@ export function EngagementQueue({
             type="button"
             disabled={pending}
             onClick={() => run(async () => {
-              await bulkUpdateInteractionsAction([...selected], "replied");
-              setSelected(new Set());
+              const res = await bulkUpdateInteractionsAction([...selected], "replied");
+              if (res.ok) setSelected(new Set());
+              return res;
             })}
             className={buttonClass("primary", "sm")}
           >
@@ -188,8 +191,9 @@ export function EngagementQueue({
             type="button"
             disabled={pending}
             onClick={() => run(async () => {
-              await bulkUpdateInteractionsAction([...selected], "ignored");
-              setSelected(new Set());
+              const res = await bulkUpdateInteractionsAction([...selected], "ignored");
+              if (res.ok) setSelected(new Set());
+              return res;
             })}
             className={buttonClass("subtle", "sm")}
           >
@@ -244,7 +248,7 @@ function QueueRow({
   checked: boolean;
   onCheck: (on: boolean) => void;
   onToggle: () => void;
-  onRun: (work: () => Promise<unknown>) => void;
+  onRun: (work: () => Promise<ActionResult>) => void;
 }) {
   const [reply, setReply] = useState(item.replyBody ?? "");
   const status = INTERACTION_STATUS_META[item.status];
@@ -402,7 +406,7 @@ function LogForm({
   brands: QueueBrand[];
   pending: boolean;
   onDone: () => void;
-  onRun: (work: () => Promise<unknown>) => void;
+  onRun: (work: () => Promise<ActionResult>) => void;
 }) {
   const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
   const [channelId, setChannelId] = useState("");
@@ -422,12 +426,15 @@ function LogForm({
         onSubmit={(e) => {
           e.preventDefault();
           onRun(async () => {
-            await logInteractionAction({
+            const res = await logInteractionAction({
               brandId, channelId: channelId || null, kind, direction, priority,
               authorName: author || null, body, externalUrl: url || null,
             });
-            setAuthor(""); setBody(""); setUrl("");
-            onDone();
+            if (res.ok) {
+              setAuthor(""); setBody(""); setUrl("");
+              onDone();
+            }
+            return res;
           });
         }}
       >

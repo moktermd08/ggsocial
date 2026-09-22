@@ -6,6 +6,7 @@ import { Button, Card, CardHeader, Field } from "./ui";
 import { relativeTime } from "@/lib/format";
 import { AGENT_SUGGESTIONS } from "@/lib/activities/meta";
 import { createAgentTokenAction, revokeAgentTokenAction } from "@/server/actions/activities";
+import type { ActionResult } from "@/lib/action-result";
 
 export type AgentTokenView = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; revoked: boolean };
 
@@ -64,11 +65,12 @@ Goals — the targets the activities serve (followers, site visitors, comments, 
    Leave out "channel" for a whole-brand count the app cannot see (e.g. "metric": "site_visitors" from analytics). Send {"snapshots": [ … ]} for several.
 7. After logging fresh numbers you may re-plan a goal: POST ${root}/goals/{id}/recalibrate. Big changes come back "waitingForApproval" — a person approves those in the app; do not try to.`;
 
-  function run(work: () => Promise<unknown>) {
+  function run(work: () => Promise<ActionResult>) {
     setError(null);
     startTransition(async () => {
       try {
-        await work();
+        const res = await work();
+        if (!res.ok) { setError(res.error); return; }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "That did not go through.");
@@ -88,8 +90,9 @@ Goals — the targets the activities serve (followers, site visitors, comments, 
               </Field>
               <datalist id="agent-token-names">{AGENT_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
               <Button variant="primary" disabled={pending || !name.trim()} onClick={() => run(async () => {
-                const created = await createAgentTokenAction(name);
-                setFresh({ name, token: created.token });
+                const res = await createAgentTokenAction(name);
+                if (res.ok) setFresh({ name, token: res.token });
+                return res;
               })}>
                 Create token
               </Button>

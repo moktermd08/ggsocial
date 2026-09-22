@@ -97,6 +97,7 @@ export function GoalForm(props: {
     goalStartingPointAction({ brandId, metric: template.metric, platform })
       .then((r) => {
         if (!live) return;
+        if (!r.ok) { setLookup({ key: lookupKey, current: null, latest: null }); return; }
         setLookup({ key: lookupKey, current: r.current, latest: r.latestReading });
         setAudience(r.audience);
         if (!startTouched && r.current !== null) setStartText(String(Math.round(r.current)));
@@ -169,11 +170,13 @@ export function GoalForm(props: {
           const res = await createGoalAction({
             brandId, templateId, platform, name: name || undefined, startValue, targetValue, deadline, curve, drivers: edits,
           });
+          if (!res.ok) { setError(res.error); return; }
           router.push(`/goals/${res.id}`);
         } else {
-          await updateGoalAction({
+          const res = await updateGoalAction({
             goalId: props.goal.id, name, targetValue, deadline, curve, approvalThreshold: threshold, notes: notes || null, drivers: edits,
           });
+          if (!res.ok) { setError(res.error); return; }
           router.refresh();
         }
       } catch (e) {
@@ -320,7 +323,7 @@ export function GoalForm(props: {
             </Button>
             {!create && props.canReset && (
               <Button variant="ghost" disabled={pending} title="Back to the master template's activities and benchmarks, forgetting what was learned"
-                onClick={() => { if (confirm("Reset the activities to the master template? What the goal learned is forgotten.")) start(async () => { try { await resetGoalDriversAction(props.goal.id); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }); }}>
+                onClick={() => { if (confirm("Reset the activities to the master template? What the goal learned is forgotten.")) start(async () => { try { const res = await resetGoalDriversAction(props.goal.id); if (!res.ok) { setError(res.error); return; } router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }); }}>
                 <RotateCcw className="size-4" /> Reset to master
               </Button>
             )}

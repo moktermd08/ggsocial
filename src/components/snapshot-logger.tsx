@@ -6,6 +6,7 @@ import { Badge, Button, Card, CardHeader, Field } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { METRIC_META, GOAL_METRICS, type GoalMetric } from "@/lib/goals/meta";
 import { deleteSnapshotAction, logSnapshotsAction, pullStatsAction } from "@/server/actions/goals";
+import type { ActionResult } from "@/lib/action-result";
 
 export type LoggerChannel = {
   id: string; platform: string; platformName: string; handle: string; live: boolean; canPull: boolean;
@@ -34,11 +35,13 @@ export function SnapshotLogger({ brands, today, recent }: { brands: LoggerBrand[
   const [followers, setFollowers] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState<Record<string, { metric: GoalMetric; value: string }>>({});
 
-  const run = (fn: () => Promise<string>) => {
+  const run = (fn: () => Promise<ActionResult<{ text: string }>>) => {
     setMessage(null);
     start(async () => {
       try {
-        setMessage({ ok: true, text: await fn() });
+        const res = await fn();
+        if (!res.ok) { setMessage({ ok: false, text: res.error }); return; }
+        setMessage({ ok: true, text: res.text });
         router.refresh();
       } catch (e) {
         setMessage({ ok: false, text: e instanceof Error ? e.message : String(e) });
@@ -66,9 +69,10 @@ export function SnapshotLogger({ brands, today, recent }: { brands: LoggerBrand[
     }
     run(async () => {
       const r = await logSnapshotsAction(entries);
+      if (!r.ok) return r;
       setFollowers({});
       setExtra({});
-      return `Saved ${r.saved} reading${r.saved === 1 ? "" : "s"} for ${date}. Goals use them on their next look.`;
+      return { ok: true, text: `Saved ${r.saved} reading${r.saved === 1 ? "" : "s"} for ${date}. Goals use them on their next look.` };
     });
   }
 
@@ -83,7 +87,8 @@ export function SnapshotLogger({ brands, today, recent }: { brands: LoggerBrand[
           action={pullable.length > 0 && (
             <Button size="sm" disabled={pending} onClick={() => run(async () => {
               const r = await pullStatsAction(pullable.map((b) => b.id));
-              return r.errors.length ? `Read ${r.pulled} of ${r.checked} live channels. ${r.errors.join(" · ")}` : `Read ${r.pulled} live channel${r.pulled === 1 ? "" : "s"}.`;
+              if (!r.ok) return r;
+              return { ok: true, text: r.errors.length ? `Read ${r.pulled} of ${r.checked} live channels. ${r.errors.join(" · ")}` : `Read ${r.pulled} live channel${r.pulled === 1 ? "" : "s"}.` };
             })}>
               {pending ? <Loader2 className="size-3.5 animate-spin" /> : <CloudDownload className="size-3.5" />} Read live channels now
             </Button>
@@ -173,7 +178,7 @@ export function SnapshotLogger({ brands, today, recent }: { brands: LoggerBrand[
                       <td className="px-3 py-1.5 text-right">
                         {canEdit && (
                           <Button size="sm" variant="ghost" disabled={pending} aria-label="Delete reading"
-                            onClick={() => run(async () => { await deleteSnapshotAction({ brandId: r.brandId, channelId: r.channelId, metric: r.metric, date: r.date }); return "Reading deleted."; })}>
+                            onClick={() => run(async () => { const res = await deleteSnapshotAction({ brandId: r.brandId, channelId: r.channelId, metric: r.metric, date: r.date }); return res.ok ? { ok: true, text: "Reading deleted." } : res; })}>
                             <Trash2 className="size-3.5" />
                           </Button>
                         )}

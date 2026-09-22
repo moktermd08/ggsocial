@@ -130,7 +130,8 @@ export function LogoUploader({
     try {
       const fd = new FormData();
       fd.append("logo", file);
-      await uploadBrandLogoAction(brandId, fd);
+      const res = await uploadBrandLogoAction(brandId, fd);
+      if (!res.ok) setError(res.error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
@@ -163,7 +164,7 @@ export function LogoUploader({
               <button
                 type="button"
                 className={buttonClass("ghost", "sm")}
-                onClick={() => start(() => void clearBrandLogoAction(brandId))}
+                onClick={() => { setError(null); start(async () => { const res = await clearBrandLogoAction(brandId); if (!res.ok) setError(res.error); }); }}
               >
                 <X className="size-3.5" /> Remove
               </button>

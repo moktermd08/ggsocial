@@ -7,16 +7,18 @@ import type { GoalStatus } from "@/lib/goals/meta";
 import {
   decideRevisionAction, handBackActivityAction, recalibrateGoalAction, setGoalStatusAction,
 } from "@/server/actions/goals";
+import type { ActionResult } from "@/lib/action-result";
 
 function useRun() {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const run = (fn: () => Promise<unknown>, ok?: (r: unknown) => string | null) => {
+  const run = <T extends object>(fn: () => Promise<ActionResult<T>>, ok?: (r: T) => string | null) => {
     setMessage(null);
     start(async () => {
       try {
         const r = await fn();
+        if (!r.ok) { setMessage({ ok: false, text: r.error }); return; }
         const text = ok?.(r);
         if (text) setMessage({ ok: true, text });
         router.refresh();
@@ -43,10 +45,8 @@ export function GoalControls({ goalId, status, canManage, canRecalibrate }: {
       <div className="flex flex-wrap justify-end gap-2">
         {canRecalibrate && status === "active" && (
           <Button size="sm" disabled={pending} title="Learn from the latest results and re-plan now (the weekly job does this every Monday)"
-            onClick={() => run(() => recalibrateGoalAction(goalId), (r) => {
-              const res = r as { status: string; summary: string };
-              return res.status === "proposed" ? "Big change — the new plan is waiting for approval below." : "Re-planned.";
-            })}>
+            onClick={() => run(() => recalibrateGoalAction(goalId), (r) =>
+              r.status === "proposed" ? "Big change — the new plan is waiting for approval below." : "Re-planned.")}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Recalibrate now
           </Button>
         )}

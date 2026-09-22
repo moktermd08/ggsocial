@@ -9,6 +9,7 @@ import {
   addChannelAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
   setChannelSettingsAction,
 } from "@/server/actions/channels";
+import type { ActionResult } from "@/lib/action-result";
 
 export type ChannelRow = {
   id: string; platform: string; handle: string; displayName: string | null;
@@ -29,10 +30,10 @@ export function ChannelManager({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const run = (fn: () => Promise<unknown>) =>
+  const run = (fn: () => Promise<ActionResult>) =>
     start(async () => {
       setError(null);
-      try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
+      try { const res = await fn(); if (!res.ok) setError(res.error); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
     });
 
   return (
@@ -108,7 +109,7 @@ export function ChannelManager({
 
               {tuning === c.id && meta && (
                 <form
-                  action={(fd) => run(async () => { await setChannelSettingsAction(c.id, fd); setTuning(null); })}
+                  action={(fd) => run(async () => { const res = await setChannelSettingsAction(c.id, fd); if (res.ok) setTuning(null); return res; })}
                   className="mt-3 space-y-2 rounded-lg border border-border bg-surface-2 p-3"
                 >
                   <p className="text-xs text-muted">
@@ -149,7 +150,7 @@ export function ChannelManager({
 
               {connecting === c.id && meta && !meta.manualOnly && (
                 <form
-                  action={(fd) => run(async () => { await connectChannelAction(c.id, fd); setConnecting(null); })}
+                  action={(fd) => run(async () => { const res = await connectChannelAction(c.id, fd); if (res.ok) setConnecting(null); return res; })}
                   className="mt-3 space-y-2 rounded-lg border border-border bg-surface-2 p-3"
                 >
                   <p className="text-xs text-muted">{meta.liveSetup.notes}</p>
@@ -204,7 +205,7 @@ export function ChannelManager({
         <div className="border-t border-border p-3">
           {adding ? (
             <form
-              action={(fd) => run(async () => { await addChannelAction(brandId, fd); setAdding(null); })}
+              action={(fd) => run(async () => { const res = await addChannelAction(brandId, fd); if (res.ok) setAdding(null); return res; })}
               className="space-y-2 rounded-lg border border-border bg-surface-2 p-3"
             >
               <input type="hidden" name="platform" value={adding} />

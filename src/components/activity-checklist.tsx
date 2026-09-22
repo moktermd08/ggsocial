@@ -17,6 +17,7 @@ import {
 import {
   clearChecksAction, reviewChecksAction, setChecksAction, type CheckTarget,
 } from "@/server/actions/activities";
+import type { ActionResult } from "@/lib/action-result";
 
 export type ChecklistBrand = { id: string; name: string; color: string; canEdit: boolean; canReview: boolean };
 
@@ -112,13 +113,14 @@ export function ActivityChecklist({
     .map((c) => ({ category: c, rows: visible.filter((r) => r.category === c) }))
     .filter((g) => g.rows.length > 0);
 
-  function run(work: () => Promise<{ updated: number } | void>, message?: (n: number) => string) {
+  function run(work: () => Promise<ActionResult<{ updated: number }>>, message?: (n: number) => string) {
     setError(null);
     setFlash(null);
     startTransition(async () => {
       try {
         const res = await work();
-        if (message && res) setFlash(message(res.updated));
+        if (!res.ok) { setError(res.error); return; }
+        if (message) setFlash(message(res.updated));
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "That did not go through.");
@@ -423,7 +425,7 @@ function RowDetail({
   date: string;
   by: { kind: ActorKind; name?: string };
   pending: boolean;
-  run: (work: () => Promise<{ updated: number } | void>, message?: (n: number) => string) => void;
+  run: (work: () => Promise<ActionResult<{ updated: number }>>, message?: (n: number) => string) => void;
 }) {
   return (
     <div className="space-y-3 pt-1">
@@ -453,7 +455,7 @@ function CellEditor({
   date: string;
   by: { kind: ActorKind; name?: string };
   pending: boolean;
-  run: (work: () => Promise<{ updated: number } | void>, message?: (n: number) => string) => void;
+  run: (work: () => Promise<ActionResult<{ updated: number }>>, message?: (n: number) => string) => void;
 }) {
   const [status, setStatus] = useState<CheckStatus>(cell.status === "partial" || cell.status === "skipped" ? cell.status : "done");
   const [count, setCount] = useState(cell.count?.toString() ?? "");

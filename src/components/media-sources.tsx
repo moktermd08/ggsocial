@@ -11,6 +11,7 @@ import {
   pollGooglePhotosPickerAction,
   startGooglePhotosPickerAction,
 } from "@/server/actions/integrations";
+import type { ActionResult } from "@/lib/action-result";
 
 export type SourceStatus = {
   provider: "canva" | "google_photos";
@@ -28,9 +29,16 @@ function message(e: unknown) {
   return e instanceof Error ? e.message : "Something went wrong.";
 }
 
+/** The result's data, or a throw on this side, where the message survives, for the catch blocks below. */
+function unwrap<T extends object>(res: ActionResult<T>) {
+  if (!res.ok) throw new Error(res.error);
+  return res;
+}
+
 /** The strip at the top of Media: which outside libraries this person has linked. */
 export function SourceConnections({ sources }: { sources: SourceStatus[] }) {
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   return (
     <Card className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
       <p className="text-xs font-medium text-muted">Import from</p>
@@ -48,7 +56,7 @@ export function SourceConnections({ sources }: { sources: SourceStatus[] }) {
                 <button
                   disabled={pending}
                   title={`Disconnect ${s.name}`}
-                  onClick={() => { if (confirm(`Disconnect ${s.name}?`)) start(() => disconnectIntegrationAction(s.provider)); }}
+                  onClick={() => { if (confirm(`Disconnect ${s.name}?`)) { setError(null); start(async () => { const res = await disconnectIntegrationAction(s.provider); if (!res.ok) setError(res.error); }); } }}
                   className="grid size-6 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
                 >
                   <Unplug className="size-3.5" />
@@ -61,6 +69,7 @@ export function SourceConnections({ sources }: { sources: SourceStatus[] }) {
           </div>
         );
       })}
+      {error && <p className="w-full text-xs text-danger">{error}</p>}
     </Card>
   );
 }
@@ -98,7 +107,7 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
     setLoading(true);
     setError(null);
     try {
-      const page = await listCanvaDesignsAction(q, cont);
+      const page = unwrap(await listCanvaDesignsAction(q, cont));
       setDesigns((prev) => (cont ? [...prev, ...page.designs] : page.designs));
       setContinuation(page.continuation);
     } catch (e) {
@@ -124,7 +133,7 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
     setBusy(d.id);
     setError(null);
     try {
-      await importCanvaDesignAction(brandId, d.id, format);
+      unwrap(await importCanvaDesignAction(brandId, d.id, format));
       setDone((prev) => new Set(prev).add(d.id));
     } catch (e) {
       setError(message(e));
@@ -230,18 +239,18 @@ function GooglePhotosButton({ brandId, onError }: { brandId: string; onError: (m
     const tab = window.open("about:blank", "_blank");
     setPhase("picking");
     try {
-      const { sessionId, pickerUri } = await startGooglePhotosPickerAction();
+      const { sessionId, pickerUri } = unwrap(await startGooglePhotosPickerAction());
       if (tab) tab.location.href = pickerUri;
       else window.open(pickerUri, "_blank");
 
       const started = Date.now();
-      while (!(await pollGooglePhotosPickerAction(sessionId))) {
+      while (!unwrap(await pollGooglePhotosPickerAction(sessionId)).ready) {
         if (cancelled.current) return;
         if (Date.now() - started > GIVE_UP_MS) throw new Error("Timed out waiting for a Google Photos selection.");
         await new Promise((r) => setTimeout(r, POLL_MS));
       }
       setPhase("importing");
-      await importGooglePhotosAction(brandId, sessionId);
+      unwrap(await importGooglePhotosAction(brandId, sessionId));
     } catch (e) {
       tab?.close();
       onError(message(e));
