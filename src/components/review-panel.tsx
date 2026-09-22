@@ -1,8 +1,9 @@
 "use client";
 import { useState, useTransition } from "react";
-import { MessageSquare, ThumbsUp, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, MessageSquare, ThumbsUp, Undo2 } from "lucide-react";
 import { Card, CardHeader, buttonClass } from "./ui";
-import { addCommentAction, reviewPostAction, submitForReviewAction } from "@/server/actions/posts";
+import { addCommentAction, reviewPostAction, submitForReviewAction, type ReviewResult } from "@/server/actions/posts";
 import { relativeTime } from "@/lib/format";
 
 export type CommentRow = { id: string; body: string; kind: string; createdAt: string; author: string };
@@ -16,10 +17,26 @@ export function ReviewPanel({
   canApprove: boolean;
   canEdit: boolean;
 }) {
+  const router = useRouter();
   const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const run = (fn: () => Promise<unknown>) => start(() => { void fn(); setNote(""); });
+  /**
+   * Waits for the action and shows why it failed. The note is only cleared on
+   * success, so a reviewer who hits a problem does not lose what they wrote.
+   */
+  const run = (fn: () => Promise<ReviewResult>) => start(async () => {
+    setError(null);
+    try {
+      const res = await fn();
+      if (!res.ok) { setError(res.error); return; }
+      setNote("");
+      router.refresh();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    }
+  });
 
   return (
     <Card>
@@ -42,6 +59,12 @@ export function ReviewPanel({
           ))}
           {comments.length === 0 && <p className="py-3 text-center text-sm text-muted">Nothing here yet.</p>}
         </div>
+
+        {error && (
+          <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-2 text-xs text-danger">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" /> {error}
+          </p>
+        )}
 
         <textarea
           rows={2}

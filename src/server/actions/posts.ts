@@ -205,56 +205,79 @@ export async function reschedulePostAction(postId: string, iso: string) {
   revalidatePath("/", "layout");
 }
 
-export async function submitForReviewAction(postId: string) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post) throw new Error("Post not found");
-  const { user } = await requireBrandRole(post.brandId, "editor");
-  await db.update(posts).set({ status: "in_review", updatedAt: new Date() }).where(eq(posts.id, postId));
-  await db.insert(activity).values({ brandId: post.brandId, actorId: user.id, action: "post.submitted", entity: "post", entityId: postId });
-  revalidatePath("/", "layout");
+/**
+ * What the review panel's actions return. Expected failures (a placeholder
+ * left in, no permission) come back as values, because a thrown message is
+ * replaced by a generic one in production builds and the reviewer would never
+ * learn what to fix.
+ */
+export type ReviewResult = { ok: true } | { ok: false; error: string };
+
+async function asResult(work: () => Promise<unknown>): Promise<ReviewResult> {
+  try {
+    await work();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Something went wrong." };
+  }
 }
 
-export async function reviewPostAction(postId: string, decision: "approve" | "request_changes", note: string) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post) throw new Error("Post not found");
-  const { user, role } = await requireBrandRole(post.brandId, "viewer");
-  if (!can.approve(role)) throw new Error("You need approver or admin access to review posts.");
+export async function submitForReviewAction(postId: string): Promise<ReviewResult> {
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post) throw new Error("Post not found");
+    const { user } = await requireBrandRole(post.brandId, "editor");
+    await db.update(posts).set({ status: "in_review", updatedAt: new Date() }).where(eq(posts.id, postId));
+    await db.insert(activity).values({ brandId: post.brandId, actorId: user.id, action: "post.submitted", entity: "post", entityId: postId });
+    revalidatePath("/", "layout");
+  });
+}
 
-  if (decision === "approve") {
-    const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
-    const holes = findPlaceholders([
-      post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
-    ].join("\n"));
-    if (holes.length) throw new Error(`This post still has template placeholders to fill: ${holes.join(", ")}.`);
-    await db.update(posts).set({
-      status: post.scheduledAt ? "scheduled" : "approved",
-      approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date(),
-    }).where(eq(posts.id, postId));
-    if (post.scheduledAt) {
-      await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
-        .where(and(eq(postTargets.postId, postId), eq(postTargets.status, "pending")));
+export async function reviewPostAction(postId: string, decision: "approve" | "request_changes", note: string): Promise<ReviewResult> {
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post) throw new Error("Post not found");
+    const { user, role } = await requireBrandRole(post.brandId, "viewer");
+    if (!can.approve(role)) throw new Error("You need approver or admin access to review posts.");
+
+    if (decision === "approve") {
+      const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
+      const holes = findPlaceholders([
+        post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
+      ].join("\n"));
+      if (holes.length) throw new Error(`This post still has template placeholders to fill: ${holes.join(", ")}.`);
+      await db.update(posts).set({
+        status: post.scheduledAt ? "scheduled" : "approved",
+        approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date(),
+      }).where(eq(posts.id, postId));
+      if (post.scheduledAt) {
+        await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
+          .where(and(eq(postTargets.postId, postId), eq(postTargets.status, "pending")));
+      }
+    } else {
+      await db.update(posts).set({ status: "changes_requested", updatedAt: new Date() }).where(eq(posts.id, postId));
     }
-  } else {
-    await db.update(posts).set({ status: "changes_requested", updatedAt: new Date() }).where(eq(posts.id, postId));
-  }
 
-  if (note.trim()) {
-    await db.insert(comments).values({
-      postId, userId: user.id, body: note.trim(),
-      kind: decision === "approve" ? "approved" : "changes_requested",
-    });
-  }
-  await db.insert(activity).values({ brandId: post.brandId, actorId: user.id, action: `post.${decision}`, entity: "post", entityId: postId });
-  revalidatePath("/", "layout");
+    if (note.trim()) {
+      await db.insert(comments).values({
+        postId, userId: user.id, body: note.trim(),
+        kind: decision === "approve" ? "approved" : "changes_requested",
+      });
+    }
+    await db.insert(activity).values({ brandId: post.brandId, actorId: user.id, action: `post.${decision}`, entity: "post", entityId: postId });
+    revalidatePath("/", "layout");
+  });
 }
 
-export async function addCommentAction(postId: string, body: string) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post) throw new Error("Post not found");
-  const { user } = await requireBrandRole(post.brandId, "viewer");
-  if (!body.trim()) return;
-  await db.insert(comments).values({ postId, userId: user.id, body: body.trim() });
-  revalidatePath(`/posts/${postId}`);
+export async function addCommentAction(postId: string, body: string): Promise<ReviewResult> {
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post) throw new Error("Post not found");
+    const { user } = await requireBrandRole(post.brandId, "viewer");
+    if (!body.trim()) return;
+    await db.insert(comments).values({ postId, userId: user.id, body: body.trim() });
+    revalidatePath(`/posts/${postId}`);
+  });
 }
 
 export async function publishTargetNowAction(targetId: string) {
