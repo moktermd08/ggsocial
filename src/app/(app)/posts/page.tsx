@@ -1,9 +1,11 @@
-import { PenSquare, Inbox } from "lucide-react";
+import { PenSquare, Inbox, Layers } from "lucide-react";
 import Link from "next/link";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getPosts } from "@/server/queries";
 import { PostCard } from "@/components/post-card";
+import { MasterCard } from "@/components/master-card";
+import { listMasters } from "@/server/masters";
 import { Card, EmptyState, LinkButton, PageHeader, buttonClass } from "@/components/ui";
 import { PLATFORMS_BY_CATEGORY } from "@/lib/platforms";
 import { CATEGORY_LABELS } from "@/lib/platforms/types";
@@ -25,6 +27,39 @@ export default async function PostsPage({
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
   const { status = "all", platform, q } = await searchParams;
+
+  if (scope.isMaster) {
+    const masters = await listMasters(user.id, brands.map((b) => b.id), q);
+    const chips = new Map(brands.map((b) => [b.id, { id: b.id, name: b.name, color: b.color }]));
+    return (
+      <>
+        <PageHeader
+          icon={Layers}
+          title="Master content"
+          subtitle={`${masters.length} master post${masters.length === 1 ? "" : "s"}. Each brand works from a linked copy.`}
+          action={<LinkButton href="/posts/master/new" variant="primary">New master post</LinkButton>}
+        />
+        <form className="mb-4 flex justify-end gap-2" action="/posts">
+          <input name="q" defaultValue={q} placeholder="Search masters…" className="!w-56 !py-1 !text-sm" />
+          <button className={buttonClass("subtle", "sm")}>Search</button>
+        </form>
+        {masters.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={Layers}
+              title="No master posts yet"
+              body="Write a piece once here and every brand gets a linked copy to adapt in its own voice."
+              action={<LinkButton href="/posts/master/new" variant="primary">Write a master post</LinkButton>}
+            />
+          </Card>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {masters.map((m) => <MasterCard key={m.id} master={m} brands={chips} />)}
+          </div>
+        )}
+      </>
+    );
+  }
 
   const filter = FILTERS.find((f) => f.key === status) ?? FILTERS[0];
   const posts = await getPosts({ brandIds: scope.brandIds, statuses: filter.statuses, platform, search: q });

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Copy } from "lucide-react";
+import { Copy, Layers } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getPost, getPostLinks } from "@/server/queries";
 import { getComposerData } from "@/server/composer-data";
@@ -11,6 +11,10 @@ import { LinkPanel } from "@/components/link-panel";
 import { PageHeader, Badge, buttonClass } from "@/components/ui";
 import { STATUS_META, inZone } from "@/lib/format";
 import { duplicatePostAction } from "@/server/actions/posts";
+import { promoteToMasterAction } from "@/server/actions/masters";
+import { getCopyContext } from "@/server/masters";
+import { CopyMasterPanel, MasterComments } from "@/components/master-panels";
+import { MASTER_FIELDS, type MasterField } from "@/lib/masters";
 import { appOrigin } from "@/lib/links";
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,9 +31,50 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   const postLinks = await getPostLinks(post.id);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
+  const copy = await getCopyContext(post, post.media.map((m) => m.id));
+
+  // A copy can carry media from another brand's library (picked on the
+  // master), so make sure the composer can show what is attached.
+  const library = data.mediaByBrand[post.brandId] ?? [];
+  const extra = [...post.media, ...(copy?.master.media ?? [])]
+    .filter((m, i, all) => !library.some((l) => l.id === m.id) && all.findIndex((x) => x.id === m.id) === i)
+    .map((m) => ({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName }));
+  data.mediaByBrand[post.brandId] = [...extra, ...library];
+
+  const readable: Partial<Record<MasterField, string>> = {};
+  if (copy) {
+    for (const f of MASTER_FIELDS) {
+      const v = copy.values[f];
+      readable[f] = f === "tags" ? (JSON.parse(v) as string[]).join(", ")
+        : f === "media" ? `${(JSON.parse(v) as string[]).length} file(s)`
+        : f === "scheduledAt" ? (v ? `${inZone(v, post.brand.timezone)} ${post.brand.timezone}` : "No date")
+        : v;
+    }
+  }
 
   const sidebar = (
     <>
+      {copy && (
+        <>
+          <CopyMasterPanel
+            postId={post.id}
+            masterId={copy.master.id}
+            masterTitle={copy.master.title}
+            guidelines={copy.master.guidelines}
+            notes={copy.master.notes}
+            pending={copy.state.pending}
+            customised={copy.state.customised}
+            masterValues={readable}
+            canEdit={can.edit(membership.role)}
+          />
+          <MasterComments
+            masterId={copy.master.id}
+            comments={copy.master.comments.map((c) => ({
+              id: c.id, body: c.body, author: c.author, createdAt: c.createdAt.toISOString(),
+            }))}
+          />
+        </>
+      )}
       <TargetStatusList
         canPublish={can.publish(membership.role)}
         targets={post.targets.map((t) => ({
@@ -101,6 +146,13 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
         action={
           <div className="flex items-center gap-2">
             <Badge color={meta.color}>{meta.label}</Badge>
+            {!post.masterPostId && can.edit(membership.role) && (
+              <form action={promoteToMasterAction.bind(null, post.id)}>
+                <button className={buttonClass("subtle", "sm")} title="Make this the master copy, then carry it into other brands">
+                  <Layers className="size-3.5" /> Make master
+                </button>
+              </form>
+            )}
             <form action={duplicatePostAction.bind(null, post.id)}>
               <button className={buttonClass("subtle", "sm")}><Copy className="size-3.5" /> Duplicate</button>
             </form>
@@ -110,6 +162,9 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
 
       {editable ? (
         <Composer
+          // Remount when the saved post changes underneath (a master change
+          // taken from the side panel), so the editor shows it.
+          key={post.updatedAt.toISOString()}
           brands={data.composerBrands}
           channelsByBrand={data.channelsByBrand}
           mediaByBrand={data.mediaByBrand}
@@ -117,6 +172,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           initialBrandId={post.brandId}
           canApprove={can.approve(membership.role)}
           sidebarExtras={sidebar}
+          master={copy?.values}
           post={{
             id: post.id,
             ideaId: post.ideaId,

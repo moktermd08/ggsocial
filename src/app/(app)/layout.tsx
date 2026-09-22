@@ -25,6 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     getEngagementCounts(scope.brandIds),
   ]);
   const counts = { queue: queueRows.length, engage: engagement.overdue };
+  const newHref = scope.isMaster ? "/posts/master/new" : "/posts/new";
 
   return (
     <div className="flex min-h-dvh">
@@ -40,8 +41,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Nav counts={counts} />
         </div>
 
-        <Link href="/posts/new" className={`${buttonClass("primary")} mb-3 w-full`}>
-          <Plus className="size-4" /> New post
+        <Link href={newHref} className={`${buttonClass("primary")} mb-3 w-full`}>
+          <Plus className="size-4" /> {scope.isMaster ? "New master post" : "New post"}
         </Link>
 
         <div className="flex items-center gap-2 border-t border-border pt-3">
@@ -64,7 +65,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur md:hidden">
           <Link href="/" className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-accent to-chart-2 text-sm font-bold text-accent-fg shadow-sm">gg</Link>
           <div className="min-w-0 flex-1"><BrandSwitcher brands={brands} value={scope.value} /></div>
-          <Link href="/posts/new" className={buttonClass("primary", "sm")}><Plus className="size-4" /></Link>
+          <Link href={newHref} className={buttonClass("primary", "sm")}><Plus className="size-4" /></Link>
         </header>
 
         <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8">{children}</div>

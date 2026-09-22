@@ -263,6 +263,52 @@ export const POST_STATUSES = [
 ] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];
 
+/**
+ * The master copy of a piece of content, above the brands.
+ *
+ * Written once, then carried into each brand as an ordinary post that stays
+ * linked: every field the brand has not changed follows the master, and a
+ * change to the master reaches those copies on save. Where a brand has made a
+ * field its own, the change is offered rather than forced. The master never
+ * publishes itself — its brand copies do.
+ *
+ * Belongs to its author and is visible to anyone on a brand that carries a
+ * copy, so a team works from one master rather than four.
+ */
+export const masterPosts = pgTable("master_posts", {
+  id: id(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default(""),
+  body: text("body").notNull().default(""),
+  campaign: text("campaign"),
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  /** Suggested publish time; each copy may move it. */
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  /** Media ids, in order. Can come from any brand's library the author sees. */
+  mediaIds: jsonb("media_ids").$type<string[]>().notNull().default([]),
+  /** Platforms a new copy is pointed at, matched to that brand's channels. */
+  platforms: jsonb("platforms").$type<string[]>().notNull().default([]),
+  /** How brands should adapt this piece. Shown beside every copy. */
+  guidelines: text("guidelines"),
+  /** Internal working notes. Never published. */
+  notes: text("notes"),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("master_posts_owner_idx").on(t.ownerId)]);
+
+/** The master copy of the fields a brand copy inherits. See `src/lib/masters.ts`. */
+export type MasterSnapshot = {
+  title?: string; body?: string; campaign?: string; tags?: string; scheduledAt?: string; media?: string;
+};
+
+export const masterPostComments = pgTable("master_post_comments", {
+  id: id(),
+  masterPostId: text("master_post_id").notNull().references(() => masterPosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  createdAt: now(),
+}, (t) => [index("master_post_comments_idx").on(t.masterPostId)]);
+
 /** One piece of content. Fans out to one row in post_targets per channel. */
 export const posts = pgTable("posts", {
   id: id(),
@@ -280,6 +326,15 @@ export const posts = pgTable("posts", {
   /* ------------------------------------------------- link back to the plan */
   /** The idea this post tells in this brand's voice. */
   ideaId: text("idea_id").references(() => contentIdeas.id, { onDelete: "set null" }),
+
+  /* ------------------------------------------------- link to the master */
+  /** The master this post is this brand's copy of. null = a standalone post. */
+  masterPostId: text("master_post_id").references(() => masterPosts.id, { onDelete: "set null" }),
+  /**
+   * The master's values as of the last sync. A field that still matches it is
+   * inherited; one that differs has been customised for this brand.
+   */
+  masterSnapshot: jsonb("master_snapshot").$type<MasterSnapshot>().notNull().default({}),
   postType: text("post_type"),
   tone: text("tone"),
   /** The number this post was aiming at, copied from the idea but editable. */
@@ -299,6 +354,7 @@ export const posts = pgTable("posts", {
   index("posts_scheduled_idx").on(t.scheduledAt),
   index("posts_status_idx").on(t.status),
   index("posts_idea_idx").on(t.ideaId),
+  index("posts_master_idx").on(t.masterPostId),
 ]);
 
 export const TARGET_STATUSES = [
@@ -575,10 +631,22 @@ export const contentIdeasRelations = relations(contentIdeas, ({ one, many }) => 
 export const postsRelations = relations(posts, ({ one, many }) => ({
   brand: one(brands, { fields: [posts.brandId], references: [brands.id] }),
   idea: one(contentIdeas, { fields: [posts.ideaId], references: [contentIdeas.id] }),
+  master: one(masterPosts, { fields: [posts.masterPostId], references: [masterPosts.id] }),
   author: one(users, { fields: [posts.createdBy], references: [users.id] }),
   targets: many(postTargets),
   attachments: many(attachments),
   comments: many(comments),
+}));
+
+export const masterPostsRelations = relations(masterPosts, ({ one, many }) => ({
+  owner: one(users, { fields: [masterPosts.ownerId], references: [users.id] }),
+  copies: many(posts),
+  comments: many(masterPostComments),
+}));
+
+export const masterPostCommentsRelations = relations(masterPostComments, ({ one }) => ({
+  master: one(masterPosts, { fields: [masterPostComments.masterPostId], references: [masterPosts.id] }),
+  user: one(users, { fields: [masterPostComments.userId], references: [users.id] }),
 }));
 
 export const postTargetsRelations = relations(postTargets, ({ one, many }) => ({

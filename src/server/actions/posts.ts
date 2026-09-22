@@ -9,6 +9,7 @@ import {
 import { requireBrandRole, requireUser, can } from "@/lib/auth";
 import { defaultOptions, getPlatform, validateTarget, type MediaItem } from "@/lib/platforms";
 import { publishTarget, markTargetPosted, rollupPostStatus } from "@/server/publish";
+import { syncCopy } from "@/server/masters";
 
 export type TargetInput = {
   channelId: string;
@@ -133,6 +134,10 @@ export async function savePostAction(input: PostInput) {
   for (const [i, mediaId] of input.mediaIds.entries()) {
     await db.insert(attachments).values({ postId, mediaId, position: i });
   }
+
+  // A brand copy: whatever now matches the master is back in step with it,
+  // and master changes to fields this save left alone come through.
+  await syncCopy(postId);
 
   await db.insert(activity).values({
     brandId: input.brandId, actorId: user.id, action: `post.${input.intent}`, entity: "post", entityId: postId,

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Layers } from "lucide-react";
 import { Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { STATUS_META, inZone, truncate } from "@/lib/format";
@@ -31,6 +32,9 @@ export function PostCard({ post, showBrand = true }: { post: PostBundle; showBra
               <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
               {meta.label}
             </Badge>
+            {post.masterPostId && (
+              <Badge><Layers className="size-3" /> From master</Badge>
+            )}
           </div>
 
           <p className="mt-1.5 text-sm font-medium">{post.title || truncate(post.body, 60) || "Untitled"}</p>

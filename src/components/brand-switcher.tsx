@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition, useRef, useEffect } from "react";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Layers, Plus } from "lucide-react";
 import Link from "next/link";
 import { setScopeAction } from "@/server/actions/scope";
 
@@ -11,6 +11,7 @@ export function BrandSwitcher({ brands, value }: { brands: BrandOption[]; value:
   const [pending, start] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
   const active = brands.find((b) => b.id === value);
+  const isMaster = value === "master";
 
   useEffect(() => {
     if (!open) return;
@@ -33,16 +34,29 @@ export function BrandSwitcher({ brands, value }: { brands: BrandOption[]; value:
         className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-2 text-left text-sm hover:bg-surface-2"
         style={{ opacity: pending ? 0.6 : 1 }}
       >
-        <span
-          className="size-5 shrink-0 rounded-md"
-          style={{ background: active?.color ?? "linear-gradient(135deg,#6366f1,#ec4899)" }}
-        />
-        <span className="min-w-0 flex-1 truncate font-medium">{active?.name ?? "All brands"}</span>
+        {isMaster ? (
+          <span className="grid size-5 shrink-0 place-items-center rounded-md bg-text text-surface"><Layers className="size-3" /></span>
+        ) : (
+          <span
+            className="size-5 shrink-0 rounded-md"
+            style={{ background: active?.color ?? "linear-gradient(135deg,#6366f1,#ec4899)" }}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate font-medium">{isMaster ? "Master" : active?.name ?? "All brands"}</span>
         <ChevronsUpDown className="size-4 shrink-0 text-muted" />
       </button>
 
       {open && (
         <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface shadow-lg">
+          <button
+            onClick={() => pick("master")}
+            className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-surface-2"
+            title="The master copies every brand works from"
+          >
+            <span className="grid size-5 place-items-center rounded-md bg-text text-surface"><Layers className="size-3" /></span>
+            <span className="flex-1">Master</span>
+            {isMaster && <Check className="size-4 text-accent" />}
+          </button>
           <button
             onClick={() => pick("all")}
             className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-surface-2"

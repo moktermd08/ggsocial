@@ -9,6 +9,7 @@ import { BrandBook, findBannedWords } from "./brand-book";
 import { quickValidate, type PlatformMeta } from "@/lib/platforms/meta";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { savePostAction, type PostInput } from "@/server/actions/posts";
+import type { MasterValues } from "@/lib/masters";
 import { uploadMediaAction } from "@/server/actions/media";
 import { generateDraftAction } from "@/server/actions/drafting";
 
@@ -40,7 +41,7 @@ export type ComposerPost = {
 type TargetState = { channelId: string; bodyOverride: string | null; firstComment: string; options: Record<string, unknown> };
 
 export function Composer({
-  brands, channelsByBrand, mediaByBrand, platforms, post, initialBrandId, initialDate, canApprove, sidebarExtras,
+  brands, channelsByBrand, mediaByBrand, platforms, post, initialBrandId, initialDate, canApprove, sidebarExtras, master,
 }: {
   brands: ComposerBrand[];
   channelsByBrand: Record<string, ComposerChannel[]>;
@@ -52,6 +53,8 @@ export function Composer({
   canApprove: boolean;
   /** Extra cards for the right column — status and review on the detail page. */
   sidebarExtras?: ReactNode;
+  /** Set when this post is a brand copy: the master values each field follows. */
+  master?: MasterValues;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -88,6 +91,18 @@ export function Composer({
     () => mediaIds.map((id) => library.find((m) => m.id === id)).filter(Boolean) as ComposerMedia[],
     [mediaIds, library],
   );
+
+  // Per-field: does this brand copy still match its master?
+  const tz = brand?.timezone ?? "UTC";
+  const differs = master && {
+    title: title !== master.title,
+    body: body !== master.body,
+    campaign: campaign !== master.campaign,
+    scheduledAt: when !== toLocalInput(master.scheduledAt || null, tz),
+    media: JSON.stringify(mediaIds) !== master.media,
+  };
+  const followTag = (field: keyof NonNullable<typeof differs>, reset: () => void) =>
+    differs ? <MasterTag customised={differs[field]} onReset={reset} /> : null;
 
   const publishedTargets = new Set(post?.targets.filter((t) => t.status === "published").map((t) => t.channelId) ?? []);
 
@@ -268,10 +283,13 @@ export function Composer({
             }
           />
           <div className="space-y-3 p-4">
-            <Field label="Internal title">
+            <Field label={<LabelRow text="Internal title" tag={followTag("title", () => setTitle(master!.title))} />}>
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Launch teaser — week 3" />
             </Field>
-            <Field label="Base copy" hint="Each channel starts from this and can override it.">
+            <Field
+              label={<LabelRow text="Base copy" tag={followTag("body", () => setBody(master!.body))} />}
+              hint={master ? "Starts as the master copy. Rewrite it for this brand; untouched copy keeps following the master." : "Each channel starts from this and can override it."}
+            >
               <textarea rows={7} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What do you want to say?" />
             </Field>
             {draftNote && (
@@ -289,12 +307,12 @@ export function Composer({
             )}
             <div className="flex flex-wrap gap-3">
               <div className="min-w-40 flex-1">
-                <Field label="Campaign (optional)">
+                <Field label={<LabelRow text="Campaign (optional)" tag={followTag("campaign", () => setCampaign(master!.campaign))} />}>
                   <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Q4 launch" />
                 </Field>
               </div>
               <div className="min-w-52 flex-1">
-                <Field label={`Publish at (${brand?.timezone ?? "UTC"})`}>
+                <Field label={<LabelRow text={`Publish at (${tz})`} tag={followTag("scheduledAt", () => setWhen(toLocalInput(master!.scheduledAt || null, tz)))} />}>
                   <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
                 </Field>
               </div>
@@ -305,7 +323,7 @@ export function Composer({
         <Card>
           <CardHeader
             title="Media"
-            subtitle={`${selectedMedia.length} attached`}
+            subtitle={<span className="flex items-center gap-2">{selectedMedia.length} attached {followTag("media", () => setMediaIds(JSON.parse(master!.media)))}</span>}
             action={
               <label className={`${buttonClass("subtle", "sm")} cursor-pointer`}>
                 {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
@@ -591,5 +609,27 @@ export function Composer({
         )}
       </div>
     </div>
+  );
+}
+
+function LabelRow({ text, tag }: { text: string; tag: ReactNode }) {
+  return <span className="flex items-center justify-between gap-2">{text}{tag}</span>;
+}
+
+/** On a brand copy: whether a field follows the master or is this brand's own. */
+function MasterTag({ customised, onReset }: { customised: boolean; onReset: () => void }) {
+  return customised ? (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-normal">
+      <span className="text-accent">Customised</span>
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); onReset(); }}
+        className="text-muted hover:underline"
+      >
+        Reset to master
+      </button>
+    </span>
+  ) : (
+    <span className="text-[11px] font-normal text-muted">From master</span>
   );
 }
