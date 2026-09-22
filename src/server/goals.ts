@@ -720,7 +720,8 @@ export async function getGoalState(goal: Goal, brand: GoalBrand, opts: { grain?:
     if (end < from) return 0;
     if (a.series) {
       const hi = a.series.at(end);
-      const lo = a.series.at(addDays(from, -1));
+      // Counting from the goal's first day: its start level is the baseline, even with no reading the day before.
+      const lo = a.series.at(addDays(from, -1)) ?? (from <= goal.startDate ? start : null);
       return hi === null || lo === null ? null : hi - lo;
     }
     return sumDays(a.daily!, from, end);

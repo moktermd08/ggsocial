@@ -32,7 +32,8 @@ export function AgentAccess({ tokens, appUrl }: { tokens: AgentTokenView[]; appU
   const [name, setName] = useState("Claude");
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const base = `${appUrl.replace(/\/$/, "")}/api/agent/activities`;
+  const root = `${appUrl.replace(/\/$/, "")}/api/agent`;
+  const base = `${root}/activities`;
   const tokenText = fresh?.token ?? "ggs_YOUR_TOKEN";
 
   const instructions = `You help run social media for our brands. Your recurring task list lives in ggsocial.
@@ -51,7 +52,17 @@ Send the header  X-Agent-Token: ${tokenText}  with every request.
    POST ${base}/reviews
    {"brand": "<slug>", "code": "D-02", "decision": "approved" | "rejected", "note": "why"}
 
-Add "date": "YYYY-MM-DD" to target an earlier period. Errors come back as {"error": "…"}.`;
+Add "date": "YYYY-MM-DD" to target an earlier period. Errors come back as {"error": "…"}.
+
+Goals — the targets the activities serve (followers, site visitors, comments, messages, engagement, reach, leads):
+5. GET ${root}/goals
+   Each goal's current value, target and deadline, pace (ahead, on_track, behind, at_risk, no_data), projected hit date, this week's plan per activity (perWeek, checklistTarget, doneThisWeek, expectedByNow, what each unit really brings) and "whereToImprove". Put the activities with the biggest missed impact first.
+   GET ${root}/goals/{id}?grain=weekly adds progress today / this week / month / quarter / year, planned-against-actual history and recent plan changes.
+6. When you can read an account's numbers, log them so the goals steer on facts:
+   POST ${root}/goals/snapshots
+   {"brand": "<slug>", "channel": "instagram" | "<handle>" | "<channel id>", "metric": "followers", "value": 12480}
+   Leave out "channel" for a whole-brand count the app cannot see (e.g. "metric": "site_visitors" from analytics). Send {"snapshots": [ … ]} for several.
+7. After logging fresh numbers you may re-plan a goal: POST ${root}/goals/{id}/recalibrate. Big changes come back "waitingForApproval" — a person approves those in the app; do not try to.`;
 
   function run(work: () => Promise<unknown>) {
     setError(null);
