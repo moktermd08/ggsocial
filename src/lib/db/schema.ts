@@ -614,6 +614,117 @@ export const linkClicks = pgTable("link_clicks", {
   index("link_clicks_visitor_idx").on(t.linkId, t.visitorHash),
 ]);
 
+/* ---------------------------------------------------- recurring activities */
+
+import type {
+  ActivityCategory, Frequency, Performer, ProofKind, LeadImpact, CheckStatus, ReviewStatus, ActorKind,
+} from "../activities/meta";
+
+/**
+ * The master list of recurring social media work: one row per activity, shared
+ * by every brand. Seeded from `src/lib/activities/library.ts` by `code`, then
+ * editable here, so a change to the base template reaches every brand at once.
+ */
+export const activityTemplates = pgTable("activity_templates", {
+  id: id(),
+  /** Permanent, human-readable id — what agents and the API address. */
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  category: text("category").$type<ActivityCategory>().notNull(),
+  frequency: text("frequency").$type<Frequency>().notNull(),
+  /** Empty = every platform the brand is on. Otherwise extra work only where these exist. */
+  platforms: jsonb("platforms").$type<string[]>().notNull().default([]),
+  target: integer("target").notNull().default(1),
+  unit: text("unit").notNull().default("time"),
+  proof: text("proof").$type<ProofKind>().notNull().default("note"),
+  performer: text("performer").$type<Performer>().notNull().default("human"),
+  leadImpact: text("lead_impact").$type<LeadImpact>().notNull().default("medium"),
+  estMinutes: integer("est_minutes").notNull().default(15),
+  sortOrder: integer("sort_order").notNull().default(0),
+  /** False for rows that came from the built-in library. */
+  isCustom: boolean("is_custom").notNull().default(false),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("activity_templates_code_idx").on(t.code)]);
+
+/**
+ * Where one brand's action plan departs from the master: an activity switched
+ * off (or a platform-specific one switched on without the channel), or a
+ * different target. No row = the master applies as-is.
+ */
+export const brandActivitySettings = pgTable("brand_activity_settings", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  templateId: text("template_id").notNull().references(() => activityTemplates.id, { onDelete: "cascade" }),
+  /** null = follow the default (on, or on where the brand has the platform). */
+  enabled: boolean("enabled"),
+  target: integer("target"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("brand_activity_settings_idx").on(t.brandId, t.templateId)]);
+
+/**
+ * The tick in the box: one activity, for one brand, in one period — who did
+ * it, the proof, and who checked it. No row means not done yet; once the
+ * period is over, that reads as missed.
+ */
+export const activityChecks = pgTable("activity_checks", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  templateId: text("template_id").notNull().references(() => activityTemplates.id, { onDelete: "cascade" }),
+  /** See `periodFor` — "2026-09-22", "2026-W39", "2026-Q3"… */
+  periodKey: text("period_key").notNull(),
+  periodStart: date("period_start", { mode: "string" }).notNull(),
+  periodEnd: date("period_end", { mode: "string" }).notNull(),
+
+  status: text("status").$type<CheckStatus>().notNull().default("done"),
+  /** How many were actually done, against the activity's target. */
+  count: integer("count"),
+  proofUrl: text("proof_url"),
+  notes: text("notes"),
+
+  /* Who did it: a signed-in person, or a named AI agent. */
+  doneByKind: text("done_by_kind").$type<ActorKind>().notNull().default("human"),
+  doneByName: text("done_by_name"),
+  doneByUserId: text("done_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  doneAt: timestamp("done_at", { withTimezone: true }).notNull().defaultNow(),
+
+  /* The second pair of eyes — also a person or an agent. */
+  reviewStatus: text("review_status").$type<ReviewStatus>(),
+  reviewNote: text("review_note"),
+  reviewerKind: text("reviewer_kind").$type<ActorKind>(),
+  reviewerName: text("reviewer_name"),
+  reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+
+  source: text("source").$type<"app" | "api">().notNull().default("app"),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("activity_checks_unique_idx").on(t.brandId, t.templateId, t.periodKey),
+  index("activity_checks_period_idx").on(t.brandId, t.periodStart),
+]);
+
+/**
+ * A bearer token that lets an AI agent (Claude, ChatGPT, a script) read the
+ * checklists and record or review work. It acts as the person who created it,
+ * so it reaches exactly the brands they can. Only a hash is stored.
+ */
+export const agentTokens = pgTable("agent_tokens", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Recorded as "done by" on everything the token does, e.g. "Claude". */
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  /** The first characters, so a person can tell tokens apart without the secret. */
+  prefix: text("prefix").notNull(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: now(),
+}, (t) => [uniqueIndex("agent_tokens_hash_idx").on(t.tokenHash), index("agent_tokens_user_idx").on(t.userId)]);
+
 /* ------------------------------------------------------- review & activity */
 
 export const comments = pgTable("comments", {

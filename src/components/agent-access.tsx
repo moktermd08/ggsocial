@@ -1,0 +1,128 @@
+"use client";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Bot, Check, Copy, KeyRound, Trash2 } from "lucide-react";
+import { Button, Card, CardHeader, Field } from "./ui";
+import { relativeTime } from "@/lib/format";
+import { AGENT_SUGGESTIONS } from "@/lib/activities/meta";
+import { createAgentTokenAction, revokeAgentTokenAction } from "@/server/actions/activities";
+
+export type AgentTokenView = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; revoked: boolean };
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button size="sm" onClick={async () => {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }}>
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {copied ? "Copied" : label}
+    </Button>
+  );
+}
+
+/**
+ * Tokens that let AI agents work the checklists — do tasks, tick them off,
+ * and review each other's (or people's) work — plus the instructions to give them.
+ */
+export function AgentAccess({ tokens, appUrl }: { tokens: AgentTokenView[]; appUrl: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [name, setName] = useState("Claude");
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const base = `${appUrl.replace(/\/$/, "")}/api/agent/activities`;
+  const tokenText = fresh?.token ?? "ggs_YOUR_TOKEN";
+
+  const instructions = `You help run social media for our brands. Your recurring task list lives in ggsocial.
+
+API base: ${base}
+Send the header  X-Agent-Token: ${tokenText}  with every request.
+
+1. GET ${base}?open=1
+   Lists every brand you can work on and, for each frequency (daily, every_2_days, weekly, monthly, quarterly, half_yearly, yearly), the activities still open in the current period. Each activity has a code, title, description (how to do it), target, unit, proof, and a per-brand status.
+2. Do the activities you are able to do (performer "ai" or "either" first). Never post, message or change a profile without the access and approval you have been given; when you can only draft, put the draft in "notes" and use status "partial".
+3. Record each one:
+   POST ${base}/checks
+   {"brand": "<slug or all>", "code": "D-02", "status": "done" | "partial" | "skipped", "count": 12, "proofUrl": "https://…", "notes": "what you did"}
+   Send {"checks": [ … ]} to record several at once. "brand": "all" records it for every brand.
+4. If asked to review work, check the proof against the description and target, then:
+   POST ${base}/reviews
+   {"brand": "<slug>", "code": "D-02", "decision": "approved" | "rejected", "note": "why"}
+
+Add "date": "YYYY-MM-DD" to target an earlier period. Errors come back as {"error": "…"}.`;
+
+  function run(work: () => Promise<unknown>) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await work();
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "That did not go through.");
+      }
+    });
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
+      <div className="space-y-4">
+        <Card>
+          <CardHeader icon={KeyRound} title="Agent tokens" subtitle="Each token acts as you, on the brands you can edit. Its name is recorded as who did the work." />
+          <div className="space-y-3 p-4">
+            <div className="flex items-end gap-2">
+              <Field label="Agent name">
+                <input list="agent-token-names" value={name} onChange={(e) => setName(e.target.value)} />
+              </Field>
+              <datalist id="agent-token-names">{AGENT_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
+              <Button variant="primary" disabled={pending || !name.trim()} onClick={() => run(async () => {
+                const created = await createAgentTokenAction(name);
+                setFresh({ name, token: created.token });
+              })}>
+                Create token
+              </Button>
+            </div>
+            {fresh && (
+              <div className="space-y-2 rounded-lg border border-ok/30 bg-ok/10 p-3">
+                <p className="text-xs font-medium text-ok">Token for {fresh.name} — copy it now. It will not be shown again.</p>
+                <code className="block break-all rounded bg-surface px-2 py-1.5 font-mono text-xs">{fresh.token}</code>
+                <CopyButton text={fresh.token} label="Copy token" />
+              </div>
+            )}
+            {error && <p className="text-sm text-danger">{error}</p>}
+            <ul className="divide-y divide-border">
+              {tokens.length === 0 && <li className="py-3 text-sm text-muted">No tokens yet.</li>}
+              {tokens.map((t) => (
+                <li key={t.id} className={`flex items-center gap-3 py-2.5 ${t.revoked ? "opacity-50" : ""}`}>
+                  <Bot className="size-4 shrink-0 text-muted" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{t.name} <span className="font-mono text-[11px] font-normal text-muted">{t.prefix}…</span></p>
+                    <p className="text-[11px] text-muted">
+                      Created {relativeTime(t.createdAt)} · {t.revoked ? "revoked" : t.lastUsedAt ? `last used ${relativeTime(t.lastUsedAt)}` : "never used"}
+                    </p>
+                  </div>
+                  {!t.revoked && (
+                    <Button size="sm" variant="ghost" aria-label={`Revoke ${t.name}`} disabled={pending} onClick={() => run(() => revokeAgentTokenAction(t.id))}>
+                      <Trash2 className="size-3.5" /> Revoke
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader
+          icon={Bot}
+          title="Instructions for the agent"
+          subtitle="Paste this into Claude (a project, a skill or a scheduled task) or any agent that can make HTTP requests."
+          action={<CopyButton text={instructions} />}
+        />
+        <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-text">{instructions}</pre>
+      </Card>
+    </div>
+  );
+}

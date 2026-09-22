@@ -126,6 +126,21 @@ That makes uploaded files readable by anyone who has the (unguessable) URL. If
 that is not acceptable for a client's unreleased content, move media to S3
 (`MEDIA_DRIVER=s3`) and keep the app itself behind basic auth.
 
+## Before giving an AI agent a token
+
+The activity checklists have an API for agents (Claude, ChatGPT, scripts) at
+`/api/agent/activities`, issued from **Activities → AI agents**. Basic auth
+already occupies the `Authorization` header, so agents send their token as
+`X-Agent-Token: ggs_…`. Either give the agent the basic-auth login as well, or
+let the agent API past the wall — every route under it rejects requests
+without a valid, unrevoked token:
+
+```apache
+<Location /api/agent/>
+    Require all granted
+</Location>
+```
+
 ## Operating notes
 
 - Logs: `pm2 logs ggsocial-web`, `pm2 logs ggsocial-scheduler`,
