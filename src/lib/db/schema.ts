@@ -283,6 +283,38 @@ export const contentIdeas = pgTable("content_ideas", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("content_ideas_owner_idx").on(t.ownerId, t.sequence)]);
 
+/**
+ * One brand's version of an idea, made when the brand adapts it: its own
+ * framing of the three beats, type, tone, hashtags and target, plus an angle
+ * and notes only it has. Fields it has not changed follow the idea, the same
+ * way master posts work (see `src/lib/ideas.ts`). No row = the brand tells
+ * the idea exactly as written.
+ */
+export const ideaVersions = pgTable("idea_brand_versions", {
+  id: id(),
+  ideaId: text("idea_id").notNull().references(() => contentIdeas.id, { onDelete: "cascade" }),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  masterSnapshot: jsonb("master_snapshot").$type<Record<string, string>>().notNull().default({}),
+
+  title: text("title").notNull().default(""),
+  problem: text("problem").notNull(),
+  action: text("action"),
+  outcome: text("outcome"),
+  postType: text("post_type"),
+  tone: text("tone"),
+  hashtags: jsonb("hashtags").$type<string[]>().notNull().default([]),
+  targetImpressions: integer("target_impressions"),
+
+  /** How this brand tells it — the angle a writer or Claude should take. Never inherited. */
+  angle: text("angle"),
+  notes: text("notes"),
+  /** This brand sits this idea out: fan-out leaves its lane empty. */
+  skipped: boolean("skipped").notNull().default(false),
+
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("idea_brand_versions_idx").on(t.ideaId, t.brandId)]);
+
 /* -------------------------------------------------------------------- posts */
 
 export const POST_STATUSES = [

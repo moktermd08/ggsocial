@@ -1,7 +1,9 @@
 "use server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { db, contentIdeas, posts, activity, brands, type IdeaStatus } from "@/lib/db";
+import { db, contentIdeas, ideaVersions, posts, activity, brands, type IdeaStatus } from "@/lib/db";
+import { ideaColumns, ideaValues, type IdeaField, type IdeaValues } from "@/lib/ideas";
+import { ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/server/ideas";
 import { requireUser, requireBrandRole, getMembership, can } from "@/lib/auth";
 
 export type IdeaInput = {
@@ -57,6 +59,8 @@ export async function saveIdeaAction(input: IdeaInput) {
   if (ideaId) {
     await requireOwnIdea(ideaId);
     await db.update(contentIdeas).set(fields).where(eq(contentIdeas.id, ideaId));
+    // Brand versions pick up changes to whatever they have not adapted.
+    await syncIdeaVersions(ideaId);
   } else {
     // New ideas land at the bottom of the plan rather than renumbering it.
     const [{ next }] = await db
@@ -114,16 +118,21 @@ export async function fanOutIdeaAction(ideaId: string, brandIds: string[]) {
     if (already.has(brand.id)) { skipped.push(brand.name); continue; }
     const membership = await getMembership(user.id, brand.id);
     if (!membership || !can.edit(membership.role)) { skipped.push(brand.name); continue; }
+    // Each brand's draft starts from its own version of the idea; a brand
+    // that sits this one out gets no draft.
+    const told = await ideaForBrand(idea.id, brand.id);
+    if (!told || told.skipped) { skipped.push(brand.name); continue; }
+    const mine = told.idea;
 
     const [row] = await db.insert(posts).values({
       brandId: brand.id,
       ideaId: idea.id,
-      title: idea.title || idea.problem,
-      body: scaffold(idea, brand),
+      title: mine.title || mine.problem,
+      body: scaffold(mine, brand),
       status: "draft",
-      postType: idea.postType,
-      tone: idea.tone,
-      targetImpressions: idea.targetImpressions,
+      postType: mine.postType,
+      tone: mine.tone,
+      targetImpressions: mine.targetImpressions,
       createdBy: user.id,
     }).returning({ id: posts.id });
     created.push(row.id);
@@ -169,4 +178,66 @@ export async function updatePostPlanAction(input: {
 
   revalidatePath("/ideas");
   revalidatePath(`/posts/${input.postId}`);
+}
+
+/* ------------------------------------------------------- brand versions */
+
+/**
+ * Saves one brand's version of an idea, creating it on first change. Only the
+ * fields passed are written; everything else keeps following the idea.
+ */
+export async function saveIdeaVersionAction(input: {
+  ideaId: string;
+  brandId: string;
+  values?: Partial<IdeaValues>;
+  angle?: string | null;
+  notes?: string | null;
+  skipped?: boolean;
+}) {
+  const { idea } = await requireOwnIdea(input.ideaId);
+  await requireBrandRole(input.brandId, "editor");
+
+  let version = await db.query.ideaVersions.findFirst({
+    where: and(eq(ideaVersions.ideaId, idea.id), eq(ideaVersions.brandId, input.brandId)),
+  });
+  if (!version) {
+    const base = ideaValues(idea);
+    [version] = await db.insert(ideaVersions).values({
+      ideaId: idea.id, brandId: input.brandId, masterSnapshot: base,
+      ...ideaColumns(base), problem: idea.problem,
+    }).returning();
+  }
+
+  const values = input.values ?? {};
+  if (values.problem !== undefined && !values.problem.trim()) throw new Error("The problem line cannot be empty.");
+  await db.update(ideaVersions).set({
+    ...ideaColumns(values),
+    ...(input.angle !== undefined ? { angle: input.angle?.trim() || null } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+    ...(input.skipped !== undefined ? { skipped: input.skipped } : {}),
+    updatedAt: new Date(),
+  }).where(eq(ideaVersions.id, version.id));
+  await syncIdeaVersion(version.id);
+  revalidatePath("/ideas");
+}
+
+async function requireOwnVersion(versionId: string) {
+  const version = await db.query.ideaVersions.findFirst({ where: eq(ideaVersions.id, versionId) });
+  if (!version) throw new Error("That version no longer exists.");
+  await requireOwnIdea(version.ideaId);
+  await requireBrandRole(version.brandId, "editor");
+  return version;
+}
+
+export async function resolveIdeaFieldAction(versionId: string, field: IdeaField, choice: "accept" | "keep") {
+  await requireOwnVersion(versionId);
+  await syncIdeaVersion(versionId, choice === "accept" ? { accept: [field] } : { keep: [field] });
+  revalidatePath("/ideas");
+}
+
+/** Drops the brand's version: it tells the idea exactly as written again. */
+export async function resetIdeaVersionAction(versionId: string) {
+  await requireOwnVersion(versionId);
+  await db.delete(ideaVersions).where(eq(ideaVersions.id, versionId));
+  revalidatePath("/ideas");
 }

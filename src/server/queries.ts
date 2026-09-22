@@ -4,6 +4,8 @@ import {
   db, posts, postTargets, channels, brands, media, attachments, comments, users, memberships, metrics,
   contentIdeas, interactions, links, linkClicks, OPEN_INTERACTION_STATUSES,
 } from "@/lib/db";
+import { ideaVersionViews } from "./ideas";
+import type { IdeaVersionView } from "@/lib/ideas";
 import type {
   PostStatus, InteractionDirection, InteractionKind, InteractionStatus,
 } from "@/lib/db";
@@ -256,6 +258,8 @@ export type IdeaLane = {
   commentCount: number;
   /** Minutes between publishing and the author getting back to the comments. */
   replyMinutes: number | null;
+  /** This brand's adapted version of the idea. null = it tells the idea as written. */
+  version: IdeaVersionView | null;
 };
 
 export type IdeaBoardRow = IdeaRow & {
@@ -310,6 +314,7 @@ export async function getIdeaBoard(ownerId: string, brandIds: string[]): Promise
       : [],
     getClicksByIdea(brandIds),
   ]);
+  const versions = await ideaVersionViews(ideaRows, brandRows.map((b) => b.id));
 
   // One snapshot per target — the newest, since metrics are append-only.
   const latestByTarget = new Map<string, typeof metrics.$inferSelect>();
@@ -321,14 +326,16 @@ export async function getIdeaBoard(ownerId: string, brandIds: string[]): Promise
   return ideaRows.map((idea) => {
     const lanes: IdeaLane[] = brandRows.map((brand) => {
       const post = postByIdeaBrand.get(`${idea.id}:${brand.id}`) ?? null;
+      const version = versions.get(`${idea.id}:${brand.id}`) ?? null;
       if (!post) {
-        return { brand, post: null, channels: [], mediaCount: 0, hasAuthorComment: false, impressions: 0, commentCount: 0, replyMinutes: null };
+        return { brand, post: null, version, channels: [], mediaCount: 0, hasAuthorComment: false, impressions: 0, commentCount: 0, replyMinutes: null };
       }
       const mine = targetRows.filter((t) => t.target.postId === post.id);
       const snaps = mine.map((t) => latestByTarget.get(t.target.id)).filter(Boolean) as (typeof metrics.$inferSelect)[];
       return {
         brand,
         post,
+        version,
         channels: mine.map((t) => t.channel),
         mediaCount: mediaCountByPost.get(post.id) ?? 0,
         hasAuthorComment: mine.some((t) => Boolean(t.target.firstComment?.trim())),

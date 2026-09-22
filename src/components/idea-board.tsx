@@ -8,7 +8,11 @@ import { PlatformIcon } from "./platform-icon";
 import { STATUS_META, inZone } from "@/lib/format";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { IDEA_STATUSES, type IdeaStatus } from "@/lib/db/idea-status";
-import { saveIdeaAction, fanOutIdeaAction, type IdeaInput } from "@/server/actions/ideas";
+import {
+  saveIdeaAction, fanOutIdeaAction, saveIdeaVersionAction, resolveIdeaFieldAction, resetIdeaVersionAction, type IdeaInput,
+} from "@/server/actions/ideas";
+import { IDEA_FIELD_LABELS, ideaValues, readableIdeaValue, type IdeaField, type IdeaValues } from "@/lib/ideas";
+import { LabelRow, MasterTag } from "./master-panels";
 import { draftPostAction, draftingStatusAction } from "@/server/actions/drafting";
 import type { IdeaBoardRow } from "@/server/queries";
 
@@ -39,7 +43,12 @@ function draftOf(row: IdeaBoardRow): Draft {
  * date, channels, impressions — is read back from the post that idea spawned,
  * so the plan cannot drift from what actually shipped.
  */
-export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLabel: string | null }) {
+export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
+  rows: IdeaBoardRow[];
+  scopeLabel: string | null;
+  /** One brand in view: rows show that brand's version of each idea, and edits go to it. */
+  brandScope?: { id: string; name: string } | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +84,7 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
 
   const lanes = rows[0]?.lanes ?? [];
   const selectedRows = visible.filter((r) => selected.has(r.id));
-  const draftsToCreate = selectedRows.reduce((n, r) => n + r.lanes.filter((l) => !l.post).length, 0);
+  const draftsToCreate = selectedRows.reduce((n, r) => n + r.lanes.filter((l) => !l.post && !l.version?.skipped).length, 0);
 
   function patch(row: IdeaBoardRow, change: Partial<Draft>) {
     const next = { ...current(row), ...change };
@@ -95,6 +104,15 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
         setError(e instanceof Error ? e.message : "Could not save that change.");
         setDrafts((d) => ({ ...d, [row.id]: draftOf(row) }));
       }
+    });
+  }
+
+  /** Runs a brand-version change, then re-reads the board. */
+  function runVersion(fn: () => Promise<unknown>) {
+    setError(null);
+    startTransition(async () => {
+      try { await fn(); router.refresh(); }
+      catch (e) { setError(e instanceof Error ? e.message : "Could not save that change."); }
     });
   }
 
@@ -299,6 +317,10 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
                   onToggle={() => setOpen(isOpen ? null : row.id)}
                   onPatch={(change) => patch(row, change)}
                   onFanOut={(withClaude) => fanOut([row.id], withClaude)}
+                  brandScope={brandScope}
+                  onVersion={(change) => runVersion(() => saveIdeaVersionAction({ ideaId: row.id, brandId: brandScope!.id, ...change }))}
+                  onResolve={(versionId, field, choice) => runVersion(() => resolveIdeaFieldAction(versionId, field, choice))}
+                  onReset={(versionId) => runVersion(() => resetIdeaVersionAction(versionId))}
                 />
               );
             })}
@@ -334,8 +356,11 @@ export function IdeaBoard({ rows, scopeLabel }: { rows: IdeaBoardRow[]; scopeLab
   );
 }
 
+type VersionChange = { values?: Partial<IdeaValues>; angle?: string | null; notes?: string | null; skipped?: boolean };
+
 function IdeaRow({
   row, draft, open, pending, checked, onCheck, onToggle, onPatch, onFanOut,
+  brandScope, onVersion, onResolve, onReset,
 }: {
   row: IdeaBoardRow;
   draft: Draft;
@@ -346,9 +371,36 @@ function IdeaRow({
   onToggle: () => void;
   onPatch: (change: Partial<Draft>) => void;
   onFanOut: (withClaude: boolean) => void;
+  brandScope: { id: string; name: string } | null;
+  onVersion: (change: VersionChange) => void;
+  onResolve: (versionId: string, field: IdeaField, choice: "accept" | "keep") => void;
+  onReset: (versionId: string) => void;
 }) {
   const meta = IDEA_STATUS_META[draft.status];
-  const missingLanes = row.lanes.filter((l) => !l.post).length;
+  const missingLanes = row.lanes.filter((l) => !l.post && !l.version?.skipped).length;
+
+  // With one brand in view, the row is that brand's version of the idea.
+  const version = brandScope ? row.lanes[0]?.version ?? null : null;
+  const shown = version?.values ?? null;
+  const told = {
+    title: shown ? shown.title : draft.title,
+    problem: shown ? shown.problem : row.problem,
+    action: shown ? shown.action || null : row.action,
+    outcome: shown ? shown.outcome || null : row.outcome,
+    postType: shown ? shown.postType || null : draft.postType,
+    tone: shown ? shown.tone || null : draft.tone,
+    targetImpressions: shown ? (shown.targetImpressions === "" ? null : Number(shown.targetImpressions)) : draft.targetImpressions,
+  };
+  /** In brand view these cells edit the brand's version; otherwise the idea itself. */
+  const commit = (field: "postType" | "tone" | "targetImpressions", value: string) => {
+    if (brandScope) {
+      onVersion({ values: { [field]: field === "targetImpressions" ? value.replace(/\D/g, "") : value } });
+    } else if (field === "targetImpressions") {
+      onPatch({ targetImpressions: value.trim() === "" ? null : Number(value.replace(/\D/g, "")) || null });
+    } else {
+      onPatch({ [field]: value || null });
+    }
+  };
 
   return (
     <>
@@ -369,14 +421,23 @@ function IdeaRow({
             <span className="min-w-0">
               <span className="block truncate font-medium leading-tight">
                 <span className="mr-1.5 tabular-nums text-muted">{row.sequence}</span>
-                {draft.title || row.problem}
+                {told.title || told.problem}
               </span>
-              {row.action && (
+              {told.action && (
                 <span className="mt-0.5 line-clamp-1 block text-xs leading-tight text-muted">
-                  {row.action}{row.outcome ? ` → ${row.outcome}` : ""}
+                  {told.action}{told.outcome ? ` → ${told.outcome}` : ""}
                 </span>
               )}
               <span className="mt-1 flex flex-wrap items-center gap-1">
+                {version?.skipped && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">Skipped by {brandScope?.name}</span>
+                )}
+                {version && version.customised.length > 0 && (
+                  <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">Adapted for {brandScope?.name}</span>
+                )}
+                {version && version.pending.length > 0 && (
+                  <span className="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">Idea changed</span>
+                )}
                 {row.pillar && (
                   <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{row.pillar}</span>
                 )}
@@ -403,10 +464,10 @@ function IdeaRow({
         </td>
 
         <td className="px-2 py-2">
-          <CellInput value={draft.postType ?? ""} placeholder="—" onCommit={(v) => onPatch({ postType: v || null })} />
+          <CellInput value={told.postType ?? ""} placeholder="—" onCommit={(v) => commit("postType", v)} />
         </td>
         <td className="px-2 py-2">
-          <CellInput value={draft.tone ?? ""} placeholder="—" onCommit={(v) => onPatch({ tone: v || null })} />
+          <CellInput value={told.tone ?? ""} placeholder="—" onCommit={(v) => commit("tone", v)} />
         </td>
 
         {row.lanes.map((lane) => (
@@ -417,11 +478,11 @@ function IdeaRow({
 
         <td className="px-2 py-2 text-right">
           <CellInput
-            value={draft.targetImpressions == null ? "" : String(draft.targetImpressions)}
+            value={told.targetImpressions == null ? "" : String(told.targetImpressions)}
             placeholder="—"
             align="right"
             inputMode="numeric"
-            onCommit={(v) => onPatch({ targetImpressions: v.trim() === "" ? null : Number(v.replace(/\D/g, "")) || null })}
+            onCommit={(v) => commit("targetImpressions", v)}
           />
         </td>
         <td className="px-2 py-2 text-right tabular-nums">
@@ -435,7 +496,25 @@ function IdeaRow({
         </td>
       </tr>
 
-      {open && (
+      {open && brandScope && (
+        <tr className="border-b border-border bg-surface-2">
+          <td />
+          <td colSpan={99} className="px-2 py-3">
+            <BrandVersionEditor
+              key={version ? JSON.stringify(version) : "none"}
+              brandName={brandScope.name}
+              master={ideaValues({ ...row, title: draft.title })}
+              version={version}
+              pending={pending}
+              onSave={onVersion}
+              onResolve={onResolve}
+              onReset={onReset}
+            />
+          </td>
+        </tr>
+      )}
+
+      {open && !brandScope && (
         <tr className="border-b border-border bg-surface-2">
           <td />
           <td colSpan={99} className="px-2 py-3">
@@ -510,12 +589,21 @@ function IdeaRow({
 
 /** A lane: this brand's post for this idea, or the button that creates it. */
 function LaneCell({ lane }: { lane: IdeaBoardRow["lanes"][number] }) {
+  const v = lane.version;
+  const marker = v?.skipped ? (
+    <span className="block text-[10px] font-medium text-muted">Skipped</span>
+  ) : v && v.pending.length > 0 ? (
+    <span className="block text-[10px] font-medium text-warn" title="The idea changed since this brand adapted it">Idea changed</span>
+  ) : v && (v.customised.length > 0 || v.angle) ? (
+    <span className="block text-[10px] font-medium text-accent" title="This brand has its own version of the idea">Adapted</span>
+  ) : null;
   if (!lane.post) {
-    return <span className="text-xs text-muted">—</span>;
+    return marker ?? <span className="text-xs text-muted">—</span>;
   }
   const meta = STATUS_META[lane.post.status];
   return (
     <Link href={`/posts/${lane.post.id}`} className="block space-y-1 rounded-md p-1 hover:bg-surface">
+      {marker}
       <span
         className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
         style={{ borderColor: tintedBorder(meta.color), background: tintedSurface(meta.color), color: tintedInk(meta.color) }}
@@ -563,5 +651,140 @@ function CellInput({
         align === "right" ? "text-right" : ""
       }`}
     />
+  );
+}
+
+/**
+ * One brand's version of an idea. Every field starts as the idea's and is
+ * marked "From master" until the brand changes it; the angle and notes are the
+ * brand's alone. Fan-out and Claude write this brand's draft from what is here.
+ */
+function BrandVersionEditor({
+  brandName, master, version, pending, onSave, onResolve, onReset,
+}: {
+  brandName: string;
+  master: IdeaValues;
+  version: IdeaBoardRow["lanes"][number]["version"];
+  pending: boolean;
+  onSave: (change: VersionChange) => void;
+  onResolve: (versionId: string, field: IdeaField, choice: "accept" | "keep") => void;
+  onReset: (versionId: string) => void;
+}) {
+  const start = version?.values ?? master;
+  const [values, setValues] = useState<IdeaValues>(start);
+  const [hashtags, setHashtags] = useState((JSON.parse(start.hashtags) as string[]).join(" "));
+  const [angle, setAngle] = useState(version?.angle ?? "");
+  const [notes, setNotes] = useState(version?.notes ?? "");
+
+  const current: IdeaValues = {
+    ...values,
+    hashtags: JSON.stringify(hashtags.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`))),
+  };
+  const set = (f: IdeaField, v: string) => setValues((prev) => ({ ...prev, [f]: v }));
+  const tag = (f: IdeaField) => (
+    <MasterTag
+      customised={current[f] !== master[f]}
+      onReset={() => (f === "hashtags" ? setHashtags((JSON.parse(master.hashtags) as string[]).join(" ")) : set(f, master[f]))}
+    />
+  );
+  const field = (f: IdeaField, opts: { rows?: number; numeric?: boolean } = {}) => (
+    <Field label={<LabelRow text={IDEA_FIELD_LABELS[f]} tag={tag(f)} />}>
+      {opts.rows ? (
+        <textarea rows={opts.rows} value={values[f]} onChange={(e) => set(f, e.target.value)} className="!py-1 !text-sm" />
+      ) : (
+        <input
+          value={values[f]}
+          inputMode={opts.numeric ? "numeric" : undefined}
+          onChange={(e) => set(f, opts.numeric ? e.target.value.replace(/\D/g, "") : e.target.value)}
+          className="!py-1 !text-sm"
+        />
+      )}
+    </Field>
+  );
+
+  const changed = (Object.keys(current) as IdeaField[]).filter((f) => current[f] !== start[f]);
+
+  return (
+    <div className="space-y-3 pr-4">
+      <p className="text-xs text-muted">
+        <span className="font-medium text-text">{brandName}&apos;s version.</span>{" "}
+        {version
+          ? "Fields marked “From master” still follow the idea; change one to make it this brand's own."
+          : "This brand tells the idea exactly as written. Change anything below to adapt it."}
+        {" "}Fan-out and Claude write this brand&apos;s draft from what is here.
+      </p>
+
+      {version && version.pending.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-warn/40 bg-warn/10 p-2.5">
+          <p className="text-xs font-medium text-warn">The idea has changed since {brandName} adapted it</p>
+          {version.pending.map((f) => (
+            <div key={f} className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium">{IDEA_FIELD_LABELS[f]}:</span>
+              <span className="min-w-0 flex-1 truncate text-muted">{readableIdeaValue(f, master[f]) || "(empty)"}</span>
+              <button type="button" disabled={pending} onClick={() => onResolve(version.id, f, "accept")} className={buttonClass("primary", "sm")}>Use master</button>
+              <button type="button" disabled={pending} onClick={() => onResolve(version.id, f, "keep")} className={buttonClass("subtle", "sm")}>Keep ours</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="sm:col-span-2">{field("problem", { rows: 2 })}</div>
+        <div className="sm:col-span-2">{field("title")}</div>
+        <div className="sm:col-span-2">{field("action", { rows: 2 })}</div>
+        <div className="sm:col-span-2">{field("outcome", { rows: 2 })}</div>
+        {field("postType")}
+        {field("tone")}
+        {field("targetImpressions", { numeric: true })}
+        <Field label={<LabelRow text={IDEA_FIELD_LABELS.hashtags} tag={tag("hashtags")} />}>
+          <input value={hashtags} onChange={(e) => setHashtags(e.target.value)} className="!py-1 !text-sm" />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Angle for this brand" hint="How this brand tells it. Claude reads this when drafting.">
+            <textarea rows={2} value={angle} onChange={(e) => setAngle(e.target.value)} className="!py-1 !text-sm"
+              placeholder="Tell it as the agency that fixed it, not the tool." />
+          </Field>
+        </div>
+        <div className="sm:col-span-2">
+          <Field label="Notes for this brand">
+            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="!py-1 !text-sm" />
+          </Field>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={pending || (changed.length === 0 && angle === (version?.angle ?? "") && notes === (version?.notes ?? ""))}
+          onClick={() => onSave({
+            values: Object.fromEntries(changed.map((f) => [f, current[f]])) as Partial<IdeaValues>,
+            angle, notes,
+          })}
+          className={buttonClass("primary", "sm")}
+        >
+          Save {brandName}&apos;s version
+        </button>
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={version?.skipped ?? false}
+            disabled={pending}
+            onChange={(e) => onSave({ skipped: e.target.checked })}
+            className="!w-auto"
+          />
+          {brandName} skips this idea
+        </label>
+        {version && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => { if (confirm(`Drop ${brandName}'s version and tell the idea exactly as written?`)) onReset(version.id); }}
+            className={buttonClass("ghost", "sm")}
+          >
+            Reset to master
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

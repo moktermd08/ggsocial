@@ -1,7 +1,8 @@
 "use server";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { db, brands, channels, contentIdeas, links, posts, postTargets, activity } from "@/lib/db";
+import { db, brands, channels, links, posts, postTargets, activity } from "@/lib/db";
+import { ideaForBrand } from "@/server/ideas";
 import { requireBrandRole, can } from "@/lib/auth";
 import { platformOrNull } from "@/lib/platforms";
 import { shortUrl } from "@/lib/links";
@@ -75,9 +76,8 @@ export async function generateDraftAction(input: {
     const brand = await db.query.brands.findFirst({ where: eq(brands.id, input.brandId) });
     if (!brand) return { ok: false, error: "Brand not found." };
 
-    const idea = input.ideaId
-      ? (await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, input.ideaId) })) ?? null
-      : null;
+    // The idea as this brand tells it, angle included.
+    const idea = input.ideaId ? (await ideaForBrand(input.ideaId, input.brandId))?.idea ?? null : null;
 
     if (!idea && !input.title.trim() && !input.body.trim()) {
       return { ok: false, error: "Give Claude something to work from — a title or a line of copy." };
@@ -110,9 +110,7 @@ export async function draftPostAction(postId: string): Promise<DraftResponse> {
 
     const brand = await db.query.brands.findFirst({ where: eq(brands.id, post.brandId) });
     if (!brand) return { ok: false, error: "Brand not found." };
-    const idea = post.ideaId
-      ? (await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, post.ideaId) })) ?? null
-      : null;
+    const idea = post.ideaId ? (await ideaForBrand(post.ideaId, post.brandId))?.idea ?? null : null;
 
     const targets = await db.select().from(postTargets).where(eq(postTargets.postId, post.id));
     const draftChannels = await loadChannels(post.brandId, targets.map((t) => t.channelId), post.id);

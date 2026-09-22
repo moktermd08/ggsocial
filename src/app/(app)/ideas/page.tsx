@@ -18,7 +18,7 @@ export default async function IdeasPage() {
     <>
       <PageHeader
         icon={Lightbulb}
-        title="Content plan"
+        title={scope.activeBrand ? `Content plan · ${scope.activeBrand.name}` : "Content plan"}
         subtitle={
           rows.length === 0
             ? "One idea, told once per brand."
@@ -26,7 +26,11 @@ export default async function IdeasPage() {
         }
       />
 
-      <IdeaBoard rows={rows} scopeLabel={scope.activeBrand?.name ?? null} />
+      <IdeaBoard
+        rows={rows}
+        scopeLabel={scope.activeBrand?.name ?? null}
+        brandScope={scope.activeBrand ? { id: scope.activeBrand.id, name: scope.activeBrand.name } : null}
+      />
     </>
   );
 }
