@@ -4,7 +4,7 @@ import net from "node:net";
 import { and, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, activityChecks, activityTemplates, brandActivitySettings, brands, channels, PAGE_STATUSES } from "@/lib/db";
 import { periodFor, todayIn } from "@/lib/activities/periods";
-import { platformOrNull } from "@/lib/platforms";
+import { hasPublicPage, platformOrNull } from "@/lib/platforms";
 import { ensureActivityLibrary, recordChecks, type Actor } from "@/server/activities";
 
 /**
@@ -195,7 +195,9 @@ export async function recordPageChecks(brandIds: string[]) {
   let recorded = 0;
   for (const brand of brandRows) {
     if (settings.find((s) => s.brandId === brand.id)?.enabled === false) continue;
-    const list = channelRows.filter((c) => c.brandId === brand.id);
+    // Senders and inboxes have no page to visit, so they are not part of this check at all.
+    const list = channelRows.filter((c) => c.brandId === brand.id && hasPublicPage(c.platform));
+    if (list.length === 0) continue;
     // Nothing to go on until at least one page URL is saved; the activity stays with the team.
     if (!list.some((c) => c.pageUrl)) continue;
 

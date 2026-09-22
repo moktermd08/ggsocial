@@ -10,6 +10,7 @@ import {
   setChannelSettingsAction, setChannelPageUrlAction, checkChannelPageAction,
 } from "@/server/actions/channels";
 import { relativeTime } from "@/lib/format";
+import { hasPublicPage } from "@/lib/platforms/meta";
 import type { ActionResult } from "@/lib/action-result";
 
 export type ChannelRow = {
@@ -19,6 +20,8 @@ export type ChannelRow = {
   settings: Record<string, unknown>;
   /** Public page URL, checked automatically, and what the last check found. */
   pageUrl: string | null; pageStatus: "live" | "down" | "unknown" | null; pageNote: string | null; pageCheckedAt: string | null;
+  /** False for senders and inboxes, which have no page of their own to visit. */
+  hasPublicPage: boolean;
 };
 
 export function ChannelManager({
@@ -231,9 +234,11 @@ export function ChannelManager({
                 <Field label="Display name (optional)">
                   <input name="displayName" placeholder="Your Brand Ltd" />
                 </Field>
-                <Field label="Page URL" hint="The public page. Checked every few hours to confirm it still exists.">
-                  <input name="pageUrl" type="url" placeholder="https://www.instagram.com/yourbrand" />
-                </Field>
+                {hasPublicPage(adding) && (
+                  <Field label="Page URL" hint="The public page. Checked every few hours to confirm it still exists.">
+                    <input name="pageUrl" type="url" placeholder="https://www.instagram.com/yourbrand" />
+                  </Field>
+                )}
               </div>
               <div className="flex gap-2">
                 <button className={buttonClass("primary", "sm")} disabled={pending}>Add channel</button>
@@ -288,6 +293,13 @@ function PageLine({
         <button className={buttonClass("primary", "sm")} disabled={pending}>Save & check</button>
         <button type="button" onClick={onEdit} className={buttonClass("ghost", "sm")}>Cancel</button>
       </form>
+    );
+  }
+  if (!c.hasPublicPage) {
+    return (
+      <p className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">
+        <Globe className="size-3" /> Sends to a list or an inbox, so there is no page to check.
+      </p>
     );
   }
   if (!c.pageUrl) {

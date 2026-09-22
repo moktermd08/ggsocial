@@ -7,6 +7,7 @@ import { requireBrandRole } from "@/lib/auth";
 import { getPlatform } from "@/lib/platforms";
 import { encryptJson } from "@/lib/crypto";
 import { checkChannelPages, normalisePageUrl, recordPageChecks } from "@/server/page-checks";
+import { hasPublicPage } from "@/lib/platforms";
 
 export async function addChannelAction(brandId: string, formData: FormData) {
   return asResult(async () => {
@@ -182,6 +183,7 @@ export async function setChannelPageUrlAction(channelId: string, formData: FormD
     const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
     if (!channel) throw new Error("Channel not found");
     await requireBrandRole(channel.brandId, "admin");
+    if (!hasPublicPage(channel.platform)) throw new Error("This platform has no public page to check.");
     const pageUrl = normalisePageUrl(String(formData.get("pageUrl") ?? ""));
     await db.update(channels).set({ pageUrl, pageStatus: null, pageNote: null, pageCheckedAt: null })
       .where(eq(channels.id, channelId));

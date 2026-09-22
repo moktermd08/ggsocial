@@ -75,6 +75,23 @@ export const PLATFORMS: Record<PlatformId, Platform> = { ...API_PLATFORMS, ...MA
 
 export const PLATFORM_LIST = Object.values(PLATFORMS);
 
+/**
+ * Platforms with no public page of their own to visit: senders and inboxes
+ * whose audience is a list or a conversation, not a page someone can open.
+ * The daily page check skips these channels rather than asking every day for
+ * a URL that does not exist.
+ */
+const NO_PUBLIC_PAGE = new Set<string>([
+  "messenger", "whatsapp", "slack", "discord", "line", "viber", "zalo", "kakao", "wechat",
+  "webhook", "facebook_marketplace",
+]);
+
+export function hasPublicPage(platformId: string) {
+  const p = platformOrNull(platformId);
+  // Email, SMS and push send to a list; the rest are named one by one above.
+  return !!p && p.category !== "email" && p.category !== "automation" && !NO_PUBLIC_PAGE.has(p.id);
+}
+
 /** Platforms that can auto-publish, best-first within each category. */
 export const LIVE_PLATFORM_LIST = PLATFORM_LIST.filter((p) => !p.manualOnly);
 

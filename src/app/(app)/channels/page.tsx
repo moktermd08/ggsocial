@@ -2,7 +2,7 @@ import { Plug, Building2 } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getBrandChannels } from "@/server/queries";
-import { platformMeta } from "@/lib/platforms/meta";
+import { platformMeta, hasPublicPage } from "@/lib/platforms/meta";
 import { ChannelManager } from "@/components/channel-manager";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 
@@ -43,6 +43,7 @@ export default async function ChannelsPage() {
                   settings: (c.settings ?? {}) as Record<string, unknown>,
                   lastError: c.lastError, externalId: c.externalId,
                   pageUrl: c.pageUrl, pageStatus: c.pageStatus, pageNote: c.pageNote,
+                  hasPublicPage: hasPublicPage(c.platform),
                   pageCheckedAt: c.pageCheckedAt?.toISOString() ?? null,
                 }))}
             />

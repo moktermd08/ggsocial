@@ -1,5 +1,7 @@
 import { PLATFORM_LIST, type Constraints, type CredentialField, type OptionField, type PlatformCategory, type PlatformId } from "./index";
 
+export { hasPublicPage } from "./index";
+
 /** Plain, serialisable platform description for client components. */
 export type PlatformMeta = {
   id: PlatformId;
