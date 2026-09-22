@@ -14,6 +14,7 @@ import { duplicatePostAction } from "@/server/actions/posts";
 import { promoteToMasterAction, resolveCopyFieldAction, unlinkCopyAction } from "@/server/actions/masters";
 import { getCopyContext } from "@/server/masters";
 import { findBrandCampaign } from "@/server/campaigns";
+import { destinationOptionsByBrand } from "@/server/destinations";
 import { CampaignBriefCard } from "@/components/campaign-panels";
 import { FromMasterPanel, MasterComments } from "@/components/master-panels";
 import { MASTER_FIELDS, MASTER_FIELD_LABELS, type MasterField } from "@/lib/masters";
@@ -30,7 +31,9 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   if (!membership) notFound();
 
   const data = await getComposerData(brands.filter((b) => b.id === post.brandId), user.id);
-  const postLinks = await getPostLinks(post.id);
+  const [postLinks, destinationOptions] = await Promise.all([
+    getPostLinks(post.id), destinationOptionsByBrand(user.id, [post.brandId]),
+  ]);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
   const [copy, campaign] = await Promise.all([
@@ -98,6 +101,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
         }))}
       />
       <LinkPanel
+        destinations={destinationOptions[post.brandId] ?? []}
         brandId={post.brandId}
         postId={post.id}
         campaign={post.campaign}

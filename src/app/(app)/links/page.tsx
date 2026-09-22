@@ -3,9 +3,11 @@ import { getScope } from "@/lib/scope";
 import { getLinks, getTrafficSummary, getBrandChannels } from "@/server/queries";
 import { LinkTable, type LinkTableBrand } from "@/components/link-table";
 import { PlatformIcon } from "@/components/platform-icon";
-import { Card, CardHeader, PageHeader, StatTile } from "@/components/ui";
+import Link from "next/link";
+import { Badge, Card, CardHeader, LinkButton, PageHeader, StatTile } from "@/components/ui";
+import { destinationOptionsByBrand, listBrandDestinations, listMasterDestinations } from "@/server/destinations";
 import { AreaChart, BarList } from "@/components/charts";
-import { Globe, Link2, MousePointerClick, Repeat, TrendingUp, Users } from "lucide-react";
+import { Globe, Layers, Link2, MapPin, MousePointerClick, Repeat, TrendingUp, Users } from "lucide-react";
 import { utcDays } from "@/lib/format";
 import { appOrigin } from "@/lib/links";
 import { platformOrNull } from "@/lib/platforms";
@@ -15,17 +17,21 @@ export default async function LinksPage() {
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
 
-  const [rows, traffic, channels] = await Promise.all([
+  const [rows, traffic, channels, destinations, destinationOptions] = await Promise.all([
     getLinks(scope.brandIds, { includeArchived: true }),
     getTrafficSummary(scope.brandIds, 30),
     getBrandChannels(scope.brandIds),
+    scope.isMaster ? listMasterDestinations(user.id, scope.brandIds) : listBrandDestinations(scope.brandIds),
+    destinationOptionsByBrand(user.id, scope.brandIds),
   ]);
+  const brandById = new Map(brands.map((b) => [b.id, b]));
 
   const inScope = brands.filter((b) => scope.brandIds.includes(b.id));
   const tableBrands: LinkTableBrand[] = inScope.map((b) => ({
     id: b.id,
     name: b.name,
     channels: channels.filter((c) => c.brandId === b.id).map((c) => ({ id: c.id, platform: c.platform, handle: c.handle })),
+    destinations: destinationOptions[b.id] ?? [],
   }));
 
   const origin = appOrigin();
@@ -40,6 +46,7 @@ export default async function LinksPage() {
         icon={Link2}
         title="Traffic"
         subtitle="Tracked links, and what they actually sent. Last 30 days."
+        action={<LinkButton href="/links/destinations/new" variant="subtle">New destination</LinkButton>}
       />
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -83,6 +90,47 @@ export default async function LinksPage() {
           </div>
         </Card>
       </div>
+
+      <Card className="mb-4">
+        <CardHeader
+          icon={scope.isMaster ? Layers : MapPin}
+          title={scope.isMaster ? "Master destinations" : "Saved destinations"}
+          subtitle={scope.isMaster
+            ? "Landing pages every brand can issue links from. Change a URL once and every posted link follows."
+            : "Where this brand's links send people. Master destinations are in the link pickers too."}
+        />
+        {destinations.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted">
+            None yet. Save a landing page once, then pick it whenever you issue links.{" "}
+            <Link href="/links/destinations/new" className="text-accent underline">Add a destination</Link>
+          </p>
+        ) : (
+          <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-3">
+            {destinations.map((d) => {
+              const b = d.brandId ? brandById.get(d.brandId) : undefined;
+              const behind = d.brandId ? d.pending.length : d.copies.filter((c) => c.pending.length).length;
+              return (
+                <Link key={d.id} href={`/links/destinations/${d.id}`} className="block rounded-lg border border-border p-2.5 hover:bg-surface-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {!d.brandId && <Badge>Master</Badge>}
+                    {b && !scope.activeBrand && <Badge color={b.color}>{b.name}</Badge>}
+                    {d.masterId && <Badge><Layers className="size-3" /> From master</Badge>}
+                    {behind > 0 && (
+                      <Badge color="#d97706">{d.brandId ? "Master changed" : `${behind} brand${behind === 1 ? "" : "s"} behind`}</Badge>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-sm font-medium">{d.name}</p>
+                  <p className="truncate text-xs text-muted">{d.url}</p>
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    {d.links} link{d.links === 1 ? "" : "s"} · {d.clicks.toLocaleString()} click{d.clicks === 1 ? "" : "s"}
+                    {!d.brandId && d.copies.length > 0 ? ` · ${d.copies.length} brand cop${d.copies.length === 1 ? "y" : "ies"}` : ""}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <LinkTable
         rows={rows.map((l) => ({

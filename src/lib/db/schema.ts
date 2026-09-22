@@ -641,6 +641,41 @@ export const interactions = pgTable("interactions", {
   uniqueIndex("interactions_external_idx").on(t.channelId, t.externalId),
 ]);
 
+/* ------------------------------------------------------- saved destinations */
+
+/**
+ * A named place links send people — a landing page, a signup, a booking link
+ * — with the UTM campaign that goes with it. Tracked links are issued from
+ * one and keep following it: fix the URL here and every link already posted
+ * lands in the right place.
+ *
+ * Same two layers as templates: no brand = a master destination every brand
+ * can issue from; a brand row with `masterId` is that brand's linked copy
+ * (its own URL or campaign, say); a brand row without one is its own.
+ */
+export const linkDestinations = pgTable("link_destinations", {
+  id: id(),
+  brandId: text("brand_id").references(() => brands.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  masterId: text("master_id").references((): AnyPgColumn => linkDestinations.id, { onDelete: "set null" }),
+  masterSnapshot: jsonb("master_snapshot").$type<Record<string, string>>().notNull().default({}),
+
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  /** Overrides the post's campaign as utm_campaign when set. */
+  utmCampaign: text("utm_campaign"),
+  /** Overrides the channel handle as utm_content when set. */
+  utmContent: text("utm_content"),
+  notes: text("notes"),
+
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("link_destinations_brand_idx").on(t.brandId),
+  index("link_destinations_master_idx").on(t.masterId),
+]);
+
 /* ------------------------------------------------------------ tracked links */
 
 /**
@@ -671,6 +706,8 @@ export const links = pgTable("links", {
   /** The exact post target, when the link was issued against a saved post. */
   targetId: text("target_id").references(() => postTargets.id, { onDelete: "set null" }),
   ideaId: text("idea_id").references(() => contentIdeas.id, { onDelete: "set null" }),
+  /** The saved destination this link was issued from, and keeps following. */
+  destinationId: text("destination_id").references(() => linkDestinations.id, { onDelete: "set null" }),
 
   /* ------------------------------------------------------------------ utm */
   utmSource: text("utm_source"),

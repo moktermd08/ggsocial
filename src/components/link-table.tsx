@@ -8,6 +8,8 @@ import { PlatformIcon } from "./platform-icon";
 import { relativeTime, truncate } from "@/lib/format";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { archiveLinkAction, createPostLinksAction } from "@/server/actions/links";
+import type { DestinationOption } from "@/lib/destinations";
+import { DestinationPicker } from "./link-panel";
 
 export type LinkTableRow = {
   id: string;
@@ -32,6 +34,8 @@ export type LinkTableBrand = {
   id: string;
   name: string;
   channels: { id: string; platform: string; handle: string }[];
+  /** Saved destinations links in this brand can be issued from. */
+  destinations: DestinationOption[];
 };
 
 /** Every tracked link, busiest first, plus somewhere to mint a new one. */
@@ -235,6 +239,7 @@ function NewLinkForm({
   const [label, setLabel] = useState("");
   const [campaign, setCampaign] = useState("");
   const [channelIds, setChannelIds] = useState<string[]>([]);
+  const [destinationId, setDestinationId] = useState<string | null>(null);
 
   const brand = brands.find((b) => b.id === brandId);
 
@@ -245,20 +250,35 @@ function NewLinkForm({
         onSubmit={(e) => {
           e.preventDefault();
           onRun(async () => {
-            await createPostLinksAction({ brandId, destination, label, campaign, channelIds });
-            setDestination(""); setLabel(""); setCampaign(""); setChannelIds([]);
+            await createPostLinksAction({ brandId, destination, label, campaign, channelIds, destinationId });
+            setDestination(""); setLabel(""); setCampaign(""); setChannelIds([]); setDestinationId(null);
             onDone();
           });
         }}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Brand">
-            <select value={brandId} onChange={(e) => { setBrandId(e.target.value); setChannelIds([]); }} className="!py-1 !text-sm">
+            <select value={brandId} onChange={(e) => { setBrandId(e.target.value); setChannelIds([]); setDestinationId(null); }} className="!py-1 !text-sm">
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Destination">
-            <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="moksy.ai/pricing" className="!py-1 !text-sm" />
+            <DestinationPicker
+              options={brand?.destinations ?? []}
+              value={destinationId}
+              onPick={(d) => {
+                setDestinationId(d?.id ?? null);
+                setDestination(d?.url ?? "");
+                if (d && !label) setLabel(d.name);
+                if (d?.utmCampaign) setCampaign(d.utmCampaign);
+              }}
+            />
+            <input
+              value={destination}
+              onChange={(e) => { setDestination(e.target.value); setDestinationId(null); }}
+              placeholder="moksy.ai/pricing"
+              className="mt-1 !py-1 !text-sm"
+            />
           </Field>
           <Field label="Label">
             <input value={label} onChange={(e) => setLabel(e.target.value)} className="!py-1 !text-sm" />

@@ -5,6 +5,32 @@ import { Check, Copy, Link2, Loader2, MousePointerClick, Plus } from "lucide-rea
 import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { createPostLinksAction } from "@/server/actions/links";
+import type { DestinationOption } from "@/lib/destinations";
+
+/**
+ * Picks a saved destination. Links issued from one keep following it, so a
+ * URL fixed there is fixed in every post. "Type a URL" issues a one-off.
+ */
+export function DestinationPicker({ options, value, onPick }: {
+  options: DestinationOption[];
+  value: string | null;
+  onPick: (d: DestinationOption | null) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => onPick(options.find((o) => o.id === e.target.value) ?? null)}
+      className="!py-1 !text-sm"
+      aria-label="Saved destination"
+    >
+      <option value="">Type a URL, or pick a saved destination…</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>{o.name}{o.fromMaster ? " (master)" : ""}</option>
+      ))}
+    </select>
+  );
+}
 
 export type PanelLink = {
   id: string;
@@ -26,8 +52,10 @@ export type PanelLink = {
  * needs a saved post, because a link has to hang off something.
  */
 export function LinkPanel({
-  brandId, postId, campaign, channels, existing, canEdit,
+  brandId, postId, campaign, channels, existing, canEdit, destinations = [],
 }: {
+  /** Saved destinations this brand can issue from. */
+  destinations?: DestinationOption[];
   brandId: string;
   postId: string | null;
   campaign: string | null;
@@ -41,6 +69,7 @@ export function LinkPanel({
   const [error, setError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
   const [label, setLabel] = useState("");
+  const [destinationId, setDestinationId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   function copy(url: string, id: string) {
@@ -59,10 +88,12 @@ export function LinkPanel({
           destination,
           label,
           campaign,
+          destinationId,
           channelIds: channels.map((c) => c.id),
         });
         setDestination("");
         setLabel("");
+        setDestinationId(null);
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not create the links.");
@@ -116,11 +147,20 @@ export function LinkPanel({
         {postId && canEdit && (
           <div className="space-y-2 border-t border-border pt-3">
             <Field label="Destination" hint="Where the click should land. The scheme is optional.">
+              <DestinationPicker
+                options={destinations}
+                value={destinationId}
+                onPick={(d) => {
+                  setDestinationId(d?.id ?? null);
+                  setDestination(d?.url ?? "");
+                  if (d && !label) setLabel(d.name);
+                }}
+              />
               <input
                 value={destination}
-                onChange={(e) => setDestination(e.target.value)}
+                onChange={(e) => { setDestination(e.target.value); setDestinationId(null); }}
                 placeholder="moksy.ai/discovery-template"
-                className="!py-1 !text-sm"
+                className="mt-1 !py-1 !text-sm"
               />
             </Field>
             <Field label="Label" hint="Optional — what this link is for.">

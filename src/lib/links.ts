@@ -87,3 +87,19 @@ export function deviceFrom(userAgent: string | null) {
 export function isBotAgent(userAgent: string | null) {
   return deviceFrom(userAgent) === "bot";
 }
+
+/** A pasted destination made into a full http(s) URL, or a readable error. */
+export function normalizeDestination(raw: string) {
+  const value = raw.trim();
+  if (!value) throw new Error("Where should the link go?");
+  // People paste "moksy.ai/pricing" far more often than they type the scheme.
+  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error(`"${raw}" is not a URL.`);
+  }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Links must be http or https.");
+  return url.toString();
+}

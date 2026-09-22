@@ -1,9 +1,9 @@
 "use server";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { db, links, posts, postTargets, channels } from "@/lib/db";
+import { db, links, posts, postTargets, channels, linkDestinations } from "@/lib/db";
 import { requireBrandRole, can } from "@/lib/auth";
-import { newLinkCode, shortUrl } from "@/lib/links";
+import { newLinkCode, normalizeDestination, shortUrl } from "@/lib/links";
 import { platformOrNull } from "@/lib/platforms";
 
 export type CreatedLink = {
@@ -15,21 +15,6 @@ export type CreatedLink = {
   platform: string | null;
   handle: string | null;
 };
-
-function normalizeDestination(raw: string) {
-  const value = raw.trim();
-  if (!value) throw new Error("Where should the link go?");
-  // People paste "moksy.ai/pricing" far more often than they type the scheme.
-  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-  let url: URL;
-  try {
-    url = new URL(withScheme);
-  } catch {
-    throw new Error(`"${raw}" is not a URL.`);
-  }
-  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Links must be http or https.");
-  return url.toString();
-}
 
 /** A code no existing link is using. Collisions are vanishingly rare but fatal. */
 async function uniqueCode() {
@@ -54,14 +39,24 @@ export async function createPostLinksAction(input: {
   destination: string;
   label?: string;
   campaign?: string | null;
+  /** A saved destination to issue from. Its URL and UTMs win, and the links keep following it. */
+  destinationId?: string | null;
   /** Channel ids to issue for. Empty means one untargeted link for the brand. */
   channelIds: string[];
 }): Promise<CreatedLink[]> {
   const { user, role } = await requireBrandRole(input.brandId, "editor");
   if (!can.edit(role)) throw new Error("You need editor access to create links.");
 
-  const destination = normalizeDestination(input.destination);
-  const label = input.label?.trim() || new URL(destination).pathname.replace(/^\/+|\/+$/g, "") || "Link";
+  // Only this brand's own destinations, or a master one every brand can use.
+  const saved = input.destinationId
+    ? await db.query.linkDestinations.findFirst({ where: eq(linkDestinations.id, input.destinationId) })
+    : null;
+  if (input.destinationId && (!saved || (saved.brandId && saved.brandId !== input.brandId))) {
+    throw new Error("That saved destination is not available to this brand.");
+  }
+
+  const destination = normalizeDestination(saved?.url ?? input.destination);
+  const label = input.label?.trim() || saved?.name || new URL(destination).pathname.replace(/^\/+|\/+$/g, "") || "Link";
 
   const chans = input.channelIds.length
     ? await db.select().from(channels)
@@ -94,12 +89,13 @@ export async function createPostLinksAction(input: {
       channelId: spec.channel?.id ?? null,
       targetId: spec.target?.id ?? null,
       ideaId: post?.ideaId ?? null,
+      destinationId: saved?.id ?? null,
       // utm_source is the platform, not the brand: that is what every
       // analytics tool in the world expects to find there.
       utmSource: platform?.id ?? null,
       utmMedium: "social",
-      utmCampaign: input.campaign?.trim() || post?.campaign || null,
-      utmContent: spec.channel?.handle ?? null,
+      utmCampaign: saved?.utmCampaign || input.campaign?.trim() || post?.campaign || null,
+      utmContent: saved?.utmContent || spec.channel?.handle || null,
       createdBy: user.id,
     }).returning({ id: links.id });
 
@@ -135,6 +131,9 @@ export async function updateLinkAction(input: {
     label: input.label?.trim() ?? link.label,
     utmCampaign: input.utmCampaign !== undefined ? input.utmCampaign?.trim() || null : link.utmCampaign,
     utmContent: input.utmContent !== undefined ? input.utmContent?.trim() || null : link.utmContent,
+    // Edited by hand: it stops following its saved destination, so a later
+    // change there cannot quietly undo this.
+    ...(input.destination || input.utmCampaign !== undefined || input.utmContent !== undefined ? { destinationId: null } : {}),
   }).where(eq(links.id, link.id));
 
   revalidatePath("/links");
