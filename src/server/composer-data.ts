@@ -3,12 +3,13 @@ import { inArray } from "drizzle-orm";
 import { db, media } from "@/lib/db";
 import { getBrandChannels } from "./queries";
 import { campaignNamesByBrand } from "./campaigns";
+import { templateOptionsByBrand } from "./templates";
 import { platformMeta } from "@/lib/platforms/meta";
 import type { BrandWithRole } from "@/lib/auth";
 import type { ComposerBrand, ComposerChannel, ComposerMedia } from "@/components/composer";
 
 /** Everything the composer needs for the brands a user can write to. */
-export async function getComposerData(brands: BrandWithRole[]) {
+export async function getComposerData(brands: BrandWithRole[], userId: string) {
   const ids = brands.map((b) => b.id);
   const channels = await getBrandChannels(ids);
   const mediaRows = ids.length ? await db.select().from(media).where(inArray(media.brandId, ids)) : [];
@@ -33,7 +34,9 @@ export async function getComposerData(brands: BrandWithRole[]) {
     defaultHashtags: b.defaultHashtags, emojiPolicy: b.emojiPolicy,
   }));
 
-  const campaignsByBrand = await campaignNamesByBrand(ids);
+  const [campaignsByBrand, templatesByBrand] = await Promise.all([
+    campaignNamesByBrand(ids), templateOptionsByBrand(userId, ids),
+  ]);
 
-  return { composerBrands, channelsByBrand, mediaByBrand, campaignsByBrand, platforms: platformMeta() };
+  return { composerBrands, channelsByBrand, mediaByBrand, campaignsByBrand, templatesByBrand, platforms: platformMeta() };
 }

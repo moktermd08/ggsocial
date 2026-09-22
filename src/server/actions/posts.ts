@@ -10,6 +10,7 @@ import { requireBrandRole, requireUser, can } from "@/lib/auth";
 import { defaultOptions, getPlatform, validateTarget, type MediaItem } from "@/lib/platforms";
 import { publishTarget, markTargetPosted, rollupPostStatus } from "@/server/publish";
 import { syncCopy } from "@/server/masters";
+import { findPlaceholders } from "@/lib/templates";
 
 export type TargetInput = {
   channelId: string;
@@ -26,6 +27,8 @@ export type PostInput = {
   scheduledAt?: string | null;
   campaign?: string | null;
   tags?: string[];
+  /** Set when the post was started from a template. */
+  postType?: string | null;
   mediaIds: string[];
   targets: TargetInput[];
   /** What the save button was: keeps drafts out of the queue. */
@@ -74,6 +77,10 @@ export async function savePostAction(input: PostInput) {
     if (blocking.length) throw new Error(blocking.map((b) => b.message).join(" "));
     if (input.targets.length === 0) throw new Error("Pick at least one channel.");
     if (input.intent === "schedule" && !scheduledAt) throw new Error("Choose a date and time.");
+    const holes = findPlaceholders([
+      input.title, input.body, ...input.targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
+    ].join("\n"));
+    if (holes.length) throw new Error(`Fill in the template placeholders first: ${holes.join(", ")}.`);
   }
 
   const status: PostStatus =
@@ -87,11 +94,12 @@ export async function savePostAction(input: PostInput) {
     await db.update(posts).set({
       title: input.title, body: input.body, scheduledAt, campaign: input.campaign ?? null,
       tags: input.tags ?? [], status, updatedAt: new Date(),
+      ...(input.postType !== undefined ? { postType: input.postType } : {}),
     }).where(eq(posts.id, postId));
   } else {
     const [created] = await db.insert(posts).values({
       brandId: input.brandId, title: input.title, body: input.body, scheduledAt,
-      campaign: input.campaign ?? null, tags: input.tags ?? [], status, createdBy: user.id,
+      campaign: input.campaign ?? null, tags: input.tags ?? [], status, createdBy: user.id, postType: input.postType ?? null,
     }).returning();
     postId = created.id;
   }
@@ -213,6 +221,11 @@ export async function reviewPostAction(postId: string, decision: "approve" | "re
   if (!can.approve(role)) throw new Error("You need approver or admin access to review posts.");
 
   if (decision === "approve") {
+    const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
+    const holes = findPlaceholders([
+      post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
+    ].join("\n"));
+    if (holes.length) throw new Error(`This post still has template placeholders to fill: ${holes.join(", ")}.`);
     await db.update(posts).set({
       status: post.scheduledAt ? "scheduled" : "approved",
       approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date(),

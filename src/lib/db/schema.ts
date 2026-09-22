@@ -344,6 +344,45 @@ export const masterPostComments = pgTable("master_post_comments", {
   createdAt: now(),
 }, (t) => [index("master_post_comments_idx").on(t.masterPostId)]);
 
+/* ----------------------------------------------------------- post templates */
+
+/**
+ * A reusable shape for a post: a body with [placeholders] to fill, a title
+ * pattern, the platforms it suits, hashtags and a first comment.
+ *
+ * Same two layers as campaigns: no brand = a master template; a brand row
+ * with `masterId` is that brand's linked copy (see `src/lib/templates.ts`);
+ * a brand row without one is a template only that brand uses.
+ */
+export const postTemplates = pgTable("post_templates", {
+  id: id(),
+  brandId: text("brand_id").references(() => brands.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  masterId: text("master_id").references((): AnyPgColumn => postTemplates.id, { onDelete: "set null" }),
+  masterSnapshot: jsonb("master_snapshot").$type<Record<string, string>>().notNull().default({}),
+
+  name: text("name").notNull(),
+  /** When to reach for it. */
+  description: text("description"),
+  title: text("title").notNull().default(""),
+  body: text("body").notNull().default(""),
+  /** Carousel, hook, case study… copied onto posts made from it. */
+  postType: text("post_type"),
+  platforms: jsonb("platforms").$type<string[]>().notNull().default([]),
+  hashtags: jsonb("hashtags").$type<string[]>().notNull().default([]),
+  firstComment: text("first_comment"),
+  /** This row's own notes — never inherited. */
+  notes: text("notes"),
+
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("post_templates_brand_idx").on(t.brandId),
+  index("post_templates_master_idx").on(t.masterId),
+  index("post_templates_owner_idx").on(t.ownerId),
+]);
+
 /* ---------------------------------------------------------------- campaigns */
 
 export const CAMPAIGN_STATUSES = ["planning", "active", "paused", "done"] as const;

@@ -10,6 +10,7 @@ import { quickValidate, type PlatformMeta } from "@/lib/platforms/meta";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { savePostAction, type PostInput } from "@/server/actions/posts";
 import type { MasterValues } from "@/lib/masters";
+import { findPlaceholders, type TemplateOption } from "@/lib/templates";
 import { LabelRow, MasterTag } from "./master-panels";
 import { uploadMediaAction } from "@/server/actions/media";
 import { generateDraftAction } from "@/server/actions/drafting";
@@ -43,7 +44,7 @@ type TargetState = { channelId: string; bodyOverride: string | null; firstCommen
 
 export function Composer({
   brands, channelsByBrand, mediaByBrand, platforms, post, initialBrandId, initialDate, canApprove, sidebarExtras, master,
-  campaignsByBrand = {}, initialCampaign,
+  campaignsByBrand = {}, initialCampaign, templatesByBrand = {},
 }: {
   brands: ComposerBrand[];
   channelsByBrand: Record<string, ComposerChannel[]>;
@@ -60,6 +61,8 @@ export function Composer({
   /** Each brand's campaign names, offered in the campaign field. */
   campaignsByBrand?: Record<string, string[]>;
   initialCampaign?: string;
+  /** Templates a post in each brand can start from. */
+  templatesByBrand?: Record<string, TemplateOption[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -76,6 +79,7 @@ export function Composer({
   const [title, setTitle] = useState(post?.title ?? "");
   const [body, setBody] = useState(post?.body ?? "");
   const [campaign, setCampaign] = useState(post?.campaign ?? initialCampaign ?? "");
+  const [postType, setPostType] = useState<string | null>(null);
   const [mediaIds, setMediaIds] = useState<string[]>(post?.mediaIds ?? []);
   const [when, setWhen] = useState(
     post?.scheduledAt
@@ -153,6 +157,32 @@ export function Composer({
   const allCopy = [body, ...targets.map((t) => t.bodyOverride ?? "")].join("\n");
   const bannedHits = findBannedWords(allCopy, brand?.bannedWords ?? []);
   const emojiHit = brand?.emojiPolicy === "none" && /\p{Extended_Pictographic}/u.test(allCopy);
+  // Template prompts nobody replaced yet, anywhere they could be published.
+  const holes = findPlaceholders([title, allCopy, ...targets.map((t) => t.firstComment)].join("\n"));
+  const templates = templatesByBrand[brandId] ?? [];
+
+  /**
+   * Fills the editor from a template: title, body (with its hashtags), the
+   * brand's channels on the template's platforms, and the first comment where
+   * the platform takes one. Nothing is saved until the writer saves.
+   */
+  function applyTemplate(id: string) {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    const hasCopy = body.trim() || targets.some((x) => x.bodyOverride?.trim());
+    if (hasCopy && !confirm(`Replace the copy in the editor with the "${t.name}" template? Nothing is saved until you save.`)) return;
+    setTitle(t.title || title);
+    setBody(t.hashtags.length ? `${t.body.replace(/\s+$/, "")}\n\n${t.hashtags.join(" ")}` : t.body);
+    setPostType(t.postType);
+    const add = channels.filter((c) => t.platforms.includes(c.platform) && !targets.some((x) => x.channelId === c.id));
+    for (const c of add) toggleChannel(c);
+    // Per-channel rewrites belonged to the old copy; start every channel from the template.
+    setTargets((prev) => prev.map((x) => {
+      const c = channels.find((ch) => ch.id === x.channelId);
+      const takesComment = t.firstComment && c && metaFor(c.platform).constraints.supportsFirstComment;
+      return { ...x, bodyOverride: null, ...(takesComment ? { firstComment: t.firstComment! } : {}) };
+    }));
+  }
 
   /** Brand-book one-click inserts (hashtags, CTA) append to the base copy. */
   function appendToBody(text: string) {
@@ -187,7 +217,7 @@ export function Composer({
     const scheduledAt = when && brand ? fromLocalInput(when, brand.timezone)?.toISOString() ?? null : null;
     const input: PostInput = {
       brandId, postId: post?.id, title, body, scheduledAt, campaign: campaign || null,
-      tags: [], mediaIds,
+      tags: [], mediaIds, postType: postType ?? undefined,
       targets: targets.map((t) => ({
         channelId: t.channelId,
         bodyOverride: t.bodyOverride,
@@ -257,6 +287,19 @@ export function Composer({
             subtitle={brand?.brief ? brand.brief : "Write once, then tune it per platform below."}
             action={
               <div className="flex items-center gap-2">
+                {templates.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { applyTemplate(e.target.value); e.target.value = ""; }}
+                    className="!w-40 !py-1 !text-xs"
+                    aria-label="Start from a template"
+                  >
+                    <option value="">Start from template…</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}{t.fromMaster ? " (master)" : ""}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={draftWithClaude}
@@ -565,6 +608,11 @@ export function Composer({
                 Off-brand wording: {bannedHits.join(", ")}.
               </p>
             )}
+            {holes.length > 0 && (
+              <p className="rounded-lg border border-warn/40 bg-warn/10 px-2.5 py-2 text-xs text-warn">
+                Fill in the template first: {holes.join(", ")}. Drafts can be saved; scheduling waits until they are gone.
+              </p>
+            )}
             {emojiHit && (
               <p className="rounded-lg border border-warn/40 bg-warn/10 px-2.5 py-2 text-xs text-warn">
                 {brand?.name} does not use emoji.
@@ -579,7 +627,7 @@ export function Composer({
             </button>
             <button
               onClick={() => save("schedule")}
-              disabled={pending || errorCount > 0 || !when || targets.length === 0}
+              disabled={pending || errorCount > 0 || holes.length > 0 || !when || targets.length === 0}
               className={`${buttonClass("primary")} w-full`}
             >
               {pending ? <Loader2 className="size-4 animate-spin" /> : null} Schedule
@@ -587,7 +635,7 @@ export function Composer({
             {canApprove && (
               <button
                 onClick={() => save("publish_now")}
-                disabled={pending || errorCount > 0 || targets.length === 0}
+                disabled={pending || errorCount > 0 || holes.length > 0 || targets.length === 0}
                 className={`${buttonClass("subtle")} w-full`}
               >
                 Publish now

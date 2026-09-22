@@ -291,3 +291,56 @@ export function MasterTag({ customised, onReset }: { customised: boolean; onRese
     <span className="text-[11px] font-normal text-muted">From master</span>
   );
 }
+
+/** On any master: which brands have a linked copy, and how far each has drifted. */
+export function LinkedCopiesPanel<F extends string>({ copies, addable, fieldLabels, add }: {
+  copies: { id: string; href: string; brandName: string; brandColor: string; customised: F[]; pending: F[] }[];
+  /** Brands without a copy that this person can write to. */
+  addable: { id: string; name: string; color: string }[];
+  fieldLabels: Record<F, string>;
+  /** Bound server action: create copies in these brands. */
+  add: (brandIds: string[]) => Promise<unknown>;
+}) {
+  const { pending, error, run } = useRun();
+  const list = (fields: F[]) => fields.map((f) => fieldLabels[f].toLowerCase()).join(", ");
+  return (
+    <Card>
+      <CardHeader title="Brand copies" subtitle={`${copies.length} brand${copies.length === 1 ? "" : "s"}`} />
+      <div className="space-y-1.5 p-3">
+        {error && <p className="rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-2 text-xs text-danger">{error}</p>}
+        {copies.length === 0 && <p className="px-1 py-2 text-sm text-muted">Not in any brand yet.</p>}
+        {copies.map((c) => (
+          <Link key={c.id} href={c.href} className="block rounded-lg border border-border px-2.5 py-2 hover:bg-surface-2">
+            <div className="flex items-center gap-2">
+              <span className="size-3 shrink-0 rounded" style={{ background: c.brandColor }} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.brandName}</span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              {c.customised.length ? `Customised: ${list(c.customised)}` : "Follows the master"}
+            </p>
+            {c.pending.length > 0 && (
+              <p className="mt-0.5 text-[11px] text-warn">
+                {c.pending.length} master change{c.pending.length === 1 ? "" : "s"} waiting: {list(c.pending)}
+              </p>
+            )}
+          </Link>
+        ))}
+        {addable.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {addable.map((b) => (
+              <button key={b.id} disabled={pending} onClick={() => run(() => add([b.id]))} className={buttonClass("subtle", "sm")}>
+                <Plus className="size-3" />
+                <span className="size-2 rounded-full" style={{ background: b.color }} /> {b.name}
+              </button>
+            ))}
+            {addable.length > 1 && (
+              <button disabled={pending} onClick={() => run(() => add(addable.map((b) => b.id)))} className={buttonClass("ghost", "sm")}>
+                Add to all
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}

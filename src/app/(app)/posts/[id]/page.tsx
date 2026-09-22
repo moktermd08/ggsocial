@@ -29,7 +29,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   const membership = brands.find((b) => b.id === post.brandId);
   if (!membership) notFound();
 
-  const data = await getComposerData(brands.filter((b) => b.id === post.brandId));
+  const data = await getComposerData(brands.filter((b) => b.id === post.brandId), user.id);
   const postLinks = await getPostLinks(post.id);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
@@ -178,6 +178,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           channelsByBrand={data.channelsByBrand}
           mediaByBrand={data.mediaByBrand}
           campaignsByBrand={data.campaignsByBrand}
+          templatesByBrand={data.templatesByBrand}
           platforms={data.platforms}
           initialBrandId={post.brandId}
           canApprove={can.approve(membership.role)}

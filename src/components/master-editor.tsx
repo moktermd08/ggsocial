@@ -7,6 +7,7 @@ import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { saveMasterAction, deleteMasterAction } from "@/server/actions/masters";
+import type { TemplateOption } from "@/lib/templates";
 
 export type MasterEditorMedia = { id: string; url: string; kind: string; originalName: string; brandColor: string; brandName: string };
 export type MasterEditorBrand = { id: string; name: string; color: string; canEdit: boolean };
@@ -22,7 +23,7 @@ export type MasterEditorPost = {
  * copies (for a new master) or updates every copy that still follows it.
  */
 export function MasterEditor({
-  master, brands, media, platforms, timezone, canEdit, sidebar, campaignOptions = [], initialCampaign,
+  master, brands, media, platforms, timezone, canEdit, sidebar, campaignOptions = [], initialCampaign, templates = [],
 }: {
   master?: MasterEditorPost;
   /** Brands a new master can be copied into. Ignored once it exists. */
@@ -37,6 +38,8 @@ export function MasterEditor({
   /** Master campaign names, offered in the campaign field. */
   campaignOptions?: string[];
   initialCampaign?: string;
+  /** Master templates a new master post can start from. */
+  templates?: TemplateOption[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -58,6 +61,15 @@ export function MasterEditor({
     () => mediaIds.map((id) => media.find((m) => m.id === id)).filter(Boolean) as MasterEditorMedia[],
     [mediaIds, media],
   );
+
+  function applyTemplate(id: string) {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    if (body.trim() && !confirm(`Replace the copy with the "${t.name}" template? Nothing is saved until you save.`)) return;
+    if (t.title) setTitle(t.title);
+    setBody(t.hashtags.length ? `${t.body.replace(/\s+$/, "")}\n\n${t.hashtags.join(" ")}` : t.body);
+    if (t.platforms.length) setPicked(t.platforms);
+  }
 
   const toggle = (list: string[], id: string) => list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
@@ -97,6 +109,17 @@ export function MasterEditor({
             icon={Layers}
             title="Master copy"
             subtitle="Every brand starts from this. Fields a brand has not changed keep following it."
+            action={templates.length > 0 && canEdit ? (
+              <select
+                value=""
+                onChange={(e) => { applyTemplate(e.target.value); e.target.value = ""; }}
+                className="!w-44 !py-1 !text-xs"
+                aria-label="Start from a template"
+              >
+                <option value="">Start from template…</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            ) : undefined}
           />
           <fieldset disabled={readOnly} className="space-y-3 p-4">
             <Field label="Title">

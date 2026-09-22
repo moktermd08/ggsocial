@@ -25,7 +25,7 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
   }
 
   const scope = await getScope(writable);
-  const data = await getComposerData(writable);
+  const data = await getComposerData(writable, user.id);
   const initialBrandId = brand ?? scope.activeBrand?.id ?? writable[0].id;
 
   return (
@@ -36,6 +36,7 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
         channelsByBrand={data.channelsByBrand}
         mediaByBrand={data.mediaByBrand}
         campaignsByBrand={data.campaignsByBrand}
+        templatesByBrand={data.templatesByBrand}
         initialCampaign={campaign}
         platforms={data.platforms}
         initialBrandId={initialBrandId}
