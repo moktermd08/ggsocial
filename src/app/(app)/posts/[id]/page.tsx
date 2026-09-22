@@ -11,10 +11,12 @@ import { LinkPanel } from "@/components/link-panel";
 import { PageHeader, Badge, buttonClass } from "@/components/ui";
 import { STATUS_META, inZone } from "@/lib/format";
 import { duplicatePostAction } from "@/server/actions/posts";
-import { promoteToMasterAction } from "@/server/actions/masters";
+import { promoteToMasterAction, resolveCopyFieldAction, unlinkCopyAction } from "@/server/actions/masters";
 import { getCopyContext } from "@/server/masters";
-import { CopyMasterPanel, MasterComments } from "@/components/master-panels";
-import { MASTER_FIELDS, type MasterField } from "@/lib/masters";
+import { findBrandCampaign } from "@/server/campaigns";
+import { CampaignBriefCard } from "@/components/campaign-panels";
+import { FromMasterPanel, MasterComments } from "@/components/master-panels";
+import { MASTER_FIELDS, MASTER_FIELD_LABELS, type MasterField } from "@/lib/masters";
 import { appOrigin } from "@/lib/links";
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
@@ -31,7 +33,10 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   const postLinks = await getPostLinks(post.id);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
-  const copy = await getCopyContext(post, post.media.map((m) => m.id));
+  const [copy, campaign] = await Promise.all([
+    getCopyContext(post, post.media.map((m) => m.id)),
+    findBrandCampaign(post.brandId, post.campaign),
+  ]);
 
   // A copy can carry media from another brand's library (picked on the
   // master), so make sure the composer can show what is attached.
@@ -56,9 +61,8 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
     <>
       {copy && (
         <>
-          <CopyMasterPanel
-            postId={post.id}
-            masterId={copy.master.id}
+          <FromMasterPanel
+            href={`/posts/master/${copy.master.id}`}
             masterTitle={copy.master.title}
             guidelines={copy.master.guidelines}
             notes={copy.master.notes}
@@ -66,6 +70,10 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
             customised={copy.state.customised}
             masterValues={readable}
             canEdit={can.edit(membership.role)}
+            fieldLabels={MASTER_FIELD_LABELS}
+            resolve={resolveCopyFieldAction.bind(null, post.id)}
+            unlink={unlinkCopyAction.bind(null, post.id)}
+            unlinkConfirm="Stop following the master? This post keeps its current content."
           />
           <MasterComments
             masterId={copy.master.id}
@@ -75,6 +83,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           />
         </>
       )}
+      {campaign && <CampaignBriefCard campaign={campaign} />}
       <TargetStatusList
         canPublish={can.publish(membership.role)}
         targets={post.targets.map((t) => ({
@@ -168,6 +177,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           brands={data.composerBrands}
           channelsByBrand={data.channelsByBrand}
           mediaByBrand={data.mediaByBrand}
+          campaignsByBrand={data.campaignsByBrand}
           platforms={data.platforms}
           initialBrandId={post.brandId}
           canApprove={can.approve(membership.role)}

@@ -2,13 +2,12 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import {
   db, masterPosts, masterPostComments, posts, postTargets, attachments, channels, media, users,
-  type MasterSnapshot,
 } from "@/lib/db";
 import { defaultOptions } from "@/lib/platforms";
 import { platformMeta } from "@/lib/platforms/meta";
 import { atLeast, type BrandWithRole } from "@/lib/auth";
 import {
-  MASTER_FIELDS, copyState, fromValues, isLockedStatus, toValues,
+  MASTER_FIELDS, copyState, fromValues, isLockedStatus, planSync, toValues,
   type MasterField, type MasterValues, type CopyState,
 } from "@/lib/masters";
 
@@ -42,7 +41,7 @@ function copyValues(p: PostRow, mediaIds: string[]): MasterValues {
  * read it and comment; changing it writes into every copy, so that needs the
  * author, or editor rights on every brand it reaches.
  */
-export function masterAccess(m: MasterRow, copyBrandIds: string[], userId: string, mine: BrandWithRole[]) {
+export function masterAccess(m: { ownerId: string }, copyBrandIds: string[], userId: string, mine: BrandWithRole[]) {
   const role = new Map(mine.map((b) => [b.id, b.role]));
   const isOwner = m.ownerId === userId;
   const canView = isOwner || copyBrandIds.some((id) => role.has(id));
@@ -158,18 +157,9 @@ export async function syncCopy(
 
   const target = masterValues(master);
   const current = copyValues(post, (await postMediaIds([postId])).get(postId) ?? []);
-  const state = copyState(current, post.masterSnapshot, target);
-  const locked = isLockedStatus(post.status);
-
-  const next: Partial<MasterValues> = {};
-  const snapshot: MasterSnapshot = { ...post.masterSnapshot };
-  for (const f of MASTER_FIELDS) {
-    const take = opts.accept?.includes(f)
-      || (state.pending.includes(f) && !state.customised.includes(f) && !locked);
-    if (take && current[f] !== target[f]) next[f] = target[f];
-    // In step with the master, or told to be: either way this is the new base.
-    if (take || opts.keep?.includes(f) || current[f] === target[f]) snapshot[f] = target[f];
-  }
+  const { next, snapshot } = planSync(MASTER_FIELDS, current, post.masterSnapshot, target, {
+    ...opts, locked: isLockedStatus(post.status),
+  });
 
   const { mediaIds, ...fields } = fromValues(next);
   const changed = Object.keys(next).length > 0;

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Layers, MessageSquare, Plus, Unlink, X } from "lucide-react";
 import { Badge, Card, CardHeader, buttonClass } from "./ui";
@@ -8,7 +8,7 @@ import { STATUS_META, relativeTime } from "@/lib/format";
 import { MASTER_FIELD_LABELS, type MasterField } from "@/lib/masters";
 import type { PostStatus } from "@/lib/db/schema";
 import {
-  addMasterCommentAction, addMasterCopiesAction, removeMasterCopyAction, resolveCopyFieldAction, unlinkCopyAction,
+  addMasterCommentAction, addMasterCopiesAction, removeMasterCopyAction,
 } from "@/server/actions/masters";
 
 export type MasterCommentRow = { id: string; body: string; author: string; createdAt: string };
@@ -112,14 +112,20 @@ export function MasterCopiesPanel({
 }
 
 /** Discussion on the master, seen from the master and from every copy. */
-export function MasterComments({ masterId, comments, title = "Master comments" }: {
-  masterId: string; comments: MasterCommentRow[]; title?: string;
+export function MasterComments({
+  masterId, comments, title = "Master comments", add, placeholder = "Comment for every brand…", emptyHint = "Shared with every brand",
+}: {
+  masterId?: string; comments: MasterCommentRow[]; title?: string;
+  /** Where a new comment goes. Defaults to the master post's thread. */
+  add?: (body: string) => Promise<void>;
+  placeholder?: string;
+  emptyHint?: string;
 }) {
   const { pending, error, run } = useRun();
   const [note, setNote] = useState("");
   return (
     <Card>
-      <CardHeader title={title} subtitle={comments.length ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Shared with every brand"} />
+      <CardHeader title={title} subtitle={comments.length ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : emptyHint} />
       <div className="space-y-3 p-3">
         <div className="max-h-60 space-y-2 overflow-y-auto">
           {comments.map((c) => (
@@ -134,10 +140,10 @@ export function MasterComments({ masterId, comments, title = "Master comments" }
           {comments.length === 0 && <p className="py-2 text-center text-sm text-muted">No comments yet.</p>}
         </div>
         {error && <p className="text-xs text-danger">{error}</p>}
-        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Comment for every brand…" />
+        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={placeholder} />
         <button
           disabled={pending || !note.trim()}
-          onClick={() => run(async () => { await addMasterCommentAction(masterId, note); setNote(""); })}
+          onClick={() => run(async () => { await (add ? add(note) : addMasterCommentAction(masterId!, note)); setNote(""); })}
           className={buttonClass("subtle", "sm")}
         >
           <MessageSquare className="size-3.5" /> Comment
@@ -150,23 +156,30 @@ export function MasterComments({ masterId, comments, title = "Master comments" }
 /**
  * On a brand copy: what the master says, and any master change this brand
  * has not taken yet — each one a choice between the master's version and the
- * brand's own.
+ * brand's own. Used for posts and campaigns alike.
  */
-export function CopyMasterPanel({
-  postId, masterId, masterTitle, guidelines, notes, pending: waiting, customised, masterValues, canEdit,
+export function FromMasterPanel<F extends string>({
+  href, masterTitle, guidelines, notes, pending: waiting, customised, masterValues, fieldLabels, canEdit,
+  resolve, unlink, unlinkConfirm,
 }: {
-  postId: string;
-  masterId: string;
+  /** The master's own page. */
+  href: string;
   masterTitle: string;
   guidelines: string | null;
   notes: string | null;
-  pending: MasterField[];
-  customised: MasterField[];
+  pending: F[];
+  customised: F[];
   /** Readable master values for the waiting fields. */
-  masterValues: Partial<Record<MasterField, string>>;
+  masterValues: Partial<Record<F, string>>;
+  fieldLabels: Record<F, string>;
   canEdit: boolean;
+  /** Bound server actions for this copy. */
+  resolve: (field: F, choice: "accept" | "keep") => Promise<void>;
+  unlink: () => Promise<void>;
+  unlinkConfirm: string;
 }) {
   const { pending, error, run } = useRun();
+  const list = (fields: F[]) => fields.map((f) => fieldLabels[f].toLowerCase()).join(", ");
   return (
     <Card>
       <CardHeader
@@ -174,7 +187,7 @@ export function CopyMasterPanel({
         title="From master"
         subtitle={masterTitle || "Untitled master"}
         action={
-          <Link href={`/posts/master/${masterId}`} className={buttonClass("ghost", "sm")} title="Open the master">
+          <Link href={href} className={buttonClass("ghost", "sm")} title="Open the master">
             <ArrowUpRight className="size-3.5" />
           </Link>
         }
@@ -187,16 +200,16 @@ export function CopyMasterPanel({
             <p className="text-xs font-medium text-warn">The master has changed</p>
             {waiting.map((f) => (
               <div key={f} className="space-y-1">
-                <p className="text-xs font-medium">{MASTER_FIELD_LABELS[f]}</p>
+                <p className="text-xs font-medium">{fieldLabels[f]}</p>
                 <p className="line-clamp-4 whitespace-pre-wrap rounded border border-border bg-surface px-2 py-1 text-xs text-muted">
                   {masterValues[f] || "(empty)"}
                 </p>
                 {canEdit && (
                   <div className="flex gap-1.5">
-                    <button disabled={pending} onClick={() => run(() => resolveCopyFieldAction(postId, f, "accept"))} className={buttonClass("primary", "sm")}>
+                    <button disabled={pending} onClick={() => run(() => resolve(f, "accept"))} className={buttonClass("primary", "sm")}>
                       Use master
                     </button>
-                    <button disabled={pending} onClick={() => run(() => resolveCopyFieldAction(postId, f, "keep"))} className={buttonClass("subtle", "sm")}>
+                    <button disabled={pending} onClick={() => run(() => resolve(f, "keep"))} className={buttonClass("subtle", "sm")}>
                       Keep ours
                     </button>
                   </div>
@@ -221,15 +234,15 @@ export function CopyMasterPanel({
 
         <p className="text-[11px] text-muted">
           {customised.length
-            ? `Customised for this brand: ${fieldList(customised)}. Everything else follows the master.`
-            : "Nothing customised yet: this copy follows the master. Edit any field to make it this brand's own."}
+            ? `Customised for this brand: ${list(customised)}. Everything else follows the master.`
+            : "Nothing customised yet: this follows the master. Edit any field to make it this brand's own."}
         </p>
 
         {canEdit && (
           <button
             disabled={pending}
             onClick={() => {
-              if (confirm("Stop following the master? This post keeps its current content.")) run(() => unlinkCopyAction(postId));
+              if (confirm(unlinkConfirm)) run(unlink);
             }}
             className={buttonClass("ghost", "sm")}
           >
@@ -238,5 +251,28 @@ export function CopyMasterPanel({
         )}
       </div>
     </Card>
+  );
+}
+
+/** A field label with something on the right, such as a MasterTag. */
+export function LabelRow({ text, tag }: { text: string; tag: ReactNode }) {
+  return <span className="flex items-center justify-between gap-2">{text}{tag}</span>;
+}
+
+/** On a copy: whether a field follows the master or is this brand's own. */
+export function MasterTag({ customised, onReset }: { customised: boolean; onReset: () => void }) {
+  return customised ? (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-normal">
+      <span className="text-accent">Customised</span>
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); onReset(); }}
+        className="text-muted hover:underline"
+      >
+        Reset to master
+      </button>
+    </span>
+  ) : (
+    <span className="text-[11px] font-normal text-muted">From master</span>
   );
 }

@@ -3,6 +3,7 @@ import { Layers } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getMaster, getMasterEditorData, masterAccess } from "@/server/masters";
 import { isLockedStatus } from "@/lib/masters";
+import { masterCampaignNames } from "@/server/campaigns";
 import { MasterEditor } from "@/components/master-editor";
 import { MasterComments, MasterCopiesPanel } from "@/components/master-panels";
 import { Badge, PageHeader } from "@/components/ui";
@@ -17,7 +18,7 @@ export default async function MasterPage({ params }: { params: Promise<{ id: str
   const access = masterAccess(master, master.copies.map((c) => c.brandId), user.id, brands);
   if (!access.canView) notFound();
 
-  const data = await getMasterEditorData(brands);
+  const [data, campaignOptions] = await Promise.all([getMasterEditorData(brands), masterCampaignNames(master.ownerId)]);
   // Media already on the master stays visible even when it came from a brand
   // this person is not on.
   const media = [
@@ -49,6 +50,7 @@ export default async function MasterPage({ params }: { params: Promise<{ id: str
         platforms={data.platforms}
         timezone={data.timezone}
         canEdit={access.canEdit}
+        campaignOptions={campaignOptions}
         sidebar={
           <>
             <MasterCopiesPanel

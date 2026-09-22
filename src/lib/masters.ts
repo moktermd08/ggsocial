@@ -76,12 +76,50 @@ export type CopyState = {
 };
 
 export function copyState(copy: MasterValues, snapshot: MasterSnapshot, master: MasterValues): CopyState {
-  const customised: MasterField[] = [];
-  const pending: MasterField[] = [];
-  for (const f of MASTER_FIELDS) {
+  return inheritState(MASTER_FIELDS, copy, snapshot, master);
+}
+
+/**
+ * The same comparison for any master/copy pair — posts, campaigns, and
+ * whatever follows — given the fields that inherit, as normalised strings.
+ */
+export function inheritState<F extends string>(
+  fields: readonly F[],
+  copy: Record<F, string>,
+  snapshot: Partial<Record<F, string>>,
+  master: Record<F, string>,
+): { customised: F[]; pending: F[] } {
+  const customised: F[] = [];
+  const pending: F[] = [];
+  for (const f of fields) {
     const base = snapshot[f] ?? master[f];
     if (copy[f] !== base && copy[f] !== master[f]) customised.push(f);
     if (master[f] !== base && copy[f] !== master[f]) pending.push(f);
   }
   return { customised, pending };
+}
+
+/**
+ * One sync step for any master/copy pair: which fields to write from the
+ * master, and the snapshot that results. `locked` copies only take what they
+ * are told to accept.
+ */
+export function planSync<F extends string>(
+  fields: readonly F[],
+  copy: Record<F, string>,
+  snapshot: Partial<Record<F, string>>,
+  master: Record<F, string>,
+  opts: { accept?: F[]; keep?: F[]; locked?: boolean } = {},
+) {
+  const state = inheritState(fields, copy, snapshot, master);
+  const next: Partial<Record<F, string>> = {};
+  const nextSnapshot: Partial<Record<F, string>> = { ...snapshot };
+  for (const f of fields) {
+    const take = opts.accept?.includes(f)
+      || (state.pending.includes(f) && !state.customised.includes(f) && !opts.locked);
+    if (take && copy[f] !== master[f]) next[f] = master[f];
+    // In step with the master, or told to be: either way this is the new base.
+    if (take || opts.keep?.includes(f) || copy[f] === master[f]) nextSnapshot[f] = master[f];
+  }
+  return { next, snapshot: nextSnapshot };
 }

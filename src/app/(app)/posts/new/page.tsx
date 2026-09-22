@@ -5,11 +5,11 @@ import { getComposerData } from "@/server/composer-data";
 import { Composer } from "@/components/composer";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 
-export default async function NewPostPage({ searchParams }: { searchParams: Promise<{ date?: string; brand?: string }> }) {
+export default async function NewPostPage({ searchParams }: { searchParams: Promise<{ date?: string; brand?: string; campaign?: string }> }) {
   const user = await requireUser();
   const all = await getMyBrands(user.id);
   const writable = all.filter((b) => can.edit(b.role));
-  const { date, brand } = await searchParams;
+  const { date, brand, campaign } = await searchParams;
 
   if (writable.length === 0) {
     return (
@@ -35,6 +35,8 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
         brands={data.composerBrands}
         channelsByBrand={data.channelsByBrand}
         mediaByBrand={data.mediaByBrand}
+        campaignsByBrand={data.campaignsByBrand}
+        initialCampaign={campaign}
         platforms={data.platforms}
         initialBrandId={initialBrandId}
         initialDate={date}

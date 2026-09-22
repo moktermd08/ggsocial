@@ -10,6 +10,7 @@ import { quickValidate, type PlatformMeta } from "@/lib/platforms/meta";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { savePostAction, type PostInput } from "@/server/actions/posts";
 import type { MasterValues } from "@/lib/masters";
+import { LabelRow, MasterTag } from "./master-panels";
 import { uploadMediaAction } from "@/server/actions/media";
 import { generateDraftAction } from "@/server/actions/drafting";
 
@@ -42,6 +43,7 @@ type TargetState = { channelId: string; bodyOverride: string | null; firstCommen
 
 export function Composer({
   brands, channelsByBrand, mediaByBrand, platforms, post, initialBrandId, initialDate, canApprove, sidebarExtras, master,
+  campaignsByBrand = {}, initialCampaign,
 }: {
   brands: ComposerBrand[];
   channelsByBrand: Record<string, ComposerChannel[]>;
@@ -55,6 +57,9 @@ export function Composer({
   sidebarExtras?: ReactNode;
   /** Set when this post is a brand copy: the master values each field follows. */
   master?: MasterValues;
+  /** Each brand's campaign names, offered in the campaign field. */
+  campaignsByBrand?: Record<string, string[]>;
+  initialCampaign?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -70,7 +75,7 @@ export function Composer({
   const [draftNote, setDraftNote] = useState<{ note: string; issues: string[] } | null>(null);
   const [title, setTitle] = useState(post?.title ?? "");
   const [body, setBody] = useState(post?.body ?? "");
-  const [campaign, setCampaign] = useState(post?.campaign ?? "");
+  const [campaign, setCampaign] = useState(post?.campaign ?? initialCampaign ?? "");
   const [mediaIds, setMediaIds] = useState<string[]>(post?.mediaIds ?? []);
   const [when, setWhen] = useState(
     post?.scheduledAt
@@ -308,7 +313,10 @@ export function Composer({
             <div className="flex flex-wrap gap-3">
               <div className="min-w-40 flex-1">
                 <Field label={<LabelRow text="Campaign (optional)" tag={followTag("campaign", () => setCampaign(master!.campaign))} />}>
-                  <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Q4 launch" />
+                  <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Q4 launch" list="composer-campaigns" />
+                  <datalist id="composer-campaigns">
+                    {(campaignsByBrand[brandId] ?? []).map((n) => <option key={n} value={n} />)}
+                  </datalist>
                 </Field>
               </div>
               <div className="min-w-52 flex-1">
@@ -612,24 +620,3 @@ export function Composer({
   );
 }
 
-function LabelRow({ text, tag }: { text: string; tag: ReactNode }) {
-  return <span className="flex items-center justify-between gap-2">{text}{tag}</span>;
-}
-
-/** On a brand copy: whether a field follows the master or is this brand's own. */
-function MasterTag({ customised, onReset }: { customised: boolean; onReset: () => void }) {
-  return customised ? (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-normal">
-      <span className="text-accent">Customised</span>
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); onReset(); }}
-        className="text-muted hover:underline"
-      >
-        Reset to master
-      </button>
-    </span>
-  ) : (
-    <span className="text-[11px] font-normal text-muted">From master</span>
-  );
-}

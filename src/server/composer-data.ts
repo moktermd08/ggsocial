@@ -2,6 +2,7 @@ import "server-only";
 import { inArray } from "drizzle-orm";
 import { db, media } from "@/lib/db";
 import { getBrandChannels } from "./queries";
+import { campaignNamesByBrand } from "./campaigns";
 import { platformMeta } from "@/lib/platforms/meta";
 import type { BrandWithRole } from "@/lib/auth";
 import type { ComposerBrand, ComposerChannel, ComposerMedia } from "@/components/composer";
@@ -32,5 +33,7 @@ export async function getComposerData(brands: BrandWithRole[]) {
     defaultHashtags: b.defaultHashtags, emojiPolicy: b.emojiPolicy,
   }));
 
-  return { composerBrands, channelsByBrand, mediaByBrand, platforms: platformMeta() };
+  const campaignsByBrand = await campaignNamesByBrand(ids);
+
+  return { composerBrands, channelsByBrand, mediaByBrand, campaignsByBrand, platforms: platformMeta() };
 }

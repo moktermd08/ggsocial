@@ -6,9 +6,11 @@ import {
   bigint,
   jsonb,
   boolean,
+  date,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -308,6 +310,69 @@ export const masterPostComments = pgTable("master_post_comments", {
   body: text("body").notNull(),
   createdAt: now(),
 }, (t) => [index("master_post_comments_idx").on(t.masterPostId)]);
+
+/* ---------------------------------------------------------------- campaigns */
+
+export const CAMPAIGN_STATUSES = ["planning", "active", "paused", "done"] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/**
+ * A campaign brief: what it is for, what it says, where it sends people, when
+ * it runs and what it should reach.
+ *
+ * One table for both layers. A row with no brand is a master campaign; a
+ * brand row with `masterId` is that brand's linked copy, following the master
+ * field by field the same way master posts do (see `src/lib/campaigns.ts`); a
+ * brand row without one is a campaign only that brand runs.
+ *
+ * Posts join a campaign by name within their brand — the same free-text
+ * `campaign` they always carried, so UTM tagging is unchanged.
+ */
+export const campaigns = pgTable("campaigns", {
+  id: id(),
+  /** null = a master campaign, above the brands. */
+  brandId: text("brand_id").references(() => brands.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  masterId: text("master_id").references((): AnyPgColumn => campaigns.id, { onDelete: "set null" }),
+  /** The master's values as of the last sync. See MasterSnapshot on posts. */
+  masterSnapshot: jsonb("master_snapshot").$type<Record<string, string>>().notNull().default({}),
+
+  name: text("name").notNull(),
+  objective: text("objective"),
+  /** The one thing every post in the campaign should land. */
+  keyMessage: text("key_message"),
+  audience: text("audience"),
+  cta: text("cta"),
+  landingUrl: text("landing_url"),
+  hashtags: jsonb("hashtags").$type<string[]>().notNull().default([]),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  targetImpressions: integer("target_impressions"),
+  targetClicks: integer("target_clicks"),
+  targetLeads: integer("target_leads"),
+
+  /** Master only: how brands should run their version. */
+  guidelines: text("guidelines"),
+  /** This row's own working notes — never inherited. */
+  notes: text("notes"),
+  status: text("status").$type<CampaignStatus>().notNull().default("planning"),
+
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("campaigns_brand_idx").on(t.brandId),
+  index("campaigns_master_idx").on(t.masterId),
+  index("campaigns_owner_idx").on(t.ownerId),
+]);
+
+export const campaignComments = pgTable("campaign_comments", {
+  id: id(),
+  campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  createdAt: now(),
+}, (t) => [index("campaign_comments_idx").on(t.campaignId)]);
 
 /** One piece of content. Fans out to one row in post_targets per channel. */
 export const posts = pgTable("posts", {

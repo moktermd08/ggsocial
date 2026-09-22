@@ -22,7 +22,7 @@ export type MasterEditorPost = {
  * copies (for a new master) or updates every copy that still follows it.
  */
 export function MasterEditor({
-  master, brands, media, platforms, timezone, canEdit, sidebar,
+  master, brands, media, platforms, timezone, canEdit, sidebar, campaignOptions = [], initialCampaign,
 }: {
   master?: MasterEditorPost;
   /** Brands a new master can be copied into. Ignored once it exists. */
@@ -34,6 +34,9 @@ export function MasterEditor({
   timezone: string;
   canEdit: boolean;
   sidebar?: ReactNode;
+  /** Master campaign names, offered in the campaign field. */
+  campaignOptions?: string[];
+  initialCampaign?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -44,7 +47,7 @@ export function MasterEditor({
   const [body, setBody] = useState(master?.body ?? "");
   const [guidelines, setGuidelines] = useState(master?.guidelines ?? "");
   const [notes, setNotes] = useState(master?.notes ?? "");
-  const [campaign, setCampaign] = useState(master?.campaign ?? "");
+  const [campaign, setCampaign] = useState(master?.campaign ?? initialCampaign ?? "");
   const [tags, setTags] = useState((master?.tags ?? []).join(", "));
   const [when, setWhen] = useState(toLocalInput(master?.scheduledAt ?? null, timezone));
   const [mediaIds, setMediaIds] = useState<string[]>(master?.mediaIds ?? []);
@@ -116,7 +119,10 @@ export function MasterEditor({
             <div className="flex flex-wrap gap-3">
               <div className="min-w-40 flex-1">
                 <Field label="Campaign (optional)">
-                  <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Q4 launch" />
+                  <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Q4 launch" list="master-campaigns" />
+                  <datalist id="master-campaigns">
+                    {campaignOptions.map((n) => <option key={n} value={n} />)}
+                  </datalist>
                 </Field>
               </div>
               <div className="min-w-40 flex-1">
