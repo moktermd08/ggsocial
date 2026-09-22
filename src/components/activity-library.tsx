@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Bot, Pencil, Plus, Search, Timer } from "lucide-react";
+import { Archive, ArchiveRestore, Bot, Goal, Pencil, Plus, Search, Timer } from "lucide-react";
 import { Badge, Button, Card, Field } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { tintedInk, tintedSurface } from "@/lib/color";
@@ -32,7 +32,8 @@ export type LibraryTemplate = {
 };
 
 export type LibraryBrand = { id: string; name: string; color: string; canManage: boolean; platforms: string[] };
-export type LibrarySetting = { enabled: boolean | null; target: number | null };
+/** `byGoal`: the target was set by a goal's plan, not by hand. */
+export type LibrarySetting = { enabled: boolean | null; target: number | null; byGoal?: boolean };
 
 /** Occurrences per week on a five-day working week, for sizing a plan in hours. */
 const PER_WEEK: Record<Frequency, number> = {
@@ -79,7 +80,7 @@ export function ActivityLibrary({
   function state(b: LibraryBrand, t: LibraryTemplate) {
     const byDefault = t.platforms.length === 0 || t.platforms.some((p) => b.platforms.includes(p));
     const s = settings[`${b.id}:${t.id}`];
-    return { on: s?.enabled ?? byDefault, byDefault, overridden: s?.enabled != null };
+    return { on: s?.enabled ?? byDefault, byDefault, overridden: s?.enabled != null && !s?.byGoal, goalTarget: s?.byGoal ? s.target : null };
   }
 
   const visible = useMemo(() => {
@@ -240,6 +241,11 @@ export function ActivityLibrary({
                             >
                               {s.on ? "On" : "Off"}{s.overridden && "*"}
                             </button>
+                            {s.goalTarget !== null && (
+                              <span className="mt-0.5 flex items-center justify-center gap-0.5 text-[10px] text-muted" title={`A goal's plan asks for ${targetText(s.goalTarget, t.unit)} per ${FREQUENCY_META[t.frequency].noun}`}>
+                                <Goal className="size-3" />{s.goalTarget}
+                              </span>
+                            )}
                           </td>
                         );
                       })}
@@ -263,7 +269,7 @@ export function ActivityLibrary({
         </table>
       </Card>
       <p className="text-[11px] text-muted">
-        * switched from the default for that brand. Platform-specific activities are on automatically for brands that have a channel on one of those platforms.
+        * switched from the default for that brand. <Goal className="inline size-3" /> target raised by a goal&apos;s plan (see Goals). Platform-specific activities are on automatically for brands that have a channel on one of those platforms.
       </p>
     </div>
   );

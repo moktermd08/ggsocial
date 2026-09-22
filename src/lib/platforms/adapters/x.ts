@@ -108,4 +108,14 @@ export const x: Platform = {
       clicks: d.non_public_metrics?.url_link_clicks, raw: res,
     };
   },
+  fetchAccountStats: async ({ credentials }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("X", "missing access token");
+    const res = await apiFetch(`${API}/users/me?user.fields=public_metrics`, {
+      label: "X account stats",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const n = (res.data as { public_metrics?: Record<string, number> } | undefined)?.public_metrics?.followers_count;
+    return n != null ? { followers: Number(n) } : {};
+  },
 };

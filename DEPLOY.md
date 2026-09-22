@@ -7,7 +7,7 @@ ggleads deployment on that box.
 | --- | --- |
 | App code | `/var/www/ggsocial.gglink.co.uk` |
 | Node process | pm2 `ggsocial-web` → `next start -p 3200` (127.0.0.1 only) |
-| Scheduler | pm2 `ggsocial-scheduler` → ticks `/api/cron/publish` every 60s |
+| Scheduler | pm2 `ggsocial-scheduler` → ticks `/api/cron/publish` every 60s and `/api/cron/goals` hourly (follower counts daily, goal re-plans on Mondays) |
 | Database | Docker `ggsocial-pg` (postgres:16) on `127.0.0.1:5434`, volume `ggsocial-pgdata` |
 | Web server | Apache vhosts `ggsocial.gglink.co.uk.conf` (:80, redirects) and `-le-ssl.conf` (:443 — the live one is the copy in `sites-enabled`, see traps) |
 | TLS | Let's Encrypt, auto-renewing via the `/var/www/letsencrypt` webroot |

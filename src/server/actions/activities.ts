@@ -181,7 +181,8 @@ export async function setBrandActivityAction(input: { brandId: string; templateI
   if (input.enabled === null && target === null) {
     if (existing) await db.delete(brandActivitySettings).where(eq(brandActivitySettings.id, existing.id));
   } else if (existing) {
-    await db.update(brandActivitySettings).set({ enabled: input.enabled, target, updatedAt: new Date() })
+    // A person's edit takes the row back from any goal that set it.
+    await db.update(brandActivitySettings).set({ enabled: input.enabled, target, goalId: null, updatedAt: new Date() })
       .where(eq(brandActivitySettings.id, existing.id));
   } else {
     await db.insert(brandActivitySettings).values({ brandId: input.brandId, templateId: input.templateId, enabled: input.enabled, target });

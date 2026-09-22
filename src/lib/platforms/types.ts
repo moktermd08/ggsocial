@@ -167,7 +167,11 @@ export type Platform = {
   manualSteps?: (ctx: PublishContext) => ManualStep[];
   publish: (ctx: PublishContext) => Promise<PublishResult>;
   fetchMetrics?: (ctx: { channel: typeof channels.$inferSelect; externalPostId: string; credentials: Record<string, string> | null }) => Promise<MetricsResult>;
+  /** Account-level numbers for a live channel, read daily so goals can track them. */
+  fetchAccountStats?: (ctx: { channel: typeof channels.$inferSelect; credentials: Record<string, string> | null }) => Promise<AccountStats>;
 };
+
+export type AccountStats = { followers?: number };
 
 /** Thrown when a live publish is attempted without usable credentials. */
 export class NotConnectedError extends Error {

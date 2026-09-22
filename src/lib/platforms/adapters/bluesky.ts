@@ -112,4 +112,23 @@ export const bluesky: Platform = {
     const rkey = uri.split("/").pop();
     return { externalId: uri, externalUrl: `https://bsky.app/profile/${identifier}/post/${rkey}` };
   },
+  fetchAccountStats: async ({ channel, credentials }) => {
+    const identifier = channel.externalId || channel.handle.replace(/^@/, "");
+    const password = credentials?.accessToken;
+    if (!identifier || !password) throw new NotConnectedError("Bluesky", "missing handle or app password");
+    const host = service({ channel, options: {} });
+
+    const session = await apiFetch(`${host}/xrpc/com.atproto.server.createSession`, {
+      label: "Bluesky session",
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier, password }),
+    });
+    // The PDS proxies app.bsky.* reads to the AppView for the session's account.
+    const res = await apiFetch(`${host}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(String(session.did))}`, {
+      label: "Bluesky account stats",
+      headers: { Authorization: `Bearer ${String(session.accessJwt)}` },
+    });
+    return res.followersCount != null ? { followers: Number(res.followersCount) } : {};
+  },
 };

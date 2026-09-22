@@ -326,3 +326,168 @@ export function Ring({ value, total, color = "var(--chart-1)", size = 64, childr
     </div>
   );
 }
+
+/** 1234 → "1.2k", 1_000_000 → "1M": axis labels that fit a narrow gutter. */
+function short(n: number) {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${+(n / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
+  if (a >= 1e3) return `${+(n / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k`;
+  return `${Math.round(n)}`;
+}
+
+/** `original` is null before the goal began, where only what happened is drawn. */
+export type PlanPoint = { date: string; label: string; original: number | null; current: number | null; actual: number | null };
+
+/**
+ * A goal over time: the original plan (dashed, muted), the plan in force
+ * since the last recalibration (dashed), what actually happened (solid, with
+ * an area) and the target. Hover shows all three for that date.
+ */
+export function PlanChart({
+  points, target, today, height = 220, unit = "", planLabel = "Original plan",
+}: { points: PlanPoint[]; target: number; today?: string; height?: number; unit?: string; planLabel?: string }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const values = points.flatMap((p) => [p.original ?? 0, p.current ?? 0, p.actual ?? 0]);
+  const { top, ticks } = niceScale(Math.max(target, ...values));
+  const n = points.length;
+  // Rounded: the compound curve's last decimals differ between server and browser maths.
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const x = (i: number) => r2(n <= 1 ? 50 : (i / (n - 1)) * 100);
+  const y = (v: number) => r2(100 - (v / top) * 100);
+  const path = (get: (p: PlanPoint) => number | null) => {
+    let d = "";
+    let pen = false;
+    points.forEach((p, i) => {
+      const v = get(p);
+      if (v === null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${x(i)},${y(v)} `;
+      pen = true;
+    });
+    return d.trim();
+  };
+  const actualIdx = points.map((p, i) => (p.actual !== null ? i : -1)).filter((i) => i >= 0);
+  const area = actualIdx.length > 1
+    ? `${path((p) => p.actual)} L${x(actualIdx[actualIdx.length - 1])},100 L${x(actualIdx[0])},100 Z`
+    : "";
+  const todayIdx = today ? points.findIndex((p) => p.date === today) : -1;
+  const every = labelEvery(n, 3);
+  const h = hover !== null ? points[hover] : null;
+
+  // Only the lines actually drawn: a preview has just the plan.
+  const series: ChartSeries[] = [
+    ...(points.some((p) => p.actual !== null) ? [{ key: "actual", label: "Actual", color: "var(--chart-1)" }] : []),
+    ...(points.some((p) => p.current !== null) ? [{ key: "current", label: "Plan in force", color: "var(--chart-2)" }] : []),
+    { key: "original", label: planLabel, color: "var(--muted)" },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <Legend series={series} />
+      <div className="relative" style={{ height }}>
+        {ticks.map((t) => (
+          <div key={t} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${(t / top) * 100}%` }}>
+            <span className="w-10 shrink-0 pr-2 text-right text-[10px] leading-none tabular-nums text-muted">{short(t)}</span>
+            <span className={`h-px flex-1 ${t === 0 ? "bg-muted/40" : "bg-border"}`} />
+          </div>
+        ))}
+        <div className="absolute inset-y-0 left-10 right-0">
+          <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-ok/60" style={{ bottom: `${(target / top) * 100}%` }}>
+            <span className="absolute -top-4 right-0 rounded bg-surface px-1 text-[10px] font-medium text-ok">Target {short(target)}{unit && ` ${unit}`}</span>
+          </div>
+          {todayIdx >= 0 && (
+            <div className="pointer-events-none absolute inset-y-0 w-px bg-accent/40" style={{ left: `${x(todayIdx)}%` }}>
+              <span className="absolute -top-1 left-1 text-[10px] font-medium text-accent">Today</span>
+            </div>
+          )}
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible">
+            <path d={path((p) => p.original)} fill="none" stroke="var(--muted)" strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+            <path d={path((p) => p.current)} fill="none" stroke="var(--chart-2)" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+            {area && <path d={area} fill="var(--chart-1)" fillOpacity={0.12} />}
+            <path d={path((p) => p.actual)} fill="none" stroke="var(--chart-1)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          </svg>
+          {h && (
+            <>
+              <span className="absolute inset-y-0 w-px bg-muted/40" style={{ left: `${x(hover!)}%` }} />
+              <div className="absolute" style={{ left: `${x(hover!)}%`, bottom: `${100 - y(Math.max(h.actual ?? 0, h.current ?? 0, h.original ?? 0))}%` }}>
+                <div className="relative">
+                  <Tooltip
+                    title={h.label}
+                    align={hover! < n / 4 ? "left" : hover! > (n * 3) / 4 ? "right" : "center"}
+                    rows={[
+                      ...(h.actual !== null ? [{ label: "Actual", value: Math.round(h.actual), color: "var(--chart-1)" }] : []),
+                      ...(h.current !== null ? [{ label: "Plan in force", value: Math.round(h.current), color: "var(--chart-2)" }] : []),
+                      ...(h.original !== null ? [{ label: planLabel, value: Math.round(h.original), color: "var(--muted)" }] : []),
+                    ]}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          <div className="absolute inset-0 flex" onMouseLeave={() => setHover(null)}>
+            {points.map((_, i) => <div key={i} className="h-full flex-1" onMouseEnter={() => setHover(i)} />)}
+          </div>
+        </div>
+      </div>
+      <div className="relative ml-10 h-3 whitespace-nowrap text-[10px] text-muted">
+        {points.map((p, i) => (i % every === 0 || i === n - 1) && (i === n - 1 || n - 1 - i >= every * 0.9) && (
+          <span key={i} className={`absolute ${i === 0 ? "" : i === n - 1 ? "-translate-x-full" : "-translate-x-1/2"}`} style={{ left: `${x(i)}%` }}>
+            {p.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Planned against actual per period, as paired bars. The actual bar is
+ * coloured by how close it came: green at or over plan, amber from 70%, red below.
+ */
+export function PlanBars({ rows, height = 160 }: {
+  rows: { key: string; label: string; tip?: string; planned: number; actual: number | null; current?: boolean }[];
+  height?: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const { top, ticks } = niceScale(Math.max(1, ...rows.flatMap((r) => [r.planned, r.actual ?? 0])));
+  const tone = (r: (typeof rows)[number]) => {
+    if (r.actual === null) return "transparent";
+    // Nothing planned (before the goal began): show what happened, without judging it.
+    if (r.planned <= 0) return "var(--chart-1)";
+    const ratio = r.planned > 0 ? r.actual / r.planned : 1;
+    return ratio >= 1 ? "var(--ok)" : ratio >= 0.7 ? "var(--warn)" : "var(--danger)";
+  };
+  return (
+    <div className="space-y-2">
+      <div className="relative" style={{ height }}>
+        {ticks.map((t) => (
+          <div key={t} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${(t / top) * 100}%` }}>
+            <span className="w-10 shrink-0 pr-2 text-right text-[10px] leading-none tabular-nums text-muted">{short(t)}</span>
+            <span className={`h-px flex-1 ${t === 0 ? "bg-muted/40" : "bg-border"}`} />
+          </div>
+        ))}
+        <div className="absolute inset-y-0 left-10 right-0 flex items-end">
+          {rows.map((r, i) => (
+            <div key={r.key} className="relative flex h-full flex-1 items-end justify-center gap-0.5" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              {(hover === i || r.current) && <div className={`absolute inset-y-0 inset-x-px rounded-md ${hover === i ? "bg-surface-2" : "bg-accent-soft/60"}`} />}
+              <div className="relative w-[30%] max-w-4 rounded-t border border-dashed border-muted/60" style={{ height: `${(r.planned / top) * 100}%` }} />
+              <div className="relative w-[30%] max-w-4 rounded-t" style={{ height: `${((r.actual ?? 0) / top) * 100}%`, background: tone(r), minHeight: r.actual ? 2 : 0 }} />
+              {hover === i && (
+                <Tooltip
+                  title={r.tip ?? r.label}
+                  align={i < rows.length / 4 ? "left" : i > (rows.length * 3) / 4 ? "right" : "center"}
+                  rows={[
+                    { label: "Planned", value: Math.round(r.planned), color: "var(--muted)" },
+                    ...(r.actual !== null ? [{ label: "Actual", value: Math.round(r.actual), color: tone(r) }] : []),
+                  ]}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="ml-10 flex text-[10px] text-muted">
+        {rows.map((r) => <span key={r.key} className={`flex-1 truncate text-center ${r.current ? "font-semibold text-accent" : ""}`}>{r.label}</span>)}
+      </div>
+    </div>
+  );
+}

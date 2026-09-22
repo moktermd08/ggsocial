@@ -40,6 +40,30 @@ async function tick() {
   }
 }
 
-console.log(`scheduler watching ${url} every 60s`);
+/**
+ * Goals: reads follower counts from live channels once a day and re-plans
+ * each goal every Monday. The endpoint decides what is due, so hourly is plenty.
+ */
+async function goalsTick() {
+  try {
+    const res = await fetch(`${url}/api/cron/goals`, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
+    });
+    if (!res.ok) {
+      console.error(`goals tick got ${res.status} from ${url}`);
+      return;
+    }
+    const json = await res.json();
+    if (json.recalibrated?.length || json.achieved?.length || json.followersPulled || json.failed?.length) {
+      console.log(new Date().toISOString(), "goals", json);
+    }
+  } catch (err) {
+    console.error("goals tick failed:", err.message);
+  }
+}
+
+console.log(`scheduler watching ${url} every 60s (goals hourly)`);
 tick();
 setInterval(tick, 60_000);
+goalsTick();
+setInterval(goalsTick, 60 * 60_000);

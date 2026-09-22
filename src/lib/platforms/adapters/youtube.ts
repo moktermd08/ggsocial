@@ -109,4 +109,17 @@ export const youtube: Platform = {
       commentCount: Number(s.commentCount ?? 0), raw: res,
     };
   },
+  fetchAccountStats: async ({ channel, credentials }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("YouTube", "missing access token");
+    // Use the stored channel id when it is one (UC…); otherwise the token's own channel.
+    const id = channel.externalId && /^UC[\w-]{22}$/.test(channel.externalId) ? channel.externalId : null;
+    const res = await apiFetch(`${API}/channels?part=statistics&${id ? `id=${id}` : "mine=true"}`, {
+      label: "YouTube account stats",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const s = ((res.items as { statistics: Record<string, unknown> }[]) ?? [])[0]?.statistics ?? {};
+    // Channels that hide their subscriber count omit the field.
+    return s.subscriberCount != null && !s.hiddenSubscriberCount ? { followers: Number(s.subscriberCount) } : {};
+  },
 };

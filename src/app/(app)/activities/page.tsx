@@ -273,7 +273,7 @@ async function LibraryView({ brands, allBrands, userIsSuperAdmin }: { brands: Br
   ]);
 
   const settings: Record<string, LibrarySetting> = {};
-  for (const s of settingRows) settings[`${s.brandId}:${s.templateId}`] = { enabled: s.enabled, target: s.target };
+  for (const s of settingRows) settings[`${s.brandId}:${s.templateId}`] = { enabled: s.enabled, target: s.target, byGoal: Boolean(s.goalId) };
 
   return (
     <ActivityLibrary

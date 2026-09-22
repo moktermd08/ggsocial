@@ -39,7 +39,7 @@ export const mastodon: Platform = {
     docsUrl: "https://docs.joinmastodon.org/methods/statuses/",
     envKeys: [],
     requiresAppReview: false,
-    notes: "Instance settings → Development → New application. Scopes: write:statuses, write:media. Paste the access token here — most instances never expire it.",
+    notes: "Instance settings → Development → New application. Scopes: write:statuses, write:media, read:accounts (for follower counts).Paste the access token here — most instances never expire it.",
   },
   publish: async (ctx) => {
     const token = ctx.credentials?.accessToken;
@@ -79,5 +79,14 @@ export const mastodon: Platform = {
       }),
     });
     return { externalId: String(res.id), externalUrl: String(res.url ?? "") };
+  },
+  fetchAccountStats: async ({ channel, credentials }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Mastodon", "missing access token");
+    const res = await apiFetch(`${host({ channel, options: {} })}/api/v1/accounts/verify_credentials`, {
+      label: "Mastodon account stats",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.followers_count != null ? { followers: Number(res.followers_count) } : {};
   },
 };

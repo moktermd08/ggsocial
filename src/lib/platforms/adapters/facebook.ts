@@ -113,4 +113,15 @@ export const facebook: Platform = {
     );
     return { impressions: byName.post_impressions, reach: byName.post_impressions_unique, clicks: byName.post_clicks, raw: res };
   },
+  fetchAccountStats: async ({ channel, credentials }) => {
+    const token = credentials?.accessToken;
+    const pageId = channel.externalId;
+    if (!token || !pageId) throw new NotConnectedError("Facebook", "missing Page access token or Page id");
+    const res = await apiFetch(`${GRAPH}/${pageId}?fields=followers_count,fan_count&access_token=${token}`, {
+      label: "Facebook account stats",
+    });
+    // followers_count is the modern Page metric; fan_count (likes) covers older Pages.
+    const n = res.followers_count ?? res.fan_count;
+    return n != null ? { followers: Number(n) } : {};
+  },
 };

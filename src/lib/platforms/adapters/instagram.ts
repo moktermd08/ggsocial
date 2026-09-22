@@ -145,4 +145,13 @@ export const instagram: Platform = {
       commentCount: byName.comments, saves: byName.saved, shares: byName.shares, raw: res,
     };
   },
+  fetchAccountStats: async ({ channel, credentials }) => {
+    const token = credentials?.accessToken;
+    const igUserId = channel.externalId;
+    if (!token || !igUserId) throw new NotConnectedError("Instagram", "missing access token or Instagram user id");
+    const res = await apiFetch(`${GRAPH}/${igUserId}?fields=followers_count&access_token=${token}`, {
+      label: "Instagram account stats",
+    });
+    return res.followers_count != null ? { followers: Number(res.followers_count) } : {};
+  },
 };

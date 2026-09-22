@@ -7,6 +7,7 @@ import {
   jsonb,
   boolean,
   date,
+  doublePrecision,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
@@ -815,6 +816,11 @@ export const brandActivitySettings = pgTable("brand_activity_settings", {
   /** null = follow the default (on, or on where the brand has the platform). */
   enabled: boolean("enabled"),
   target: integer("target"),
+  /**
+   * The goal whose plan set this row. Goal-set rows are rewritten whenever a
+   * plan changes; a person editing the row takes it back (goalId → null).
+   */
+  goalId: text("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("brand_activity_settings_idx").on(t.brandId, t.templateId)]);
 
@@ -858,6 +864,111 @@ export const activityChecks = pgTable("activity_checks", {
 }, (t) => [
   uniqueIndex("activity_checks_unique_idx").on(t.brandId, t.templateId, t.periodKey),
   index("activity_checks_period_idx").on(t.brandId, t.periodStart),
+]);
+
+/* ------------------------------------------------------------------- goals */
+
+import type { DriverSpec, GoalDriver, GoalMetric, Curve, GoalStatus, GoalPlan, RevisionKind, RevisionStatus } from "../goals/meta";
+
+/**
+ * The master goal templates: one per metric worth steering by (followers,
+ * site visitors, comments…), each with the activities that move it and a
+ * benchmark yield for each. Seeded from `src/lib/goals/library.ts` by code.
+ */
+export const goalTemplates = pgTable("goal_templates", {
+  id: id(),
+  code: text("code").notNull(),
+  metric: text("metric").$type<GoalMetric>().notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  drivers: jsonb("drivers").$type<DriverSpec[]>().notNull().default([]),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isCustom: boolean("is_custom").notNull().default(false),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("goal_templates_code_idx").on(t.code)]);
+
+/**
+ * One brand's goal: a metric, where it started, where it has to be and by
+ * when. `drivers` starts as the template's and then carries this brand's
+ * learned yields; `plan` is the plan in force — the weekly volumes the
+ * activity checklists are following.
+ */
+export const goals = pgTable("goals", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  templateId: text("template_id").references(() => goalTemplates.id, { onDelete: "set null" }),
+  metric: text("metric").$type<GoalMetric>().notNull(),
+  name: text("name").notNull(),
+  /** null = every channel the brand has; otherwise one platform's channels. */
+  platform: text("platform"),
+  curve: text("curve").$type<Curve>().notNull().default("compound"),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  /** A level for stock metrics, a monthly rate for flows. */
+  startValue: doublePrecision("start_value").notNull(),
+  targetValue: doublePrecision("target_value").notNull(),
+  deadline: date("deadline", { mode: "string" }).notNull(),
+  status: text("status").$type<GoalStatus>().notNull().default("active"),
+  drivers: jsonb("drivers").$type<GoalDriver[]>().notNull().default([]),
+  /** Weekly organic change with no work done, learned alongside the yields. */
+  baseline: doublePrecision("baseline").notNull().default(0),
+  plan: jsonb("plan").$type<GoalPlan | null>(),
+  /** New plans that move any weekly volume by more than this wait for a person. */
+  approvalThreshold: integer("approval_threshold").notNull().default(30),
+  lastRecalibratedAt: timestamp("last_recalibrated_at", { withTimezone: true }),
+  notes: text("notes"),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("goals_brand_idx").on(t.brandId, t.status)]);
+
+/**
+ * Every plan a goal has had, and why it changed: the numbers before and
+ * after, the reasons in words, and who approved it. "proposed" rows are
+ * waiting for someone because the change was large.
+ */
+export const goalRevisions = pgTable("goal_revisions", {
+  id: id(),
+  goalId: text("goal_id").notNull().references(() => goals.id, { onDelete: "cascade" }),
+  kind: text("kind").$type<RevisionKind>().notNull(),
+  status: text("status").$type<RevisionStatus>().notNull(),
+  summary: text("summary").notNull(),
+  reasons: jsonb("reasons").$type<string[]>().notNull().default([]),
+  before: jsonb("before").$type<{ plan: GoalPlan | null; yields: Record<string, number>; baseline: number } | null>(),
+  after: jsonb("after").$type<{ plan: GoalPlan; yields: Record<string, number>; baseline: number }>().notNull(),
+  /** Where the metric stood when the revision was made, and where the plan wanted it. */
+  actualValue: doublePrecision("actual_value"),
+  plannedValue: doublePrecision("planned_value"),
+  /** null = the weekly job. */
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: now(),
+}, (t) => [index("goal_revisions_goal_idx").on(t.goalId, t.createdAt)]);
+
+/**
+ * A reading of an account-level number on a day: a channel's follower count,
+ * or visits and messages the app cannot see for itself. Logged by hand or
+ * pulled from a platform API; one per brand, metric, channel and day.
+ * `scopeKey` is the channel id, or "brand" for a whole-brand reading.
+ */
+export const metricSnapshots = pgTable("metric_snapshots", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+  scopeKey: text("scope_key").notNull(),
+  metric: text("metric").$type<GoalMetric>().notNull(),
+  date: date("date", { mode: "string" }).notNull(),
+  value: doublePrecision("value").notNull(),
+  source: text("source").$type<"manual" | "api">().notNull().default("manual"),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("metric_snapshots_unique_idx").on(t.brandId, t.metric, t.scopeKey, t.date),
+  index("metric_snapshots_brand_idx").on(t.brandId, t.metric, t.date),
 ]);
 
 /**
