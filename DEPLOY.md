@@ -9,7 +9,7 @@ ggleads deployment on that box.
 | Node process | pm2 `ggsocial-web` → `next start -p 3200` (127.0.0.1 only) |
 | Scheduler | pm2 `ggsocial-scheduler` → ticks `/api/cron/publish` every 60s |
 | Database | Docker `ggsocial-pg` (postgres:16) on `127.0.0.1:5434`, volume `ggsocial-pgdata` |
-| Web server | Apache vhosts `ggsocial.gglink.co.uk.conf` (:80, redirects) and `-le-ssl.conf` (:443) |
+| Web server | Apache vhosts `ggsocial.gglink.co.uk.conf` (:80, redirects) and `-le-ssl.conf` (:443 — the live one is the copy in `sites-enabled`, see traps) |
 | TLS | Let's Encrypt, auto-renewing via the `/var/www/letsencrypt` webroot |
 | Secrets | `/var/www/ggsocial.gglink.co.uk/.env` (chmod 600); copies in `/root/.ggsocial/` |
 | Basic auth | `/etc/apache2/ggsocial.htpasswd` (root:www-data, 640) |
@@ -92,6 +92,19 @@ and drizzle applies additive changes without asking. Without `--force` it stops
 instead of auto-approving a drop if the live schema has drifted; `< /dev/null`
 makes that stop fail fast rather than hang on a prompt.
 
+**The live :443 vhost is a copy, not a symlink.** In `/etc/apache2/sites-enabled/`,
+`ggsocial.gglink.co.uk.conf` links to `sites-available`, but
+`ggsocial.gglink.co.uk-le-ssl.conf` is a regular file — and the one Apache
+serves. It has also drifted: only the live copy sets the HSTS,
+`X-Content-Type-Options` and `Referrer-Policy` headers. An edit to
+`sites-available/…-le-ssl.conf` passes `apachectl configtest`, reloads cleanly
+and changes nothing, which is how the `/api/agent/` exception first failed.
+Edit the `sites-enabled` copy (check with `apachectl -S`, which names the file
+each vhost comes from), back it up to `/root/ggsocial-backups/` first, then
+`apachectl configtest && systemctl reload apache2`. Every "both vhosts"
+instruction below means `sites-available/ggsocial.gglink.co.uk.conf` and
+`sites-enabled/ggsocial.gglink.co.uk-le-ssl.conf`.
+
 Note `rsync` flattens when you pass individual files — always sync directories
 (`./scripts/` → `…/scripts/`) or the whole tree.
 
@@ -126,14 +139,15 @@ That makes uploaded files readable by anyone who has the (unguessable) URL. If
 that is not acceptable for a client's unreleased content, move media to S3
 (`MEDIA_DRIVER=s3`) and keep the app itself behind basic auth.
 
-## Before giving an AI agent a token
+## AI agent access
 
 The activity checklists have an API for agents (Claude, ChatGPT, scripts) at
-`/api/agent/activities`, issued from **Activities → AI agents**. Basic auth
-already occupies the `Authorization` header, so agents send their token as
-`X-Agent-Token: ggs_…`. Either give the agent the basic-auth login as well, or
-let the agent API past the wall — every route under it rejects requests
-without a valid, unrevoked token:
+`/api/agent/activities`, with tokens issued from **Activities → AI agents**.
+Basic auth already occupies the `Authorization` header, so agents send their
+token as `X-Agent-Token: ggs_…`. The agent API is let past the wall — every
+route under it rejects requests without a valid, unrevoked token. This is
+already in both vhosts (added 22 Sep 2026); re-add it if a vhost is ever
+rebuilt:
 
 ```apache
 <Location /api/agent/>
