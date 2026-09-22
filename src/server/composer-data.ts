@@ -1,9 +1,8 @@
 import "server-only";
-import { inArray } from "drizzle-orm";
-import { db, media } from "@/lib/db";
 import { getBrandChannels } from "./queries";
 import { campaignNamesByBrand } from "./campaigns";
 import { templateOptionsByBrand } from "./templates";
+import { brandLibraries } from "./media-library";
 import { platformMeta } from "@/lib/platforms/meta";
 import type { BrandWithRole } from "@/lib/auth";
 import type { ComposerBrand, ComposerChannel, ComposerMedia } from "@/components/composer";
@@ -12,7 +11,6 @@ import type { ComposerBrand, ComposerChannel, ComposerMedia } from "@/components
 export async function getComposerData(brands: BrandWithRole[], userId: string) {
   const ids = brands.map((b) => b.id);
   const channels = await getBrandChannels(ids);
-  const mediaRows = ids.length ? await db.select().from(media).where(inArray(media.brandId, ids)) : [];
 
   const channelsByBrand: Record<string, ComposerChannel[]> = {};
   for (const c of channels) {
@@ -22,9 +20,11 @@ export async function getComposerData(brands: BrandWithRole[], userId: string) {
     });
   }
 
+  // Each brand's own files, then the master assets it has not replaced with a version of its own.
+  const libraries = await brandLibraries(userId, ids);
   const mediaByBrand: Record<string, ComposerMedia[]> = {};
-  for (const m of [...mediaRows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())) {
-    (mediaByBrand[m.brandId] ??= []).push({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName });
+  for (const [brandId, items] of libraries) {
+    mediaByBrand[brandId] = items.map((m) => ({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, isMaster: m.isMaster }));
   }
 
   const composerBrands: ComposerBrand[] = brands.map((b) => ({

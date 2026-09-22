@@ -20,7 +20,11 @@ export type ComposerChannel = {
   /** This channel's saved option defaults — prefilled into every new target. */
   settings: Record<string, unknown>;
 };
-export type ComposerMedia = { id: string; url: string; kind: string; originalName: string };
+export type ComposerMedia = {
+  id: string; url: string; kind: string; originalName: string;
+  /** A master asset, shared by every brand. */
+  isMaster?: boolean;
+};
 export type ComposerBrand = {
   id: string; name: string; color: string; timezone: string;
   /** The parts of the brand book a writer needs while writing. */
@@ -422,6 +426,9 @@ export function Composer({
                     <img src={m.url} alt="" className="size-full object-cover" />
                   ) : (
                     <span className="grid size-full place-items-center bg-surface-2 p-1 text-[10px]">{m.kind}</span>
+                  )}
+                  {m.isMaster && (
+                    <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[9px] font-medium text-white" title="Master asset">Master</span>
                   )}
                   <span className="absolute inset-0 grid place-items-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                     <Plus className="size-4 text-white" />

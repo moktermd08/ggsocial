@@ -186,9 +186,21 @@ export const channels = pgTable("channels", {
 
 /* -------------------------------------------------------------------- media */
 
+/**
+ * One file in a library. Usually a brand's; with no brand it is a master
+ * asset, shared by every brand its owner runs. A brand file that points at a
+ * master asset is that brand's version of it — the same visual with its own
+ * logo, say — and stands in for the master everywhere in that brand,
+ * including master-post copies.
+ */
 export const media = pgTable("media", {
   id: id(),
-  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  /** null = a master asset. */
+  brandId: text("brand_id").references(() => brands.id, { onDelete: "cascade" }),
+  /** Who owns a master asset; its library is shared with the brands they admin. */
+  ownerId: text("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  /** Set on a brand file: the master asset this is the brand's version of. */
+  masterMediaId: text("master_media_id").references((): AnyPgColumn => media.id, { onDelete: "set null" }),
   kind: text("kind").$type<"image" | "video" | "document">().notNull(),
   url: text("url").notNull(),
   originalName: text("original_name").notNull(),
@@ -205,7 +217,7 @@ export const media = pgTable("media", {
   sourceUrl: text("source_url"),
   uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: now(),
-}, (t) => [index("media_brand_idx").on(t.brandId)]);
+}, (t) => [index("media_brand_idx").on(t.brandId), index("media_master_idx").on(t.masterMediaId)]);
 
 /* ------------------------------------------------------------ integrations */
 

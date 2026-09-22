@@ -11,7 +11,7 @@ export default async function NewMasterPage({ searchParams }: { searchParams: Pr
   const user = await requireUser();
   const brands = await getMyBrands(user.id);
   const [data, campaignOptions, templates] = await Promise.all([
-    getMasterEditorData(brands), masterCampaignNames(user.id), masterTemplateOptions(user.id, brands.map((b) => b.id)),
+    getMasterEditorData(brands, user.id), masterCampaignNames(user.id), masterTemplateOptions(user.id, brands.map((b) => b.id)),
   ]);
 
   return (

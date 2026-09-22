@@ -20,7 +20,7 @@ export default async function MasterPage({ params }: { params: Promise<{ id: str
   if (!access.canView) notFound();
 
   const [data, campaignOptions, templates] = await Promise.all([
-    getMasterEditorData(brands), masterCampaignNames(master.ownerId), masterTemplateOptions(user.id, brands.map((b) => b.id)),
+    getMasterEditorData(brands, user.id), masterCampaignNames(master.ownerId), masterTemplateOptions(user.id, brands.map((b) => b.id)),
   ]);
   // Media already on the master stays visible even when it came from a brand
   // this person is not on.

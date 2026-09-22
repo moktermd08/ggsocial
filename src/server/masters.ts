@@ -5,6 +5,7 @@ import {
 } from "@/lib/db";
 import { defaultOptions } from "@/lib/platforms";
 import { platformMeta } from "@/lib/platforms/meta";
+import { brandVersions, mapForBrand, masterAssets, masterOwnersFor, type MediaFile } from "@/server/media-library";
 import { atLeast, type BrandWithRole } from "@/lib/auth";
 import {
   MASTER_FIELDS, copyState, fromValues, isLockedStatus, planSync, toValues,
@@ -34,6 +35,15 @@ async function postMediaIds(postIds: string[]) {
 
 function copyValues(p: PostRow, mediaIds: string[]): MasterValues {
   return toValues({ ...p, mediaIds });
+}
+
+/**
+ * The master's values as one brand should receive them: master assets
+ * swapped for that brand's own versions, so a brand version never reads as
+ * the brand having customised the media.
+ */
+function forBrand(values: MasterValues, versions: Map<string, MediaFile> | undefined): MasterValues {
+  return versions ? { ...values, media: JSON.stringify(mapForBrand(JSON.parse(values.media), versions)) } : values;
 }
 
 /**
@@ -68,6 +78,7 @@ async function summarise(masters: MasterRow[]): Promise<MasterSummary[]> {
   const mediaByPost = await postMediaIds(copies.map((c) => c.id));
   const commentRows = await db.select({ masterPostId: masterPostComments.masterPostId })
     .from(masterPostComments).where(inArray(masterPostComments.masterPostId, ids));
+  const versions = await brandVersions([...new Set(copies.map((c) => c.brandId))], masters.flatMap((m) => m.mediaIds));
 
   return masters.map((m) => {
     const values = masterValues(m);
@@ -79,7 +90,7 @@ async function summarise(masters: MasterRow[]): Promise<MasterSummary[]> {
         brandId: c.brandId,
         status: c.status,
         scheduledAt: c.scheduledAt,
-        ...copyState(copyValues(c, mediaByPost.get(c.id) ?? []), c.masterSnapshot, values),
+        ...copyState(copyValues(c, mediaByPost.get(c.id) ?? []), c.masterSnapshot, forBrand(values, versions.get(c.brandId))),
       })),
     };
   });
@@ -122,7 +133,8 @@ export async function getCopyContext(post: PostRow, mediaIds: string[]) {
   if (!post.masterPostId) return null;
   const master = await getMaster(post.masterPostId);
   if (!master) return null;
-  const values = masterValues(master);
+  const versions = await brandVersions([post.brandId], master.mediaIds);
+  const values = forBrand(masterValues(master), versions.get(post.brandId));
   return {
     master,
     values,
@@ -155,7 +167,8 @@ export async function syncCopy(
   const master = await db.query.masterPosts.findFirst({ where: eq(masterPosts.id, post.masterPostId) });
   if (!master) return;
 
-  const target = masterValues(master);
+  const versions = await brandVersions([post.brandId], master.mediaIds);
+  const target = forBrand(masterValues(master), versions.get(post.brandId));
   const current = copyValues(post, (await postMediaIds([postId])).get(postId) ?? []);
   const { next, snapshot } = planSync(MASTER_FIELDS, current, post.masterSnapshot, target, {
     ...opts, locked: isLockedStatus(post.status),
@@ -183,7 +196,8 @@ export async function syncAllCopies(masterId: string) {
  * channels on the master's platforms.
  */
 export async function createCopy(master: MasterRow, brandId: string, userId: string) {
-  const values = masterValues(master);
+  const versions = await brandVersions([brandId], master.mediaIds);
+  const values = forBrand(masterValues(master), versions.get(brandId));
   const [row] = await db.insert(posts).values({
     brandId,
     masterPostId: master.id,
@@ -197,7 +211,7 @@ export async function createCopy(master: MasterRow, brandId: string, userId: str
     createdBy: userId,
   }).returning();
 
-  await writeMedia(row.id, master.mediaIds);
+  await writeMedia(row.id, JSON.parse(values.media));
 
   if (master.platforms.length) {
     const chans = await db.select().from(channels).where(and(
@@ -214,8 +228,10 @@ export async function createCopy(master: MasterRow, brandId: string, userId: str
 }
 
 /** Libraries, platforms and brands the master editor offers, across a person's brands. */
-export async function getMasterEditorData(mine: BrandWithRole[]) {
+export async function getMasterEditorData(mine: BrandWithRole[], userId?: string) {
   const ids = mine.map((b) => b.id);
+  // The master library first: assets meant for every brand.
+  const masters = userId ? await masterAssets(await masterOwnersFor(userId, ids)) : [];
   const [mediaRows, channelRows] = ids.length
     ? await Promise.all([
         db.select().from(media).where(inArray(media.brandId, ids)).orderBy(desc(media.createdAt)).limit(300),
@@ -227,10 +243,15 @@ export async function getMasterEditorData(mine: BrandWithRole[]) {
   const meta = new Map(platformMeta().map((p) => [p.id as string, p]));
   return {
     brands: mine.map((b) => ({ id: b.id, name: b.name, color: b.color, canEdit: atLeast(b.role, "editor") })),
-    media: mediaRows.map((m) => ({
-      id: m.id, url: m.url, kind: m.kind, originalName: m.originalName,
-      brandColor: brandById.get(m.brandId)?.color ?? "#888", brandName: brandById.get(m.brandId)?.name ?? "",
-    })),
+    media: [
+      ...masters.map((m) => ({
+        id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, brandColor: "#111827", brandName: "Master",
+      })),
+      ...mediaRows.map((m) => ({
+        id: m.id, url: m.url, kind: m.kind, originalName: m.originalName,
+        brandColor: (m.brandId && brandById.get(m.brandId)?.color) || "#888", brandName: (m.brandId && brandById.get(m.brandId)?.name) || "",
+      })),
+    ],
     platforms: channelRows
       .map((c) => meta.get(c.platform))
       .filter((p): p is NonNullable<typeof p> => Boolean(p))
