@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# Deploy builds into .next-new, then swaps it in and keeps .next-old until it is up.
+/.next-new/
+/.next-old/
 /out/
 
 # production

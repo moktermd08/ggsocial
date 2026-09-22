@@ -35,7 +35,8 @@ over `ssh … 'bash -s'`. The server half:
 3. `npm ci`, plus the Linux Tailwind binary pinned to the installed version,
 4. `drizzle-kit push` — before the restart, or the new build serves pages whose
    columns do not exist yet,
-5. `rm -rf .next && npm run build`,
+5. builds into `.next-new` (`distDir` comes from `NEXT_DIST_DIR`), then swaps
+   it in — the old build serves throughout, so only the restart is a gap,
 6. restarts both pm2 processes and polls `/login` until it is 200.
 
 It stops at the first failing step. The scheduler always logs one
@@ -67,8 +68,11 @@ on macOS, and npm's optional-dependency handling omits
 committed lockfile.
 
 **Turbopack caches the failure.** After a failed build, a retry replays the same
-error from `.next/build/chunks/` even once the real cause is fixed. Always
-`rm -rf .next` before rebuilding, which is why the deploy script does it.
+error from the build directory even once the real cause is fixed. The deploy
+script builds into a fresh `.next-new` every time, which sidesteps it — and
+keeps the old build serving until the new one is ready, so a failed build no
+longer takes the site down. Anything building by hand should `rm -rf` its
+build directory first.
 
 **A login shell builds with the wrong Node.** `bash -lc` sources nvm, which puts
 Node 18.20.8 first on the PATH. Next 16 refuses to build on it

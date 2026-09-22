@@ -42,15 +42,19 @@ step "Applying schema changes"
 npx drizzle-kit push --verbose < /dev/null
 
 step "Building"
-# From here until the build finishes the old build is gone, so a failure
-# leaves the site down. Say so loudly rather than exiting quietly.
-trap 'echo >&2; echo "BUILD FAILED — .next was removed, so the site is DOWN until a build succeeds. Fix and rerun scripts/deploy.sh." >&2' ERR
-# Turbopack replays a cached failure from .next, so always start clean.
-rm -rf .next
-npm run build
+# Built into .next-new, never over the build being served: the site stays up
+# for the whole build, and a failure leaves the old build untouched. A fresh
+# directory each time also avoids Turbopack replaying a cached failure.
+trap 'echo >&2; echo "BUILD FAILED — the old build is still serving, so the site is UP on the previous version. Fix and rerun scripts/deploy.sh." >&2' ERR
+rm -rf .next-new .next-old
+NEXT_DIST_DIR=.next-new npm run build
 trap - ERR
 
 step "Restarting"
+# Swap in the new build and restart at once: the gap is this pair of renames,
+# about a second, rather than the length of the build.
+if [[ -d .next ]]; then mv .next .next-old; fi
+mv .next-new .next
 pm2 restart ggsocial-web ggsocial-scheduler --update-env
 
 step "Verifying"
@@ -64,4 +68,5 @@ if [[ "$code" != 200 ]]; then
   echo "ERROR: /login returned $code after restart. Check: pm2 logs ggsocial-web" >&2
   exit 1
 fi
+rm -rf .next-old
 echo "OK — /login is 200."
