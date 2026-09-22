@@ -65,8 +65,18 @@ export function weeklyGrowthRate(p: GoalPath) {
 
 /* ------------------------------------------------------------ allocation */
 
+/**
+ * The smallest audience content is counted at. A brand-new account's posts
+ * still reach people through search, hashtags and the feed, so at zero
+ * followers a post is worth what it would be to about a thousand, not nothing.
+ */
+export const DISCOVERY_FLOOR = 1000;
+
+/** Audience as audience-scaled yields see it: the real one, but never below the discovery floor. */
+export const reachAudience = (audience: number) => Math.max(DISCOVERY_FLOOR, audience);
+
 export function effectiveYield(d: Pick<GoalDriver, "yield" | "scale">, audience: number) {
-  return d.scale === "audience" ? (d.yield * Math.max(0, audience)) / 1000 : d.yield;
+  return d.scale === "audience" ? (d.yield * reachAudience(audience)) / 1000 : d.yield;
 }
 
 /**
@@ -272,7 +282,7 @@ export function learnYields(opts: {
   const bench = drivers.map((d) => (d.priorYield > 0 ? d.priorYield : Math.max(d.yield, 1e-6)));
   const X = weeks.map((w) => [
     1,
-    ...drivers.map((d, i) => bench[i] * (w.units[d.activityCode] ?? 0) * (d.scale === "audience" ? Math.max(0, w.audience) / 1000 : 1)),
+    ...drivers.map((d, i) => bench[i] * (w.units[d.activityCode] ?? 0) * (d.scale === "audience" ? reachAudience(w.audience) / 1000 : 1)),
   ]);
   const y = weeks.map((w) => w.gain);
   const n = drivers.length + 1;
