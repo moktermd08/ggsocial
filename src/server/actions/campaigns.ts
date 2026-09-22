@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, campaigns, campaignComments, activity, type CampaignStatus } from "@/lib/db";
 import { can, getMyBrands, requireBrandRole, requireUser } from "@/lib/auth";
-import { campaignColumns, type CampaignField, type CampaignValues } from "@/lib/campaigns";
+import { campaignColumns, campaignValues, type CampaignField, type CampaignValues } from "@/lib/campaigns";
 import {
   campaignAccess, createCampaignCopy, renameCampaignLabel, syncAllCampaignCopies, syncCampaignCopy,
 } from "@/server/campaigns";
@@ -59,7 +59,7 @@ async function addCopies(masterId: string, brandIds: string[]) {
       where: and(eq(campaigns.brandId, brandId), eq(campaigns.name, row.name), isNull(campaigns.archivedAt)),
     });
     if (same) {
-      await db.update(campaigns).set({ masterId, masterSnapshot: {} }).where(eq(campaigns.id, same.id));
+      await db.update(campaigns).set({ masterId, masterSnapshot: campaignValues(row) }).where(eq(campaigns.id, same.id));
       await syncCampaignCopy(same.id);
     } else {
       const copy = await createCampaignCopy(row, brandId, user.id);

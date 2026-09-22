@@ -9,12 +9,11 @@ import { ChipListField, LinksEditor, LogoUploader, PaletteEditor } from "@/compo
 import { COMMON_TIMEZONES } from "@/lib/format";
 import { readableOn } from "@/lib/color";
 import { EMOJI_POLICIES } from "@/lib/db";
-
-const EMOJI_LABELS: Record<string, string> = {
-  free: "Emoji are fine",
-  sparing: "Sparingly — one or two at most",
-  none: "Never use emoji",
-};
+import { Layers } from "lucide-react";
+import { getBookDefaults, getBookDefaultsById, bookState } from "@/server/brand-book";
+import { linkBrandBookAction, resolveBookFieldAction, unlinkBrandBookAction } from "@/server/actions/brand-book";
+import { BOOK_FIELDS, BOOK_FIELD_LABELS, EMOJI_LABELS, bookValues, readableBookValue, type BookField } from "@/lib/brand-book";
+import { FromMasterPanel, LabelRow } from "@/components/master-panels";
 
 /**
  * Every profile card is its own form so one save can't clobber another.
@@ -56,7 +55,21 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const brand = brands.find((b) => b.id === id);
   if (!brand) notFound();
 
-  const [team, channels] = await Promise.all([getBrandTeam(id), getBrandChannels([id])]);
+  const [team, channels, linkedBook, myBook] = await Promise.all([
+    getBrandTeam(id), getBrandChannels([id]),
+    brand.bookDefaultsId ? getBookDefaultsById(brand.bookDefaultsId) : null,
+    getBookDefaults(user.id),
+  ]);
+  const book = linkedBook ? { row: linkedBook, state: bookState(brand, linkedBook), values: bookValues(linkedBook) } : null;
+  const readable: Partial<Record<BookField, string>> = {};
+  if (book) for (const f of BOOK_FIELDS) readable[f] = readableBookValue(f, book.values[f]);
+  /** "From master" or "Customised" beside a field that follows the master brand book. */
+  const t = (f: BookField) => book ? (
+    book.state.customised.includes(f)
+      ? <span className="text-[11px] font-normal text-accent">Customised</span>
+      : <span className="text-[11px] font-normal text-muted">From master</span>
+  ) : null;
+  const L = (text: string, f: BookField) => <LabelRow text={text} tag={t(f)} />;
   const editable = can.manageBrand(brand.role);
   const ro = !editable;
 
@@ -160,19 +173,19 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             </Field>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Heading typeface">
+              <Field label={L("Heading typeface", "fontHeading")}>
                 <input name="fontHeading" defaultValue={brand.fontHeading ?? ""} disabled={ro} placeholder="Söhne Bold" />
               </Field>
-              <Field label="Body typeface">
+              <Field label={L("Body typeface", "fontBody")}>
                 <input name="fontBody" defaultValue={brand.fontBody ?? ""} disabled={ro} placeholder="Inter Regular" />
               </Field>
             </div>
 
-            <Field label="Logo usage" hint="Clear space, which mark on which background, what never to do.">
+            <Field label={L("Logo usage", "logoUsage")} hint="Clear space, which mark on which background, what never to do.">
               <textarea name="logoUsage" rows={3} defaultValue={brand.logoUsage ?? ""} disabled={ro}
                 placeholder="Full lockup on light backgrounds, icon only below 32px. Never recolour." />
             </Field>
-            <Field label="Photography & image style">
+            <Field label={L("Photography & image style", "imageStyle")}>
               <textarea name="imageStyle" rows={3} defaultValue={brand.imageStyle ?? ""} disabled={ro}
                 placeholder="Real workshops, natural light, no stock handshakes." />
             </Field>
@@ -186,23 +199,23 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             subtitle="Surfaced in the composer whenever someone writes for this brand."
             editable={editable}
           >
-            <Field label="Brief" hint="The short version, shown at the top of the composer.">
+            <Field label={L("Brief", "brief")} hint="The short version, shown at the top of the composer.">
               <textarea name="brief" rows={3} defaultValue={brand.brief ?? ""} disabled={ro}
                 placeholder="Dry, technical, no hype. Always link the docs." />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Tone of voice">
+              <Field label={L("Tone of voice", "voice")}>
                 <textarea name="voice" rows={3} defaultValue={brand.voice ?? ""} disabled={ro}
                   placeholder="Plain, confident, slightly dry. We explain, we don't sell." />
               </Field>
-              <Field label="Audience">
+              <Field label={L("Audience", "audience")}>
                 <textarea name="audience" rows={3} defaultValue={brand.audience ?? ""} disabled={ro}
                   placeholder="Workshop owners and machinists, 5–50 staff." />
               </Field>
             </div>
 
             <ChipListField
-              label="Key messages"
+              label={L("Key messages", "valueProps")}
               name="valueProps"
               hint="The handful of things every post should ladder back to."
               defaultValue={brand.valueProps}
@@ -211,7 +224,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             />
 
             <ChipListField
-              label="Words to avoid"
+              label={L("Words to avoid", "bannedWords")}
               name="bannedWords"
               hint="Flagged in the composer as you type. One per line, or comma separated."
               defaultValue={brand.bannedWords}
@@ -220,7 +233,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             />
 
             <ChipListField
-              label="Default hashtags"
+              label={L("Default hashtags", "defaultHashtags")}
               name="defaultHashtags"
               hint="Offered as one-click inserts in the composer."
               defaultValue={brand.defaultHashtags}
@@ -230,17 +243,17 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             />
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Emoji policy">
+              <Field label={L("Emoji policy", "emojiPolicy")}>
                 <select name="emojiPolicy" defaultValue={brand.emojiPolicy} disabled={ro}>
                   {EMOJI_POLICIES.map((p) => <option key={p} value={p}>{EMOJI_LABELS[p]}</option>)}
                 </select>
               </Field>
-              <Field label="Default call to action">
+              <Field label={L("Default call to action", "ctaText")}>
                 <input name="ctaText" defaultValue={brand.ctaText ?? ""} disabled={ro} placeholder="Book a 20-minute demo →" />
               </Field>
             </div>
 
-            <Field label="Boilerplate" hint="The standing 'about us' paragraph for press and long-form posts.">
+            <Field label={L("Boilerplate", "boilerplate")} hint="The standing 'about us' paragraph for press and long-form posts.">
               <textarea name="boilerplate" rows={3} defaultValue={brand.boilerplate ?? ""} disabled={ro} />
             </Field>
           </SectionForm>
@@ -250,7 +263,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             section="links"
             revision={rev(brand.links)}
             title="Links"
-            subtitle="Press kit, docs, app listings — whatever gets pasted into posts."
+            subtitle={`Press kit, docs, app listings — whatever gets pasted into posts.${book ? (book.state.customised.includes("links") ? " Customised for this brand." : " From the master brand book.") : ""}`}
             editable={editable}
           >
             <LinksEditor value={brand.links} disabled={ro} />
@@ -272,6 +285,29 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
         </div>
 
         <div className="space-y-5">
+          {book ? (
+            <FromMasterPanel
+              href="/brands/master"
+              masterTitle="Master brand book"
+              guidelines={null}
+              notes={null}
+              pending={book.state.pending}
+              customised={book.state.customised}
+              masterValues={readable}
+              fieldLabels={BOOK_FIELD_LABELS}
+              canEdit={editable}
+              resolve={resolveBookFieldAction.bind(null, id)}
+              unlink={unlinkBrandBookAction.bind(null, id)}
+              unlinkConfirm="Stop following the master brand book? This brand keeps its current voice and rules."
+            />
+          ) : editable && myBook ? (
+            <Card>
+              <CardHeader icon={Layers} title="Master brand book" subtitle="Follow the house voice and rules. Empty fields fill in; anything written here stays." />
+              <form action={linkBrandBookAction.bind(null, id)} className="p-3">
+                <button className={buttonClass("primary", "sm")}>Link to master brand book</button>
+              </form>
+            </Card>
+          ) : null}
           <Card>
             <CardHeader title="At a glance" />
             <div className="space-y-3 p-4">

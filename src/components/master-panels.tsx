@@ -237,6 +237,21 @@ export function FromMasterPanel<F extends string>({
             ? `Customised for this brand: ${list(customised)}. Everything else follows the master.`
             : "Nothing customised yet: this follows the master. Edit any field to make it this brand's own."}
         </p>
+        {canEdit && customised.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {customised.map((f) => (
+              <button
+                key={f}
+                disabled={pending}
+                onClick={() => { if (confirm(`Reset ${fieldLabels[f].toLowerCase()} to the master's version?`)) run(() => resolve(f, "accept")); }}
+                className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:bg-surface-2"
+                title="Replace this brand's version with the master's"
+              >
+                Reset {fieldLabels[f].toLowerCase()}
+              </button>
+            ))}
+          </div>
+        )}
 
         {canEdit && (
           <button

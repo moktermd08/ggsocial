@@ -187,7 +187,7 @@ export function LogoUploader({
 export function ChipListField({
   label, name, hint, defaultValue, placeholder, disabled, prefix = "",
 }: {
-  label: string; name: string; hint?: string; defaultValue: string[];
+  label: React.ReactNode; name: string; hint?: string; defaultValue: string[];
   placeholder?: string; disabled?: boolean; prefix?: string;
 }) {
   const [text, setText] = useState(defaultValue.join("\n"));

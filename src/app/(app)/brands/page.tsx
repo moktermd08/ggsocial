@@ -1,4 +1,4 @@
-import { Building2 } from "lucide-react";
+import { Building2, Layers } from "lucide-react";
 import Link from "next/link";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getBrandChannels } from "@/server/queries";
@@ -29,6 +29,19 @@ export default async function BrandsPage() {
         subtitle="One brand per company or project. Channels, media, calendar, permissions and the brand book are scoped to it."
         action={<LinkButton href="/brands/new" variant="primary">Add a brand</LinkButton>}
       />
+
+      <Link
+        href="/brands/master"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:bg-surface-2"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-text text-surface"><Layers className="size-4" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">Master brand book</span>
+          <span className="block text-xs text-muted">
+            House voice, words to avoid, emoji policy, CTA and visual guidance — written once, followed by {brands.filter((b) => b.bookDefaultsId).length} of {brands.length} brands.
+          </span>
+        </span>
+      </Link>
 
       {brands.length === 0 ? (
         <Card>
@@ -66,6 +79,7 @@ export default async function BrandsPage() {
                     <p className="truncate font-medium">{b.name}</p>
                     <p className="truncate text-[11px] text-muted">{b.tagline ?? b.timezone}</p>
                   </div>
+                  {b.bookDefaultsId && <Badge><Layers className="size-3" /> Master book</Badge>}
                   <Badge>{b.role}</Badge>
                 </div>
 

@@ -43,6 +43,34 @@ export const EMOJI_POLICIES = ["free", "sparing", "none"] as const;
 export type EmojiPolicy = (typeof EMOJI_POLICIES)[number];
 
 /**
+ * The master brand book: the house voice and rules every linked brand starts
+ * from. Only the parts that can sensibly be shared live here — identity
+ * (name, logo, palette, timezone) is always each brand's own. A linked brand
+ * follows each field until it customises it, the same way master posts and
+ * campaigns work; see `src/lib/brand-book.ts`. One per author.
+ */
+export const brandBookDefaults = pgTable("brand_book_defaults", {
+  id: id(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  brief: text("brief"),
+  voice: text("voice"),
+  audience: text("audience"),
+  valueProps: jsonb("value_props").$type<string[]>().notNull().default([]),
+  bannedWords: jsonb("banned_words").$type<string[]>().notNull().default([]),
+  defaultHashtags: jsonb("default_hashtags").$type<string[]>().notNull().default([]),
+  emojiPolicy: text("emoji_policy").$type<EmojiPolicy>().notNull().default("free"),
+  ctaText: text("cta_text"),
+  boilerplate: text("boilerplate"),
+  fontHeading: text("font_heading"),
+  fontBody: text("font_body"),
+  logoUsage: text("logo_usage"),
+  imageStyle: text("image_style"),
+  links: jsonb("links").$type<BrandLink[]>().notNull().default([]),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("brand_book_defaults_owner_idx").on(t.ownerId)]);
+
+/**
  * One row per company or project you manage.
  *
  * Beyond the handful of fields scheduling needs (colour, timezone), this row is
@@ -105,6 +133,11 @@ export const brands = pgTable("brands", {
 
   /** Anything else the team needs to know. Never published. */
   notes: text("notes"),
+
+  /** The master brand book this brand follows. null = entirely its own. */
+  bookDefaultsId: text("book_defaults_id").references((): AnyPgColumn => brandBookDefaults.id, { onDelete: "set null" }),
+  /** The master book's values as of the last sync; see MasterSnapshot on posts. */
+  bookSnapshot: jsonb("book_snapshot").$type<Record<string, string>>().notNull().default({}),
 
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: now(),

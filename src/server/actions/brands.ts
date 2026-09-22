@@ -2,78 +2,14 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import {
-  db, brands, memberships, activity, users, invites, media,
-  EMOJI_POLICIES, type Role, type BrandColor, type BrandLink, type EmojiPolicy,
-} from "@/lib/db";
+import { db, brands, memberships, activity, users, invites, media, type Role } from "@/lib/db";
 import { requireUser, requireBrandRole } from "@/lib/auth";
-import { normalizeHex } from "@/lib/color";
+import { emojiPolicy, hashtags, hex, links, list, palette, str, year } from "@/server/brand-form";
 import { storeUpload, kindFromMime } from "@/server/media";
+import { getBookDefaults, linkBrandToBook, syncBrandBook } from "@/server/brand-book";
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "brand";
-}
-
-/* --------------------------------------------------------------- parsing */
-
-/** Trimmed string, or null — empty inputs should clear the column, not store "". */
-function str(fd: FormData, key: string) {
-  const v = String(fd.get(key) ?? "").trim();
-  return v || null;
-}
-
-/** A textarea or comma list read back as a deduped array of lines. */
-function list(fd: FormData, key: string) {
-  const seen = new Set<string>();
-  for (const raw of String(fd.get(key) ?? "").split(/[\n,]/)) {
-    const v = raw.trim();
-    if (v) seen.add(v);
-  }
-  return [...seen];
-}
-
-function hashtags(fd: FormData, key: string) {
-  return list(fd, key).map((t) => (t.startsWith("#") ? t : `#${t}`).replace(/\s+/g, ""));
-}
-
-function hex(fd: FormData, key: string, fallback: string) {
-  return normalizeHex(String(fd.get(key) ?? "")) ?? fallback;
-}
-
-/** Repeatable rows arrive as parallel `key.a` / `key.b` lists. */
-function rows<T>(fd: FormData, a: string, b: string, build: (a: string, b: string) => T) {
-  const as = fd.getAll(a).map(String);
-  const bs = fd.getAll(b).map(String);
-  const out: T[] = [];
-  for (let i = 0; i < as.length; i++) {
-    const left = (as[i] ?? "").trim();
-    const right = (bs[i] ?? "").trim();
-    if (left || right) out.push(build(left, right));
-  }
-  return out;
-}
-
-function palette(fd: FormData): BrandColor[] {
-  return rows(fd, "palette.name", "palette.hex", (name, h) => ({
-    name: name || "Untitled",
-    hex: normalizeHex(h) ?? "#6366f1",
-  }));
-}
-
-function links(fd: FormData): BrandLink[] {
-  return rows(fd, "links.label", "links.url", (label, url) => ({ label: label || url, url }))
-    .filter((l) => l.url);
-}
-
-function year(fd: FormData, key: string) {
-  const n = Number(String(fd.get(key) ?? "").trim());
-  if (!Number.isInteger(n) || n < 1800 || n > new Date().getFullYear() + 1) return null;
-  return n;
-}
-
-function emojiPolicy(fd: FormData): EmojiPolicy {
-  const v = String(fd.get("emojiPolicy") ?? "free");
-  return (EMOJI_POLICIES as readonly string[]).includes(v) ? (v as EmojiPolicy) : "free";
 }
 
 /**
@@ -155,6 +91,9 @@ export async function createBrandAction(formData: FormData) {
   }).returning();
 
   await db.insert(memberships).values({ userId: user.id, brandId: brand.id, role: "owner" });
+  // A new brand starts from your master brand book, if you have one.
+  const book = await getBookDefaults(user.id);
+  if (book) await linkBrandToBook(brand.id, book.id);
   await db.insert(activity).values({ brandId: brand.id, actorId: user.id, action: "brand.created", entity: "brand", entityId: brand.id });
   revalidatePath("/", "layout");
   redirect(`/brands/${brand.id}`);
@@ -173,6 +112,8 @@ export async function updateBrandAction(brandId: string, formData: FormData) {
   if (Object.keys(clean).length === 0) return;
 
   await db.update(brands).set(clean).where(eq(brands.id, brandId));
+  // Fields saved back to the master's value are in step with it again.
+  await syncBrandBook(brandId);
   await db.insert(activity).values({
     brandId, actorId: user.id, action: "brand.updated", entity: "brand", entityId: brandId, meta: { section },
   });
