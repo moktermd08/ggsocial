@@ -4,7 +4,7 @@ import {
   db, posts, postTargets, channels, brands, media, attachments, comments, users, memberships, metrics,
   contentIdeas, interactions, links, linkClicks, OPEN_INTERACTION_STATUSES,
 } from "@/lib/db";
-import { ideaVersionViews } from "./ideas";
+import { ideaAccess, ideaVersionViews, planOwnersFor } from "./ideas";
 import type { IdeaVersionView } from "@/lib/ideas";
 import type {
   PostStatus, InteractionDirection, InteractionKind, InteractionStatus,
@@ -270,6 +270,10 @@ export type IdeaBoardRow = IdeaRow & {
   /** Clicks on every tracked link this idea's posts carried. */
   clicks: number;
   liveLanes: number;
+  /** Whether this person may change the idea itself (not just their brand's version). */
+  canEdit: boolean;
+  /** The author, when it is someone else's idea. */
+  ownerName: string | null;
 };
 
 /**
@@ -279,11 +283,21 @@ export type IdeaBoardRow = IdeaRow & {
  * impressions and comments are read back from the posts it spawned, so the
  * plan can never disagree with what actually shipped.
  */
-export async function getIdeaBoard(ownerId: string, brandIds: string[]): Promise<IdeaBoardRow[]> {
+export async function getIdeaBoard(userId: string, brandIds: string[], myBrandIds: string[] = brandIds): Promise<IdeaBoardRow[]> {
+  // The shared plan: this person's ideas and those of anyone who admins a brand they are on.
+  const owners = await planOwnersFor(userId, myBrandIds);
   const ideaRows = await db.select().from(contentIdeas)
-    .where(and(eq(contentIdeas.ownerId, ownerId), isNull(contentIdeas.archivedAt)))
+    .where(and(inArray(contentIdeas.ownerId, owners), isNull(contentIdeas.archivedAt)))
     .orderBy(asc(contentIdeas.sequence), asc(contentIdeas.createdAt));
   if (ideaRows.length === 0) return [];
+
+  const ownerIds = [...new Set(ideaRows.map((r) => r.ownerId))];
+  const [ownerRows, accessRows] = await Promise.all([
+    db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ownerIds)),
+    Promise.all(ownerIds.map(async (id) => [id, await ideaAccess(userId, id)] as const)),
+  ]);
+  const ownerName = new Map(ownerRows.map((u) => [u.id, u.name]));
+  const access = new Map(accessRows);
 
   const ideaIds = ideaRows.map((r) => r.id);
   const brandRows = brandIds.length
@@ -355,6 +369,8 @@ export async function getIdeaBoard(ownerId: string, brandIds: string[]): Promise
       totalComments: lanes.reduce((n, l) => n + l.commentCount, 0),
       clicks: clicksByIdea.get(idea.id) ?? 0,
       liveLanes: lanes.filter((l) => l.post).length,
+      canEdit: access.get(idea.ownerId)?.canEdit ?? false,
+      ownerName: idea.ownerId === userId ? null : ownerName.get(idea.ownerId) ?? "Someone",
     };
   });
 }

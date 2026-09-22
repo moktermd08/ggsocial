@@ -9,7 +9,7 @@ export default async function IdeasPage() {
   const user = await requireUser();
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
-  const rows = await getIdeaBoard(user.id, scope.brandIds);
+  const rows = await getIdeaBoard(user.id, scope.brandIds, brands.map((b) => b.id));
 
   const shipped = rows.filter((r) => r.lanes.some((l) => l.post?.status === "published")).length;
   const laneCount = rows[0]?.lanes.length ?? scope.brandIds.length;

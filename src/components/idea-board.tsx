@@ -26,13 +26,16 @@ const IDEA_STATUS_META: Record<IdeaStatus, { label: string; color: string }> = {
 };
 
 /** Fields the grid edits in place. Everything else is derived from the posts. */
-type Draft = Pick<IdeaBoardRow, "status" | "postType" | "tone" | "needsMedia" | "targetImpressions" | "keyLearning" | "series" | "notes" | "title">;
+type Draft = Pick<IdeaBoardRow,
+  "status" | "postType" | "tone" | "needsMedia" | "targetImpressions" | "keyLearning" | "series" | "notes" | "title"
+  | "problem" | "action" | "outcome" | "pillar">;
 
 function draftOf(row: IdeaBoardRow): Draft {
   return {
     status: row.status, postType: row.postType, tone: row.tone, needsMedia: row.needsMedia,
     targetImpressions: row.targetImpressions, keyLearning: row.keyLearning, series: row.series,
     notes: row.notes, title: row.title,
+    problem: row.problem, action: row.action, outcome: row.outcome, pillar: row.pillar,
   };
 }
 
@@ -94,7 +97,6 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
       try {
         const input: IdeaInput = {
           ideaId: row.id,
-          problem: row.problem, action: row.action, outcome: row.outcome, pillar: row.pillar,
           hashtags: row.hashtags,
           ...next,
         };
@@ -384,9 +386,9 @@ function IdeaRow({
   const shown = version?.values ?? null;
   const told = {
     title: shown ? shown.title : draft.title,
-    problem: shown ? shown.problem : row.problem,
-    action: shown ? shown.action || null : row.action,
-    outcome: shown ? shown.outcome || null : row.outcome,
+    problem: shown ? shown.problem : draft.problem,
+    action: shown ? shown.action || null : draft.action,
+    outcome: shown ? shown.outcome || null : draft.outcome,
     postType: shown ? shown.postType || null : draft.postType,
     tone: shown ? shown.tone || null : draft.tone,
     targetImpressions: shown ? (shown.targetImpressions === "" ? null : Number(shown.targetImpressions)) : draft.targetImpressions,
@@ -438,8 +440,11 @@ function IdeaRow({
                 {version && version.pending.length > 0 && (
                   <span className="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">Idea changed</span>
                 )}
-                {row.pillar && (
-                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{row.pillar}</span>
+                {row.ownerName && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted" title="Shared from their plan">By {row.ownerName}</span>
+                )}
+                {draft.pillar && (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{draft.pillar}</span>
                 )}
                 {draft.series && (
                   <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Series: {draft.series}</span>
@@ -456,6 +461,8 @@ function IdeaRow({
           <select
             value={draft.status}
             onChange={(e) => onPatch({ status: e.target.value as IdeaStatus })}
+            disabled={!row.canEdit}
+            title={row.canEdit ? undefined : "Only the idea's author or a fellow admin can change its status"}
             className="!w-full !px-1.5 !py-1 !text-xs"
             style={{ borderColor: tintedBorder(meta.color), background: tintedSurface(meta.color), color: tintedInk(meta.color) }}
           >
@@ -464,10 +471,10 @@ function IdeaRow({
         </td>
 
         <td className="px-2 py-2">
-          <CellInput value={told.postType ?? ""} placeholder="—" onCommit={(v) => commit("postType", v)} />
+          <CellInput value={told.postType ?? ""} placeholder="—" disabled={!brandScope && !row.canEdit} onCommit={(v) => commit("postType", v)} />
         </td>
         <td className="px-2 py-2">
-          <CellInput value={told.tone ?? ""} placeholder="—" onCommit={(v) => commit("tone", v)} />
+          <CellInput value={told.tone ?? ""} placeholder="—" disabled={!brandScope && !row.canEdit} onCommit={(v) => commit("tone", v)} />
         </td>
 
         {row.lanes.map((lane) => (
@@ -482,6 +489,7 @@ function IdeaRow({
             placeholder="—"
             align="right"
             inputMode="numeric"
+            disabled={!brandScope && !row.canEdit}
             onCommit={(v) => commit("targetImpressions", v)}
           />
         </td>
@@ -518,10 +526,59 @@ function IdeaRow({
         <tr className="border-b border-border bg-surface-2">
           <td />
           <td colSpan={99} className="px-2 py-3">
+            {!row.canEdit && (
+              <p className="mb-2 text-xs text-muted">
+                {row.ownerName ? `${row.ownerName}'s idea` : "This idea"} — you can fan it out and adapt it for your brands; its author or a fellow admin edits the idea itself.
+              </p>
+            )}
+            <fieldset disabled={!row.canEdit} className="mb-3 grid gap-3 pr-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="sm:col-span-2">
+                <Field label="Problem" hint="The line every brand's post starts from.">
+                  <textarea
+                    rows={2}
+                    defaultValue={draft.problem}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== draft.problem) onPatch({ problem: v });
+                      else if (!v) e.target.value = draft.problem;
+                    }}
+                    className="!py-1 !text-sm"
+                  />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="What you do about it">
+                  <textarea
+                    rows={2}
+                    defaultValue={draft.action ?? ""}
+                    onBlur={(e) => e.target.value !== (draft.action ?? "") && onPatch({ action: e.target.value || null })}
+                    className="!py-1 !text-sm"
+                  />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Outcome">
+                  <textarea
+                    rows={2}
+                    defaultValue={draft.outcome ?? ""}
+                    onBlur={(e) => e.target.value !== (draft.outcome ?? "") && onPatch({ outcome: e.target.value || null })}
+                    className="!py-1 !text-sm"
+                  />
+                </Field>
+              </div>
+              <Field label="Pillar" hint="The theme it sits under.">
+                <input
+                  defaultValue={draft.pillar ?? ""}
+                  onBlur={(e) => e.target.value !== (draft.pillar ?? "") && onPatch({ pillar: e.target.value || null })}
+                  className="!py-1 !text-sm"
+                />
+              </Field>
+            </fieldset>
             <div className="grid gap-3 pr-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Working title" hint="Blank uses the problem line.">
                 <input
                   defaultValue={draft.title}
+                  disabled={!row.canEdit}
                   onBlur={(e) => e.target.value !== draft.title && onPatch({ title: e.target.value })}
                   className="!py-1 !text-sm"
                 />
@@ -529,6 +586,7 @@ function IdeaRow({
               <Field label="Series" hint="Blank means a one-off.">
                 <input
                   defaultValue={draft.series ?? ""}
+                  disabled={!row.canEdit}
                   onBlur={(e) => e.target.value !== (draft.series ?? "") && onPatch({ series: e.target.value || null })}
                   className="!py-1 !text-sm"
                 />
@@ -536,6 +594,7 @@ function IdeaRow({
               <Field label="Key learning" hint="What this idea taught you, after it ran.">
                 <input
                   defaultValue={draft.keyLearning ?? ""}
+                  disabled={!row.canEdit}
                   onBlur={(e) => e.target.value !== (draft.keyLearning ?? "") && onPatch({ keyLearning: e.target.value || null })}
                   className="!py-1 !text-sm"
                 />
@@ -545,6 +604,7 @@ function IdeaRow({
                   <input
                     type="checkbox"
                     checked={draft.needsMedia}
+                    disabled={!row.canEdit}
                     onChange={(e) => onPatch({ needsMedia: e.target.checked })}
                     className="!w-auto"
                   />
@@ -575,6 +635,7 @@ function IdeaRow({
                 <textarea
                   rows={2}
                   defaultValue={draft.notes ?? ""}
+                  disabled={!row.canEdit}
                   onBlur={(e) => e.target.value !== (draft.notes ?? "") && onPatch({ notes: e.target.value || null })}
                   className="!py-1 !text-sm"
                 />
@@ -632,10 +693,11 @@ function LaneCell({ lane }: { lane: IdeaBoardRow["lanes"][number] }) {
  * so typing never fires a round-trip per keystroke.
  */
 function CellInput({
-  value, placeholder, onCommit, align = "left", inputMode,
+  value, placeholder, onCommit, align = "left", inputMode, disabled,
 }: {
   value: string;
   placeholder?: string;
+  disabled?: boolean;
   onCommit: (value: string) => void;
   align?: "left" | "right";
   inputMode?: "numeric";
@@ -646,6 +708,7 @@ function CellInput({
       key={value}
       placeholder={placeholder}
       inputMode={inputMode}
+      disabled={disabled}
       onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
       className={`!border-transparent !bg-transparent !px-1 !py-0.5 !text-xs hover:!border-border focus:!border-accent ${
         align === "right" ? "text-right" : ""

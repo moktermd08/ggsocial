@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, contentIdeas, ideaVersions, posts, activity, brands, type IdeaStatus } from "@/lib/db";
 import { ideaColumns, ideaValues, type IdeaField, type IdeaValues } from "@/lib/ideas";
-import { ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/server/ideas";
+import { ideaAccess, ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/server/ideas";
 import { requireUser, requireBrandRole, getMembership, can } from "@/lib/auth";
 
 export type IdeaInput = {
@@ -24,11 +24,19 @@ export type IdeaInput = {
   keyLearning?: string | null;
 };
 
-/** Throws unless the idea exists and belongs to the signed-in user. */
-async function requireOwnIdea(ideaId: string) {
+/**
+ * Throws unless the idea is in this person's shared plan. "edit" is for the
+ * idea itself (its author and fellow admins); "view" is enough to fan it out
+ * or adapt it for a brand, where brand roles are checked separately.
+ */
+async function requireIdea(ideaId: string, need: "view" | "edit") {
   const user = await requireUser();
   const idea = await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, ideaId) });
-  if (!idea || idea.ownerId !== user.id) throw new Error("That idea is not yours to change.");
+  if (!idea) throw new Error("Idea not found.");
+  const access = await ideaAccess(user.id, idea.ownerId);
+  if (!(need === "edit" ? access.canEdit : access.canView)) {
+    throw new Error(need === "edit" ? "Only the idea's author or a fellow admin can change it." : "Idea not found.");
+  }
   return { user, idea };
 }
 
@@ -57,7 +65,7 @@ export async function saveIdeaAction(input: IdeaInput) {
 
   let ideaId = input.ideaId;
   if (ideaId) {
-    await requireOwnIdea(ideaId);
+    await requireIdea(ideaId, "edit");
     await db.update(contentIdeas).set(fields).where(eq(contentIdeas.id, ideaId));
     // Brand versions pick up changes to whatever they have not adapted.
     await syncIdeaVersions(ideaId);
@@ -77,7 +85,7 @@ export async function saveIdeaAction(input: IdeaInput) {
 }
 
 export async function archiveIdeaAction(ideaId: string) {
-  await requireOwnIdea(ideaId);
+  await requireIdea(ideaId, "edit");
   await db.update(contentIdeas).set({ archivedAt: new Date() }).where(eq(contentIdeas.id, ideaId));
   revalidatePath("/ideas");
 }
@@ -104,7 +112,7 @@ function scaffold(idea: typeof contentIdeas.$inferSelect, brand: typeof brands.$
  * a decision per post, and the composer is one click away.
  */
 export async function fanOutIdeaAction(ideaId: string, brandIds: string[]) {
-  const { user, idea } = await requireOwnIdea(ideaId);
+  const { user, idea } = await requireIdea(ideaId, "view");
   if (brandIds.length === 0) throw new Error("Pick at least one brand.");
 
   const brandRows = await db.select().from(brands).where(inArray(brands.id, brandIds));
@@ -194,7 +202,7 @@ export async function saveIdeaVersionAction(input: {
   notes?: string | null;
   skipped?: boolean;
 }) {
-  const { idea } = await requireOwnIdea(input.ideaId);
+  const { idea } = await requireIdea(input.ideaId, "view");
   await requireBrandRole(input.brandId, "editor");
 
   let version = await db.query.ideaVersions.findFirst({
@@ -224,7 +232,7 @@ export async function saveIdeaVersionAction(input: {
 async function requireOwnVersion(versionId: string) {
   const version = await db.query.ideaVersions.findFirst({ where: eq(ideaVersions.id, versionId) });
   if (!version) throw new Error("That version no longer exists.");
-  await requireOwnIdea(version.ideaId);
+  await requireIdea(version.ideaId, "view");
   await requireBrandRole(version.brandId, "editor");
   return version;
 }

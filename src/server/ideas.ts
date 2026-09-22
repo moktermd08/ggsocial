@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
-import { db, contentIdeas, ideaVersions } from "@/lib/db";
+import { db, contentIdeas, ideaVersions, memberships } from "@/lib/db";
+import { masterOwnersFor } from "@/server/media-library";
 import { inheritState, planSync } from "@/lib/masters";
 import { IDEA_FIELDS, ideaColumns, ideaValues, type IdeaField, type IdeaVersionView } from "@/lib/ideas";
 
@@ -65,4 +66,30 @@ export async function ideaForBrand(ideaId: string, brandId: string) {
     },
     skipped: v.skipped,
   };
+}
+
+/**
+ * Who can see and change an idea. The plan is shared the way the master
+ * library is: an idea is visible to everyone on a brand its author admins,
+ * and the author's fellow admins can edit it as well as the author. Brand
+ * editors adapt their own brand's version and fan out into their brands, but
+ * leave the idea itself alone.
+ */
+export async function ideaAccess(userId: string, ownerId: string) {
+  if (ownerId === userId) return { canView: true, canEdit: true };
+  const [theirs, mine] = await Promise.all([
+    db.select({ brandId: memberships.brandId, role: memberships.role }).from(memberships).where(eq(memberships.userId, ownerId)),
+    db.select({ brandId: memberships.brandId, role: memberships.role }).from(memberships).where(eq(memberships.userId, userId)),
+  ]);
+  const adminOf = new Set(theirs.filter((m) => m.role === "owner" || m.role === "admin").map((m) => m.brandId));
+  const shared = mine.filter((m) => adminOf.has(m.brandId));
+  return {
+    canView: shared.length > 0,
+    canEdit: shared.some((m) => m.role === "owner" || m.role === "admin"),
+  };
+}
+
+/** Whose plans a person sees: their own, and those of anyone who admins a brand they are on. */
+export async function planOwnersFor(userId: string, brandIds: string[]) {
+  return masterOwnersFor(userId, brandIds);
 }
