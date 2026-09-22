@@ -32,6 +32,12 @@ rsync -az --delete \
   --exclude .env --exclude .env.local --exclude .claude \
   ./ "$HOST:$APP_DIR/"
 
-# Stream the server half over stdin: the remote login shell is fish, and
-# this way it only ever parses `bash -s`.
-ssh "$HOST" 'bash -s' < scripts/deploy-remote.sh
+# Identifies this release to the browser: a tab still on the old build sends
+# its own id, and Next reloads the page rather than failing the click. The
+# server has no git checkout, so it is worked out here.
+DEPLOY_ID="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%d%H%M%S)"
+
+# Stream the server half over stdin: the remote login shell is fish, and this
+# way it only ever parses `bash -s`. `env` carries the id across, because fish
+# does not understand `VAR=value command`.
+ssh "$HOST" "env DEPLOY_ID=$DEPLOY_ID bash -s" < scripts/deploy-remote.sh

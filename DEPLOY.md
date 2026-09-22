@@ -35,8 +35,10 @@ over `ssh … 'bash -s'`. The server half:
 3. `npm ci`, plus the Linux Tailwind binary pinned to the installed version,
 4. `drizzle-kit push` — before the restart, or the new build serves pages whose
    columns do not exist yet,
-5. builds into `.next-new` (`distDir` comes from `NEXT_DIST_DIR`), then swaps
-   it in — the old build serves throughout, so only the restart is a gap,
+5. pins `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` in `.env` the first time, then
+   builds into `.next-new` (`distDir` comes from `NEXT_DIST_DIR`) stamped with
+   a deployment id, and swaps it in — the old build serves throughout, so only
+   the restart is a gap,
 6. restarts both pm2 processes and polls `/login` until it is 200.
 
 It stops at the first failing step. The scheduler always logs one
@@ -50,6 +52,18 @@ ssh gglink-live 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3200/
 ```
 
 ### Traps in this deploy, learned the hard way
+
+**A tab left open across a deploy used to break on its next click.** It still
+holds the old build's JavaScript, whose Server Action ids the new build no
+longer has ("Failed to find Server Action"). Two things fix it, both set by the
+deploy: `deploymentId` (`NEXT_DEPLOYMENT_ID`, the commit plus a timestamp,
+worked out in `deploy.sh` because the server has no git checkout) makes Next
+reload the page when the client's id and the server's differ, and
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` in `.env` keeps actions that did not
+change working across builds. Losing that key is like losing `APP_SECRET`: it
+is in the `/root/ggsocial-backups/env-*` copies. Note the protection only
+starts once both sides of a deploy carry an id, so the first deploy after this
+landed still broke open tabs.
 
 **`rsync --delete` will destroy the production secrets.** `.env` lives only on
 the server and is not in the repo, so without `--exclude .env` rsync deletes it

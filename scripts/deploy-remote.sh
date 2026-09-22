@@ -41,12 +41,24 @@ step "Applying schema changes"
 # </dev/null makes that stop fail fast rather than hang on a prompt.
 npx drizzle-kit push --verbose < /dev/null
 
+# Server Actions are encrypted with a key generated per build unless one is
+# pinned, and a new key alone breaks a tab left open across a deploy. Written
+# once, then reused by every later build.
+if ! grep -q '^NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=' .env; then
+  step "Pinning the Server Actions encryption key"
+  printf '\nNEXT_SERVER_ACTIONS_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" >> .env
+  cp .env "$BACKUP_DIR/env-$(date +%F-%H%M).bak" 2>/dev/null || true
+  echo "Added NEXT_SERVER_ACTIONS_ENCRYPTION_KEY to .env"
+fi
+
 step "Building"
 # Built into .next-new, never over the build being served: the site stays up
 # for the whole build, and a failure leaves the old build untouched. A fresh
 # directory each time also avoids Turbopack replaying a cached failure.
 trap 'echo >&2; echo "BUILD FAILED — the old build is still serving, so the site is UP on the previous version. Fix and rerun scripts/deploy.sh." >&2' ERR
 rm -rf .next-new .next-old
+export NEXT_DEPLOYMENT_ID="${DEPLOY_ID:-$(date -u +%Y%m%d%H%M%S)}"
+echo "Deployment id: $NEXT_DEPLOYMENT_ID"
 NEXT_DIST_DIR=.next-new npm run build
 trap - ERR
 
