@@ -20,11 +20,12 @@ export const FREQUENCY_META: Record<Frequency, { label: string; short: string; n
 };
 
 export const ACTIVITY_CATEGORIES = [
-  "content", "engagement", "outreach", "networking", "community", "profile", "reputation", "analytics", "admin",
+  "presence", "content", "engagement", "outreach", "networking", "community", "profile", "reputation", "analytics", "admin",
 ] as const;
 export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
 
 export const CATEGORY_META: Record<ActivityCategory, { label: string; color: string; hint: string }> = {
+  presence: { label: "Pages live", color: "#0891b2", hint: "Each channel's page exists and is ours" },
   content: { label: "Content & publishing", color: "#4f46e5", hint: "Posts, video, lives, polls, articles" },
   engagement: { label: "Engagement", color: "#0f766e", hint: "Comments, replies, likes, shares" },
   outreach: { label: "Leads & outreach", color: "#b45309", hint: "DMs, follow-ups, lead capture" },

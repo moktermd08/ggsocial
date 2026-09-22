@@ -6,6 +6,7 @@ import { db, channels, activity } from "@/lib/db";
 import { requireBrandRole } from "@/lib/auth";
 import { getPlatform } from "@/lib/platforms";
 import { encryptJson } from "@/lib/crypto";
+import { checkChannelPages, normalisePageUrl, recordPageChecks } from "@/server/page-checks";
 
 export async function addChannelAction(brandId: string, formData: FormData) {
   return asResult(async () => {
@@ -18,6 +19,7 @@ export async function addChannelAction(brandId: string, formData: FormData) {
       platform,
       handle: String(formData.get("handle") ?? "").trim(),
       displayName: String(formData.get("displayName") ?? "").trim() || null,
+      pageUrl: normalisePageUrl(String(formData.get("pageUrl") ?? "")),
       mode: "manual",
       status: "connected", // manual channels are usable immediately
     }).returning();
@@ -26,6 +28,7 @@ export async function addChannelAction(brandId: string, formData: FormData) {
       brandId, actorId: user.id, action: "channel.added", entity: "channel", entityId: channel.id,
       meta: { platform },
     });
+    if (channel.pageUrl) await checkPage(channel.id, brandId);
     revalidatePath("/", "layout");
     return { id: channel.id };
   });
@@ -161,6 +164,40 @@ export async function setChannelSettingsAction(channelId: string, formData: Form
     }
 
     await db.update(channels).set({ settings }).where(eq(channels.id, channelId));
+    revalidatePath("/", "layout");
+  });
+}
+
+async function checkPage(channelId: string, brandId: string) {
+  await checkChannelPages([channelId]);
+  await recordPageChecks([brandId]);
+}
+
+/**
+ * Saves the public URL of the brand's page on this channel and checks it
+ * straight away, so the answer is there without waiting for the next sweep.
+ */
+export async function setChannelPageUrlAction(channelId: string, formData: FormData) {
+  return asResult(async () => {
+    const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
+    if (!channel) throw new Error("Channel not found");
+    await requireBrandRole(channel.brandId, "admin");
+    const pageUrl = normalisePageUrl(String(formData.get("pageUrl") ?? ""));
+    await db.update(channels).set({ pageUrl, pageStatus: null, pageNote: null, pageCheckedAt: null })
+      .where(eq(channels.id, channelId));
+    if (pageUrl) await checkPage(channelId, channel.brandId);
+    else await recordPageChecks([channel.brandId]);
+    revalidatePath("/", "layout");
+  });
+}
+
+export async function checkChannelPageAction(channelId: string) {
+  return asResult(async () => {
+    const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
+    if (!channel) throw new Error("Channel not found");
+    await requireBrandRole(channel.brandId, "editor");
+    if (!channel.pageUrl) throw new Error("Save the page URL first.");
+    await checkPage(channelId, channel.brandId);
     revalidatePath("/", "layout");
   });
 }

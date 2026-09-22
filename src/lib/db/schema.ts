@@ -161,6 +161,9 @@ export const memberships = pgTable("memberships", {
 export const CHANNEL_MODES = ["manual", "live"] as const;
 export const CHANNEL_STATUSES = ["disconnected", "connected", "error", "expired"] as const;
 
+/** What the last automatic visit to a channel's page found. "unknown" = the site blocked or hid the answer. */
+export const PAGE_STATUSES = ["live", "down", "unknown"] as const;
+
 /** A single account on a single platform, owned by one brand. */
 export const channels = pgTable("channels", {
   id: id(),
@@ -181,6 +184,12 @@ export const channels = pgTable("channels", {
   /** Per-channel defaults, e.g. default subreddit, YouTube privacy, boards. */
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
   lastError: text("last_error"),
+  /** Public URL of the brand's page on this platform, checked automatically every few hours. */
+  pageUrl: text("page_url"),
+  pageStatus: text("page_status").$type<(typeof PAGE_STATUSES)[number]>(),
+  /** Why the last check came out as it did: "HTTP 404", "title says page not found"… */
+  pageNote: text("page_note"),
+  pageCheckedAt: timestamp("page_checked_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: now(),
 }, (t) => [index("channels_brand_idx").on(t.brandId)]);
@@ -858,7 +867,7 @@ export const activityChecks = pgTable("activity_checks", {
   reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 
-  source: text("source").$type<"app" | "api">().notNull().default("app"),
+  source: text("source").$type<"app" | "api" | "auto">().notNull().default("app"),
   createdAt: now(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

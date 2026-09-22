@@ -54,6 +54,10 @@ const LISTINGS = ["google_business", "apple_business", "bing_places", "yelp", "c
 /* ================================================================== daily */
 
 const DAILY = group("daily", [
+  // First on purpose: nothing else on the list counts if the page itself is gone.
+  ["D-00", "presence", "Confirm each channel's page URL is live",
+    "Open the brand's page on every channel in a private window. Check it loads, is the brand's own page (not suspended, restricted, renamed or taken over) and the handle still matches. If a page has gone, stop and tell the owner before doing anything else on that channel. ggsocial visits every saved page URL every six hours and ticks this itself; finish by hand any page it couldn't confirm.",
+    { unit: "page per channel", proof: "link", performer: "either", leadImpact: "high", minutes: 5 }],
   ["D-01", "content", "Publish today's planned post",
     "Publish the post from the content plan on every active platform, adapted to each one's format. Every post ends with one clear next step (comment, DM, visit, book).",
     { unit: "post per platform", proof: "link", performer: "either", leadImpact: "high", minutes: 20 }],

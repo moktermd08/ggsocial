@@ -62,8 +62,30 @@ async function goalsTick() {
   }
 }
 
-console.log(`scheduler watching ${url} every 60s (goals hourly)`);
+/**
+ * Pages: re-visits each channel's page URL every six hours and ticks the
+ * daily "confirm each page is live" activity. Hourly is plenty here too.
+ */
+async function pagesTick() {
+  try {
+    const res = await fetch(`${url}/api/cron/pages`, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
+    });
+    if (!res.ok) {
+      console.error(`pages tick got ${res.status} from ${url}`);
+      return;
+    }
+    const json = await res.json();
+    if (json.checked || json.recorded) console.log(new Date().toISOString(), "pages", json);
+  } catch (err) {
+    console.error("pages tick failed:", err.message);
+  }
+}
+
+console.log(`scheduler watching ${url} every 60s (goals and pages hourly)`);
 tick();
 setInterval(tick, 60_000);
 goalsTick();
 setInterval(goalsTick, 60 * 60_000);
+pagesTick();
+setInterval(pagesTick, 60 * 60_000);

@@ -33,7 +33,7 @@ export type ChecklistCellView = {
   doneByName: string | null;
   /** The signed-in person who did it, or who logged an agent's work. */
   doneByUser: string | null;
-  source: "app" | "api" | null;
+  source: "app" | "api" | "auto" | null;
   doneAt: string | null;
   review: ReviewStatus | null;
   reviewNote: string | null;
@@ -466,7 +466,7 @@ function CellEditor({
   const recorded = cell.status === "done" || cell.status === "partial" || cell.status === "skipped";
   const meta = CELL_STATUS_META[cell.status];
   const who = cell.doneByKind === "ai"
-    ? cell.source === "api" ? `${cell.doneByName} (AI, via the API)` : `${cell.doneByName} (AI)${cell.doneByUser ? `, logged by ${cell.doneByUser}` : ""}`
+    ? cell.source === "api" ? `${cell.doneByName} (AI, via the API)` : cell.source === "auto" ? `${cell.doneByName} (automatic)` : `${cell.doneByName} (AI)${cell.doneByUser ? `, logged by ${cell.doneByUser}` : ""}`
     : cell.doneByUser ?? cell.doneByName;
   const reviewer = cell.reviewerKind === "ai" ? `${cell.reviewerName} (AI)` : cell.reviewerName;
 

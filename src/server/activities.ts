@@ -226,7 +226,7 @@ const excluded = (column: string) => sql.raw(`excluded.${column}`);
  * Ticks activities for brands, in one statement. Doing one again replaces its
  * record and reopens review — redone work needs checking afresh.
  */
-export async function recordChecks(inputs: CheckInput[], actor: Actor, source: "app" | "api" = "app") {
+export async function recordChecks(inputs: CheckInput[], actor: Actor, source: "app" | "api" | "auto" = "app") {
   if (inputs.length === 0) return [];
   // Postgres refuses to upsert the same row twice in one statement; the last mention wins.
   const byKey = new Map((await resolve(inputs)).map((i) => [`${i.ref.brandId}:${i.template.id}:${i.period.key}`, i]));
@@ -266,7 +266,7 @@ export async function recordChecks(inputs: CheckInput[], actor: Actor, source: "
   }));
 }
 
-export async function recordCheck(input: CheckInput, actor: Actor, source: "app" | "api" = "app") {
+export async function recordCheck(input: CheckInput, actor: Actor, source: "app" | "api" | "auto" = "app") {
   const [one] = await recordChecks([input], actor, source);
   return one;
 }

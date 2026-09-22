@@ -19,7 +19,8 @@ export async function GET(req: Request) {
   return withAgent(req, async ({ brands }) => {
     const picked = pickBrands(brands, new URL(req.url).searchParams.get("brand"));
     const channelRows = picked.length
-      ? await db.select({ brandId: channels.brandId, platform: channels.platform, handle: channels.handle, mode: channels.mode })
+      ? await db.select({ brandId: channels.brandId, platform: channels.platform, handle: channels.handle, mode: channels.mode,
+        pageUrl: channels.pageUrl, pageStatus: channels.pageStatus, pageCheckedAt: channels.pageCheckedAt })
           .from(channels)
           .where(and(inArray(channels.brandId, picked.map((b) => b.id)), isNull(channels.archivedAt)))
           .orderBy(channels.platform, channels.handle)
@@ -55,6 +56,9 @@ export async function GET(req: Request) {
             platform: c.platform,
             platformName: p?.name ?? c.platform,
             handle: c.handle,
+            pageUrl: c.pageUrl,
+            pageStatus: c.pageUrl ? c.pageStatus ?? "not checked yet" : null,
+            pageCheckedAt: c.pageCheckedAt,
             publishing: c.mode === "live" ? "auto" : "by a person",
             maxCharacters: p?.constraints.textMax ?? null,
             linksClickable: p?.constraints.supportsLinks ?? null,

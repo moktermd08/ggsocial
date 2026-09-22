@@ -42,6 +42,8 @@ export default async function ChannelsPage() {
                   mode: c.mode, status: c.status, hasCredentials: Boolean(c.credentials),
                   settings: (c.settings ?? {}) as Record<string, unknown>,
                   lastError: c.lastError, externalId: c.externalId,
+                  pageUrl: c.pageUrl, pageStatus: c.pageStatus, pageNote: c.pageNote,
+                  pageCheckedAt: c.pageCheckedAt?.toISOString() ?? null,
                 }))}
             />
           ))}

@@ -1,14 +1,15 @@
 "use client";
 import { useState, useTransition } from "react";
-import { ExternalLink, Plug, Power, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ExternalLink, Globe, Plug, Power, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Card, CardHeader, Field, buttonClass, Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { PlatformPicker } from "./platform-picker";
 import type { PlatformMeta } from "@/lib/platforms/meta";
 import {
   addChannelAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
-  setChannelSettingsAction,
+  setChannelSettingsAction, setChannelPageUrlAction, checkChannelPageAction,
 } from "@/server/actions/channels";
+import { relativeTime } from "@/lib/format";
 import type { ActionResult } from "@/lib/action-result";
 
 export type ChannelRow = {
@@ -16,6 +17,8 @@ export type ChannelRow = {
   mode: string; status: string; hasCredentials: boolean; lastError: string | null; externalId: string | null;
   /** Saved option defaults, prefilled into every post for this channel. */
   settings: Record<string, unknown>;
+  /** Public page URL, checked automatically, and what the last check found. */
+  pageUrl: string | null; pageStatus: "live" | "down" | "unknown" | null; pageNote: string | null; pageCheckedAt: string | null;
 };
 
 export function ChannelManager({
@@ -27,6 +30,7 @@ export function ChannelManager({
   const [picking, setPicking] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [tuning, setTuning] = useState<string | null>(null);
+  const [editingUrl, setEditingUrl] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +106,16 @@ export function ChannelManager({
               </div>
 
               {c.lastError && <p className="mt-1.5 text-[11px] text-danger">{c.lastError}</p>}
+
+              <PageLine
+                channel={c}
+                canManage={canManage}
+                pending={pending}
+                editing={editingUrl === c.id}
+                onEdit={() => setEditingUrl(editingUrl === c.id ? null : c.id)}
+                onSave={(fd) => run(async () => { const res = await setChannelPageUrlAction(c.id, fd); if (res.ok) setEditingUrl(null); return res; })}
+                onCheck={() => run(() => checkChannelPageAction(c.id))}
+              />
 
               {meta?.manualOnly && (
                 <p className="mt-1.5 text-[11px] text-muted">{meta.liveSetup.notes}</p>
@@ -217,6 +231,9 @@ export function ChannelManager({
                 <Field label="Display name (optional)">
                   <input name="displayName" placeholder="Your Brand Ltd" />
                 </Field>
+                <Field label="Page URL" hint="The public page. Checked every few hours to confirm it still exists.">
+                  <input name="pageUrl" type="url" placeholder="https://www.instagram.com/yourbrand" />
+                </Field>
               </div>
               <div className="flex gap-2">
                 <button className={buttonClass("primary", "sm")} disabled={pending}>Add channel</button>
@@ -245,5 +262,61 @@ export function ChannelManager({
         </div>
       )}
     </Card>
+  );
+}
+
+const PAGE_BADGE = {
+  live: { label: "page live", color: "#15803d" },
+  down: { label: "page down", color: "#b91c1c" },
+  unknown: { label: "couldn't confirm", color: "#b45309" },
+} as const;
+
+/** The channel's public page: where it is, and whether it was there last time we looked. */
+function PageLine({
+  channel: c, canManage, pending, editing, onEdit, onSave, onCheck,
+}: {
+  channel: ChannelRow; canManage: boolean; pending: boolean; editing: boolean;
+  onEdit: () => void; onSave: (fd: FormData) => void; onCheck: () => void;
+}) {
+  if (editing) {
+    return (
+      <form action={onSave} className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          name="pageUrl" type="url" defaultValue={c.pageUrl ?? ""} autoFocus
+          placeholder="https://www.instagram.com/yourbrand" className="!w-auto min-w-0 flex-1 !py-1 !text-xs"
+        />
+        <button className={buttonClass("primary", "sm")} disabled={pending}>Save & check</button>
+        <button type="button" onClick={onEdit} className={buttonClass("ghost", "sm")}>Cancel</button>
+      </form>
+    );
+  }
+  if (!c.pageUrl) {
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+        <Globe className="size-3" /> No page URL, so nobody is checking this page still exists.
+        {canManage && <button onClick={onEdit} className="font-medium text-accent hover:underline">Add page URL</button>}
+      </p>
+    );
+  }
+  const badge = c.pageStatus ? PAGE_BADGE[c.pageStatus] : null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+      <Globe className="size-3 shrink-0" />
+      <a href={c.pageUrl} target="_blank" rel="noreferrer" className="max-w-full truncate hover:underline">{c.pageUrl}</a>
+      {badge ? <Badge color={badge.color}>{badge.label}</Badge> : <Badge color="#8b8b96">not checked yet</Badge>}
+      {c.pageCheckedAt && (
+        <span title={c.pageNote ?? undefined} suppressHydrationWarning>
+          {c.pageStatus !== "live" && c.pageNote ? `${c.pageNote} · ` : ""}checked {relativeTime(c.pageCheckedAt)}
+        </span>
+      )}
+      {canManage && (
+        <span className="flex items-center gap-2">
+          <button onClick={onCheck} disabled={pending} className="inline-flex items-center gap-1 font-medium text-accent hover:underline disabled:opacity-50">
+            <RefreshCw className="size-3" /> Check now
+          </button>
+          <button onClick={onEdit} className="font-medium text-accent hover:underline">Edit</button>
+        </span>
+      )}
+    </div>
   );
 }
