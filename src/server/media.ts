@@ -20,17 +20,21 @@ export function kindFromMime(mime: string): MediaItem["kind"] {
  * object storage (required on serverless hosts, whose filesystems are ephemeral).
  */
 export async function storeUpload(file: File): Promise<StoredFile> {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const ext = path.extname(file.name) || "";
+  return storeBuffer(Buffer.from(await file.arrayBuffer()), file.name, file.type);
+}
+
+/** Same as storeUpload, for bytes fetched from somewhere else (Canva, Google Photos). */
+export async function storeBuffer(buffer: Buffer, name: string, mimeType: string): Promise<StoredFile> {
+  const ext = path.extname(name) || "";
   const key = `${nanoid(20)}${ext}`;
-  const kind = kindFromMime(file.type);
+  const kind = kindFromMime(mimeType);
 
   if (process.env.MEDIA_DRIVER === "s3") {
     const { S3_BUCKET, S3_REGION, S3_PUBLIC_BASE } = process.env;
     if (!S3_BUCKET || !S3_REGION) throw new Error("MEDIA_DRIVER=s3 requires S3_BUCKET and S3_REGION");
     const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
     const client = new S3Client({ region: S3_REGION });
-    await client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: key, Body: buffer, ContentType: file.type }));
+    await client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: key, Body: buffer, ContentType: mimeType }));
     return { url: `${S3_PUBLIC_BASE ?? `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com`}/${key}`, size: buffer.length, kind };
   }
 

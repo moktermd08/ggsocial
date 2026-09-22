@@ -164,9 +164,37 @@ export const media = pgTable("media", {
   durationMs: integer("duration_ms"),
   altText: text("alt_text"),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  /** Where the file came from. null = uploaded from disk. */
+  source: text("source").$type<IntegrationProvider>(),
+  /** Link back to the original, e.g. the Canva editor for a design. */
+  sourceUrl: text("source_url"),
   uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: now(),
 }, (t) => [index("media_brand_idx").on(t.brandId)]);
+
+/* ------------------------------------------------------------ integrations */
+
+export const INTEGRATION_PROVIDERS = ["canva", "google_photos"] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+
+/**
+ * A person's own account on a tool that feeds the media library.
+ *
+ * Unlike channels these belong to a user, not a brand: a Canva login or a
+ * Google Photos library is personal, and whoever imports from it chooses which
+ * brand the file lands in.
+ */
+export const integrations = pgTable("integrations", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").$type<IntegrationProvider>().notNull(),
+  /** Display name or email of the connected account. */
+  accountName: text("account_name"),
+  /** Encrypted { accessToken, refreshToken, expiresAt }. Never selected into the client. */
+  credentials: text("credentials").notNull(),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("integrations_user_provider_idx").on(t.userId, t.provider)]);
 
 /* ------------------------------------------------------------ content plan */
 

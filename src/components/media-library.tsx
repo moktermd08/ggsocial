@@ -1,11 +1,13 @@
 "use client";
 import { useState, useTransition } from "react";
-import { Loader2, Trash2, Upload } from "lucide-react";
+import { ExternalLink, Loader2, Trash2, Upload } from "lucide-react";
 import { Card, CardHeader, buttonClass } from "./ui";
 import { uploadMediaAction, deleteMediaAction } from "@/server/actions/media";
+import { SourceImportButtons, type SourceStatus } from "./media-sources";
 
 export type MediaRow = {
   id: string; url: string; kind: string; originalName: string; size: number; createdAt: string;
+  source: string | null; sourceUrl: string | null;
 };
 
 function human(bytes: number) {
@@ -15,8 +17,8 @@ function human(bytes: number) {
 }
 
 export function MediaLibrary({
-  brandId, brandName, items, canEdit,
-}: { brandId: string; brandName: string; items: MediaRow[]; canEdit: boolean }) {
+  brandId, brandName, items, canEdit, sources = [],
+}: { brandId: string; brandName: string; items: MediaRow[]; canEdit: boolean; sources?: SourceStatus[] }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -43,10 +45,13 @@ export function MediaLibrary({
         subtitle={`${items.length} file${items.length === 1 ? "" : "s"}`}
         action={
           canEdit ? (
-            <label className={`${buttonClass("subtle", "sm")} cursor-pointer`}>
-              {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
-              <input type="file" multiple hidden onChange={(e) => upload(e.target.files)} />
-            </label>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <SourceImportButtons brandId={brandId} sources={sources} onError={setError} />
+              <label className={`${buttonClass("subtle", "sm")} cursor-pointer`}>
+                {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
+                <input type="file" multiple hidden onChange={(e) => upload(e.target.files)} />
+              </label>
+            </div>
           ) : null
         }
       />
@@ -76,7 +81,15 @@ export function MediaLibrary({
             </div>
             <div className="px-2 py-1.5">
               <p className="truncate text-[11px]" title={m.originalName}>{m.originalName}</p>
-              <p className="text-[10px] text-muted">{human(m.size)}</p>
+              <p className="flex items-center gap-1 text-[10px] text-muted">
+                {human(m.size)}
+                {m.source && <span>· {m.source === "canva" ? "Canva" : "Google Photos"}</span>}
+                {m.sourceUrl && (
+                  <a href={m.sourceUrl} target="_blank" rel="noreferrer" className="ml-auto hover:text-text" title="Edit in Canva">
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </p>
             </div>
           </div>
         ))}

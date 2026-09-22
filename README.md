@@ -77,6 +77,38 @@ npm run scheduler
 | `APP_URL` | Public base URL. **Platform APIs fetch media from here**, so in production it must be reachable from the internet. |
 | `MEDIA_DRIVER` | `local` (default, writes to `.data/uploads`) or `s3`. |
 | `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_BASE` | Only for `MEDIA_DRIVER=s3`. |
+| `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | Optional. Enables importing Canva designs into Media. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media. |
+
+## Media sources: Canva and Google Photos
+
+Each person connects their own account from the **Media** page. After that, every
+brand library has a **Canva** / **Google Photos** button. The file is copied into
+the brand's storage, so a post never depends on the outside link staying valid.
+
+**Canva** ([Connect API](https://www.canva.dev/docs/connect/)):
+
+1. Create an integration at canva.com/developers/integrations.
+2. Scopes: `design:meta:read`, `design:content:read`, `profile:read`.
+3. Authorized redirect: `APP_URL/api/integrations/canva/callback`. Canva rejects
+   `localhost`, so for local work set `APP_URL=http://127.0.0.1:3000` and open the app there.
+4. Copy the client ID and secret into `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET`.
+
+Designs export as PNG, JPG or PDF. A multi-page design becomes one file per page.
+Each imported file keeps an "edit in Canva" link.
+
+**Google Photos** ([Picker API](https://developers.google.com/photos/picker)):
+
+1. In Google Cloud, enable the **Google Photos Picker API**.
+2. Create an OAuth client of type *Web application* with the redirect
+   `APP_URL/api/integrations/google_photos/callback`.
+3. On the consent screen, add the scope `…/auth/photospicker.mediaitems.readonly`,
+   and add yourself as a test user until the app is verified.
+4. Copy the client ID and secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+
+Since 2025, Google no longer lets apps browse a whole Photos library. Instead,
+clicking the button opens Google's own picker in a new tab, and only the photos
+and videos picked there are imported.
 
 ## Deploying
 
