@@ -7,6 +7,7 @@ import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { toLocalInput, fromLocalInput } from "@/lib/format";
 import { saveMasterAction, deleteMasterAction } from "@/server/actions/masters";
+import { isFailure } from "@/lib/action-result";
 import type { TemplateOption } from "@/lib/templates";
 
 export type MasterEditorMedia = { id: string; url: string; kind: string; originalName: string; brandColor: string; brandName: string };
@@ -87,6 +88,7 @@ export function MasterEditor({
           guidelines: guidelines || null, notes: notes || null,
           brandIds: master ? undefined : brandIds,
         });
+        if (!res.ok) { setError(res.error); return; }
         if (!master) {
           router.push(`/posts/master/${res.masterId}`);
         } else {
@@ -293,7 +295,11 @@ export function MasterEditor({
           <button
             onClick={() => {
               if (confirm("Delete this master? Its brand copies stay, as ordinary posts.")) {
-                start(async () => { await deleteMasterAction(master.id); });
+                setError(null);
+                start(async () => {
+                  const res = await deleteMasterAction(master.id);
+                  if (isFailure(res)) setError(res.error);
+                });
               }
             }}
             className={`${buttonClass("danger")} w-full`}

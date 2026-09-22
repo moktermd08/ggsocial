@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import { db, linkDestinations } from "@/lib/db";
 import { can, getMyBrands, requireBrandRole, requireUser } from "@/lib/auth";
@@ -47,64 +48,74 @@ async function addCopies(masterId: string, brandIds: string[]) {
 }
 
 export async function saveDestinationAction(input: DestinationInput) {
-  const user = await requireUser();
-  const name = input.values.name.trim();
-  if (!name) throw new Error("Give the destination a name.");
-  const values = { ...input.values, name, url: normalizeDestination(input.values.url) };
-  const columns = { ...destColumns(values), notes: input.notes?.trim() || null, updatedAt: new Date() };
+  return asResult(async () => {
+    const user = await requireUser();
+    const name = input.values.name.trim();
+    if (!name) throw new Error("Give the destination a name.");
+    const values = { ...input.values, name, url: normalizeDestination(input.values.url) };
+    const columns = { ...destColumns(values), notes: input.notes?.trim() || null, updatedAt: new Date() };
 
-  if (input.id) {
-    const { row, access } = await loadDestination(input.id);
-    if (!access.canEdit) throw new Error("You cannot change this destination.");
-    await db.update(linkDestinations).set(columns).where(eq(linkDestinations.id, row.id));
-    await applyDestinationToLinks(row.id);
-    let synced = 0;
-    if (row.masterId) await syncDestinationCopy(row.id);
-    if (!row.brandId) synced = await syncAllDestinationCopies(row.id);
+    if (input.id) {
+      const { row, access } = await loadDestination(input.id);
+      if (!access.canEdit) throw new Error("You cannot change this destination.");
+      await db.update(linkDestinations).set(columns).where(eq(linkDestinations.id, row.id));
+      await applyDestinationToLinks(row.id);
+      let synced = 0;
+      if (row.masterId) await syncDestinationCopy(row.id);
+      if (!row.brandId) synced = await syncAllDestinationCopies(row.id);
+      revalidatePath("/", "layout");
+      return { id: row.id, synced };
+    }
+
+    const brandId = input.brandId ?? null;
+    if (brandId) await requireBrandRole(brandId, "editor");
+    const [row] = await db.insert(linkDestinations).values({
+      ...columns, name, url: values.url, brandId, ownerId: user.id,
+    }).returning();
+    if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
     revalidatePath("/", "layout");
-    return { id: row.id, synced };
-  }
-
-  const brandId = input.brandId ?? null;
-  if (brandId) await requireBrandRole(brandId, "editor");
-  const [row] = await db.insert(linkDestinations).values({
-    ...columns, name, url: values.url, brandId, ownerId: user.id,
-  }).returning();
-  if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
-  revalidatePath("/", "layout");
-  return { id: row.id, synced: 0 };
+    return { id: row.id, synced: 0 };
+  });
 }
 
 export async function addDestinationCopiesAction(masterId: string, brandIds: string[]) {
-  const created = await addCopies(masterId, brandIds);
-  revalidatePath("/", "layout");
-  return { created };
+  return asResult(async () => {
+    const created = await addCopies(masterId, brandIds);
+    revalidatePath("/", "layout");
+    return { created };
+  });
 }
 
 export async function resolveDestinationFieldAction(id: string, field: DestField, choice: "accept" | "keep") {
-  const { row, access } = await loadDestination(id);
-  if (!row.masterId || !access.canEdit) throw new Error("You cannot change this destination.");
-  await syncDestinationCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  await applyDestinationToLinks(id);
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadDestination(id);
+    if (!row.masterId || !access.canEdit) throw new Error("You cannot change this destination.");
+    await syncDestinationCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    await applyDestinationToLinks(id);
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function unlinkDestinationAction(id: string) {
-  const { row, access } = await loadDestination(id);
-  if (!row.masterId || !access.canEdit) return;
-  await db.update(linkDestinations).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() })
-    .where(eq(linkDestinations.id, id));
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadDestination(id);
+    if (!row.masterId || !access.canEdit) return;
+    await db.update(linkDestinations).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() })
+      .where(eq(linkDestinations.id, id));
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Archives it. Links already issued keep working and keep their current URL. */
 export async function archiveDestinationAction(id: string) {
-  const { row, access } = await loadDestination(id);
-  if (!access.canEdit) throw new Error("You cannot archive this destination.");
-  await db.update(linkDestinations).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(linkDestinations.id, id));
-  if (!row.brandId) {
-    await db.update(linkDestinations).set({ masterId: null, masterSnapshot: {} }).where(eq(linkDestinations.masterId, id));
-  }
-  revalidatePath("/", "layout");
-  redirect("/links");
+  return asResult(async () => {
+    const { row, access } = await loadDestination(id);
+    if (!access.canEdit) throw new Error("You cannot archive this destination.");
+    await db.update(linkDestinations).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(linkDestinations.id, id));
+    if (!row.brandId) {
+      await db.update(linkDestinations).set({ masterId: null, masterSnapshot: {} }).where(eq(linkDestinations.masterId, id));
+    }
+    revalidatePath("/", "layout");
+    redirect("/links");
+  });
 }

@@ -6,6 +6,7 @@ import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { LabelRow, MasterTag } from "./master-panels";
 import { DEST_FIELD_LABELS, type DestField, type DestValues } from "@/lib/destinations";
 import { archiveDestinationAction, saveDestinationAction } from "@/server/actions/destinations";
+import { isFailure } from "@/lib/action-result";
 
 const EMPTY: DestValues = { name: "", url: "", utmCampaign: "", utmContent: "" };
 
@@ -50,6 +51,7 @@ export function DestinationEditor({
           values, notes: notes || null,
           copyBrandIds: !destination && target === "master" ? copyIds : undefined,
         });
+        if (!res.ok) { setError(res.error); return; }
         if (!destination) router.push(`/links/destinations/${res.id}`);
         else {
           setSaved("Saved. Every link issued from it now goes here.");
@@ -156,7 +158,14 @@ export function DestinationEditor({
 
         {destination && canEdit && (
           <button
-            onClick={() => { if (confirm("Archive this destination? Links already issued keep working.")) start(async () => { await archiveDestinationAction(destination.id); }); }}
+            onClick={() => {
+              if (!confirm("Archive this destination? Links already issued keep working.")) return;
+              setError(null);
+              start(async () => {
+                const res = await archiveDestinationAction(destination.id);
+                if (isFailure(res)) setError(res.error);
+              });
+            }}
             className={`${buttonClass("subtle")} w-full`}
           >
             <Archive className="size-4" /> Archive destination

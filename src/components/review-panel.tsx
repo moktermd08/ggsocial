@@ -3,7 +3,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, MessageSquare, ThumbsUp, Undo2 } from "lucide-react";
 import { Card, CardHeader, buttonClass } from "./ui";
-import { addCommentAction, reviewPostAction, submitForReviewAction, type ReviewResult } from "@/server/actions/posts";
+import { addCommentAction, reviewPostAction, submitForReviewAction } from "@/server/actions/posts";
+import type { ActionResult } from "@/lib/action-result";
 import { relativeTime } from "@/lib/format";
 
 export type CommentRow = { id: string; body: string; kind: string; createdAt: string; author: string };
@@ -26,7 +27,7 @@ export function ReviewPanel({
    * Waits for the action and shows why it failed. The note is only cleared on
    * success, so a reviewer who hits a problem does not lose what they wrote.
    */
-  const run = (fn: () => Promise<ReviewResult>) => start(async () => {
+  const run = (fn: () => Promise<ActionResult>) => start(async () => {
     setError(null);
     try {
       const res = await fn();

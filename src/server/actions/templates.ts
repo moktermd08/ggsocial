@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import { db, postTemplates } from "@/lib/db";
 import { can, getMyBrands, requireBrandRole, requireUser } from "@/lib/auth";
@@ -46,62 +47,72 @@ async function addCopies(masterId: string, brandIds: string[]) {
 }
 
 export async function saveTemplateAction(input: TemplateInput) {
-  const user = await requireUser();
-  const name = input.values.name.trim();
-  if (!name) throw new Error("Give the template a name.");
-  const columns = { ...templateColumns({ ...input.values, name }), notes: input.notes?.trim() || null, updatedAt: new Date() };
+  return asResult(async () => {
+    const user = await requireUser();
+    const name = input.values.name.trim();
+    if (!name) throw new Error("Give the template a name.");
+    const columns = { ...templateColumns({ ...input.values, name }), notes: input.notes?.trim() || null, updatedAt: new Date() };
 
-  if (input.id) {
-    const { row, access } = await loadTemplate(input.id);
-    if (!access.canEdit) {
-      throw new Error(row.brandId
-        ? "You need editor access on this brand."
-        : "You need editor access on every brand this template reaches to change it.");
+    if (input.id) {
+      const { row, access } = await loadTemplate(input.id);
+      if (!access.canEdit) {
+        throw new Error(row.brandId
+          ? "You need editor access on this brand."
+          : "You need editor access on every brand this template reaches to change it.");
+      }
+      await db.update(postTemplates).set(columns).where(eq(postTemplates.id, row.id));
+      let synced = 0;
+      if (row.masterId) await syncTemplateCopy(row.id);
+      if (!row.brandId) synced = await syncAllTemplateCopies(row.id);
+      revalidatePath("/", "layout");
+      return { id: row.id, synced };
     }
-    await db.update(postTemplates).set(columns).where(eq(postTemplates.id, row.id));
-    let synced = 0;
-    if (row.masterId) await syncTemplateCopy(row.id);
-    if (!row.brandId) synced = await syncAllTemplateCopies(row.id);
-    revalidatePath("/", "layout");
-    return { id: row.id, synced };
-  }
 
-  const brandId = input.brandId ?? null;
-  if (brandId) await requireBrandRole(brandId, "editor");
-  const [row] = await db.insert(postTemplates).values({ ...columns, name, brandId, ownerId: user.id }).returning();
-  if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
-  revalidatePath("/", "layout");
-  return { id: row.id, synced: 0 };
+    const brandId = input.brandId ?? null;
+    if (brandId) await requireBrandRole(brandId, "editor");
+    const [row] = await db.insert(postTemplates).values({ ...columns, name, brandId, ownerId: user.id }).returning();
+    if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
+    revalidatePath("/", "layout");
+    return { id: row.id, synced: 0 };
+  });
 }
 
 export async function addTemplateCopiesAction(masterId: string, brandIds: string[]) {
-  const created = await addCopies(masterId, brandIds);
-  revalidatePath("/", "layout");
-  return { created };
+  return asResult(async () => {
+    const created = await addCopies(masterId, brandIds);
+    revalidatePath("/", "layout");
+    return { created };
+  });
 }
 
 export async function resolveTemplateFieldAction(id: string, field: TemplateField, choice: "accept" | "keep") {
-  const { row, access } = await loadTemplate(id);
-  if (!row.masterId || !access.canEdit) throw new Error("You cannot change this template.");
-  await syncTemplateCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadTemplate(id);
+    if (!row.masterId || !access.canEdit) throw new Error("You cannot change this template.");
+    await syncTemplateCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function unlinkTemplateAction(id: string) {
-  const { row, access } = await loadTemplate(id);
-  if (!row.masterId || !access.canEdit) return;
-  await db.update(postTemplates).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() }).where(eq(postTemplates.id, id));
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadTemplate(id);
+    if (!row.masterId || !access.canEdit) return;
+    await db.update(postTemplates).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() }).where(eq(postTemplates.id, id));
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Archives the template. A master's copies stay with their brands, unlinked. */
 export async function archiveTemplateAction(id: string) {
-  const { row, access } = await loadTemplate(id);
-  if (!access.canEdit) throw new Error("You cannot archive this template.");
-  await db.update(postTemplates).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(postTemplates.id, id));
-  if (!row.brandId) {
-    await db.update(postTemplates).set({ masterId: null, masterSnapshot: {} }).where(eq(postTemplates.masterId, id));
-  }
-  revalidatePath("/", "layout");
-  redirect("/templates");
+  return asResult(async () => {
+    const { row, access } = await loadTemplate(id);
+    if (!access.canEdit) throw new Error("You cannot archive this template.");
+    await db.update(postTemplates).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(postTemplates.id, id));
+    if (!row.brandId) {
+      await db.update(postTemplates).set({ masterId: null, masterSnapshot: {} }).where(eq(postTemplates.masterId, id));
+    }
+    revalidatePath("/", "layout");
+    redirect("/templates");
+  });
 }

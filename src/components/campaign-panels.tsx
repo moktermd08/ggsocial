@@ -28,7 +28,11 @@ export function CampaignCopiesPanel({ campaignId, copies, addable }: {
   const add = (ids: string[]) => {
     setError(null);
     start(async () => {
-      try { await addCampaignCopiesAction(campaignId, ids); router.refresh(); }
+      try {
+        const res = await addCampaignCopiesAction(campaignId, ids);
+        if (!res.ok) { setError(res.error); return; }
+        router.refresh();
+      }
       catch (e) { setError(e instanceof Error ? e.message : "Could not add."); }
     });
   };

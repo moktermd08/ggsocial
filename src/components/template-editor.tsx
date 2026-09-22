@@ -11,6 +11,7 @@ import {
   POST_TYPES, TEMPLATE_FIELDS, findPlaceholders, type TemplateField, type TemplateValues,
 } from "@/lib/templates";
 import { archiveTemplateAction, saveTemplateAction } from "@/server/actions/templates";
+import { isFailure } from "@/lib/action-result";
 
 export type TemplateEditorTemplate = { id: string; brandId: string | null; values: TemplateValues; notes: string | null };
 
@@ -74,6 +75,7 @@ export function TemplateEditor({
           notes: notes || null,
           copyBrandIds: !template && target === "master" ? copyIds : undefined,
         });
+        if (!res.ok) { setError(res.error); return; }
         if (!template) router.push(`/templates/${res.id}`);
         else {
           setSaved(res.synced ? `Saved. ${res.synced} brand cop${res.synced === 1 ? "y" : "ies"} checked for updates.` : "Saved.");
@@ -237,7 +239,14 @@ export function TemplateEditor({
 
         {template && canEdit && (
           <button
-            onClick={() => { if (confirm("Archive this template? Posts made from it are unaffected.")) start(async () => { await archiveTemplateAction(template.id); }); }}
+            onClick={() => {
+              if (!confirm("Archive this template? Posts made from it are unaffected.")) return;
+              setError(null);
+              start(async () => {
+                const res = await archiveTemplateAction(template.id);
+                if (isFailure(res)) setError(res.error);
+              });
+            }}
             className={`${buttonClass("subtle")} w-full`}
           >
             <Archive className="size-4" /> Archive template

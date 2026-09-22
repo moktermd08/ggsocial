@@ -51,7 +51,7 @@ export function PlanPanel({
     setError(null);
     startTransition(async () => {
       try {
-        await updatePostPlanAction({
+        const res = await updatePostPlanAction({
           postId: post.id,
           targetImpressions: form.targetImpressions.trim() === ""
             ? null
@@ -60,6 +60,7 @@ export function PlanPanel({
           notes: form.notes,
           repliedAt: fromLocalInput(form.repliedAt, post.timezone)?.toISOString() ?? null,
         });
+        if (!res.ok) { setError(res.error); return; }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not save.");

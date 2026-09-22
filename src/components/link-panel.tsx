@@ -82,7 +82,7 @@ export function LinkPanel({
     setError(null);
     startTransition(async () => {
       try {
-        await createPostLinksAction({
+        const res = await createPostLinksAction({
           brandId,
           postId,
           destination,
@@ -91,6 +91,7 @@ export function LinkPanel({
           destinationId,
           channelIds: channels.map((c) => c.id),
         });
+        if (!res.ok) { setError(res.error); return; }
         setDestination("");
         setLabel("");
         setDestinationId(null);

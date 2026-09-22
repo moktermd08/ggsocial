@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { db, media, masterPosts, posts } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import { storeUpload, kindFromMime } from "@/server/media";
@@ -30,18 +31,22 @@ async function storeAll(formData: FormData, row: { brandId: string | null; owner
 }
 
 export async function uploadMediaAction(brandId: string, formData: FormData) {
-  const { user } = await requireBrandRole(brandId, "editor");
-  const saved = await storeAll(formData, { brandId }, user.id);
-  revalidatePath("/", "layout");
-  return saved;
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "editor");
+    const saved = await storeAll(formData, { brandId }, user.id);
+    revalidatePath("/", "layout");
+    return { ids: saved };
+  });
 }
 
 /** Uploads into the master library, shared by every brand you run. */
 export async function uploadMasterMediaAction(formData: FormData) {
-  const user = await requireUser();
-  const saved = await storeAll(formData, { brandId: null, ownerId: user.id }, user.id);
-  revalidatePath("/", "layout");
-  return saved;
+  return asResult(async () => {
+    const user = await requireUser();
+    const saved = await storeAll(formData, { brandId: null, ownerId: user.id }, user.id);
+    revalidatePath("/", "layout");
+    return { ids: saved };
+  });
 }
 
 /**
@@ -61,30 +66,34 @@ async function resyncCopiesUsing(brandId: string, masterMediaId: string) {
  * in that brand; any earlier version stays in the library as a plain file.
  */
 export async function uploadBrandVersionAction(brandId: string, masterMediaId: string, formData: FormData) {
-  const { user } = await requireBrandRole(brandId, "editor");
-  const master = await db.query.media.findFirst({ where: eq(media.id, masterMediaId) });
-  if (!master || master.brandId) throw new Error("That is not a master asset.");
-  const first = formData.getAll("files").find((f): f is File => f instanceof File && f.size > 0);
-  if (!first) throw new Error("Choose a file.");
-  const fd = new FormData();
-  fd.append("files", first);
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "editor");
+    const master = await db.query.media.findFirst({ where: eq(media.id, masterMediaId) });
+    if (!master || master.brandId) throw new Error("That is not a master asset.");
+    const first = formData.getAll("files").find((f): f is File => f instanceof File && f.size > 0);
+    if (!first) throw new Error("Choose a file.");
+    const fd = new FormData();
+    fd.append("files", first);
 
-  await db.update(media).set({ masterMediaId: null })
-    .where(and(eq(media.brandId, brandId), eq(media.masterMediaId, masterMediaId)));
-  const [id] = await storeAll(fd, { brandId, masterMediaId }, user.id);
-  await resyncCopiesUsing(brandId, masterMediaId);
-  revalidatePath("/", "layout");
-  return id;
+    await db.update(media).set({ masterMediaId: null })
+      .where(and(eq(media.brandId, brandId), eq(media.masterMediaId, masterMediaId)));
+    const [id] = await storeAll(fd, { brandId, masterMediaId }, user.id);
+    await resyncCopiesUsing(brandId, masterMediaId);
+    revalidatePath("/", "layout");
+    return { id };
+  });
 }
 
 /** Goes back to the master asset in this brand. The brand's file stays in its library. */
 export async function clearBrandVersionAction(mediaId: string) {
-  const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
-  if (!row?.brandId || !row.masterMediaId) return;
-  await requireBrandRole(row.brandId, "editor");
-  await db.update(media).set({ masterMediaId: null }).where(eq(media.id, mediaId));
-  await resyncCopiesUsing(row.brandId, row.masterMediaId);
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
+    if (!row?.brandId || !row.masterMediaId) return;
+    await requireBrandRole(row.brandId, "editor");
+    await db.update(media).set({ masterMediaId: null }).where(eq(media.id, mediaId));
+    await resyncCopiesUsing(row.brandId, row.masterMediaId);
+    revalidatePath("/", "layout");
+  });
 }
 
 /** A brand file needs editor on its brand; a master asset, its owner. */
@@ -107,12 +116,14 @@ export async function updateMediaAction(mediaId: string, formData: FormData) {
 }
 
 export async function deleteMediaAction(mediaId: string) {
-  const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
-  if (!row) return;
-  await requireMediaEdit(row);
-  await db.delete(media).where(eq(media.id, mediaId));
-  if (row.brandId && row.masterMediaId) await resyncCopiesUsing(row.brandId, row.masterMediaId);
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
+    if (!row) return;
+    await requireMediaEdit(row);
+    await db.delete(media).where(eq(media.id, mediaId));
+    if (row.brandId && row.masterMediaId) await resyncCopiesUsing(row.brandId, row.masterMediaId);
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function listBrandMedia(brandId: string, ids?: string[]) {

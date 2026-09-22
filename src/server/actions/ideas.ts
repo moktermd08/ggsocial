@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { db, contentIdeas, ideaVersions, posts, activity, brands, type IdeaStatus } from "@/lib/db";
 import { ideaColumns, ideaValues, type IdeaField, type IdeaValues } from "@/lib/ideas";
 import { ideaAccess, ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/server/ideas";
@@ -41,47 +42,49 @@ async function requireIdea(ideaId: string, need: "view" | "edit") {
 }
 
 export async function saveIdeaAction(input: IdeaInput) {
-  const user = await requireUser();
-  const problem = input.problem.trim();
-  if (!problem) throw new Error("An idea needs at least the problem line.");
+  return asResult(async () => {
+    const user = await requireUser();
+    const problem = input.problem.trim();
+    if (!problem) throw new Error("An idea needs at least the problem line.");
 
-  const fields = {
-    problem,
-    action: input.action?.trim() || null,
-    outcome: input.outcome?.trim() || null,
-    title: input.title?.trim() ?? "",
-    pillar: input.pillar?.trim() || null,
-    series: input.series?.trim() || null,
-    postType: input.postType?.trim() || null,
-    tone: input.tone?.trim() || null,
-    needsMedia: input.needsMedia ?? false,
-    hashtags: input.hashtags ?? [],
-    status: input.status ?? ("backlog" as IdeaStatus),
-    targetImpressions: input.targetImpressions ?? null,
-    notes: input.notes?.trim() || null,
-    keyLearning: input.keyLearning?.trim() || null,
-    updatedAt: new Date(),
-  };
+    const fields = {
+      problem,
+      action: input.action?.trim() || null,
+      outcome: input.outcome?.trim() || null,
+      title: input.title?.trim() ?? "",
+      pillar: input.pillar?.trim() || null,
+      series: input.series?.trim() || null,
+      postType: input.postType?.trim() || null,
+      tone: input.tone?.trim() || null,
+      needsMedia: input.needsMedia ?? false,
+      hashtags: input.hashtags ?? [],
+      status: input.status ?? ("backlog" as IdeaStatus),
+      targetImpressions: input.targetImpressions ?? null,
+      notes: input.notes?.trim() || null,
+      keyLearning: input.keyLearning?.trim() || null,
+      updatedAt: new Date(),
+    };
 
-  let ideaId = input.ideaId;
-  if (ideaId) {
-    await requireIdea(ideaId, "edit");
-    await db.update(contentIdeas).set(fields).where(eq(contentIdeas.id, ideaId));
-    // Brand versions pick up changes to whatever they have not adapted.
-    await syncIdeaVersions(ideaId);
-  } else {
-    // New ideas land at the bottom of the plan rather than renumbering it.
-    const [{ next }] = await db
-      .select({ next: sql<number>`coalesce(max(${contentIdeas.sequence}), 0)::int + 1` })
-      .from(contentIdeas).where(eq(contentIdeas.ownerId, user.id));
-    const [row] = await db.insert(contentIdeas)
-      .values({ ...fields, ownerId: user.id, sequence: next })
-      .returning({ id: contentIdeas.id });
-    ideaId = row.id;
-  }
+    let ideaId = input.ideaId;
+    if (ideaId) {
+      await requireIdea(ideaId, "edit");
+      await db.update(contentIdeas).set(fields).where(eq(contentIdeas.id, ideaId));
+      // Brand versions pick up changes to whatever they have not adapted.
+      await syncIdeaVersions(ideaId);
+    } else {
+      // New ideas land at the bottom of the plan rather than renumbering it.
+      const [{ next }] = await db
+        .select({ next: sql<number>`coalesce(max(${contentIdeas.sequence}), 0)::int + 1` })
+        .from(contentIdeas).where(eq(contentIdeas.ownerId, user.id));
+      const [row] = await db.insert(contentIdeas)
+        .values({ ...fields, ownerId: user.id, sequence: next })
+        .returning({ id: contentIdeas.id });
+      ideaId = row.id;
+    }
 
-  revalidatePath("/ideas");
-  return { ideaId };
+    revalidatePath("/ideas");
+    return { ideaId };
+  });
 }
 
 export async function archiveIdeaAction(ideaId: string) {
@@ -112,55 +115,57 @@ function scaffold(idea: typeof contentIdeas.$inferSelect, brand: typeof brands.$
  * a decision per post, and the composer is one click away.
  */
 export async function fanOutIdeaAction(ideaId: string, brandIds: string[]) {
-  const { user, idea } = await requireIdea(ideaId, "view");
-  if (brandIds.length === 0) throw new Error("Pick at least one brand.");
+  return asResult(async () => {
+    const { user, idea } = await requireIdea(ideaId, "view");
+    if (brandIds.length === 0) throw new Error("Pick at least one brand.");
 
-  const brandRows = await db.select().from(brands).where(inArray(brands.id, brandIds));
-  const existing = await db.select({ brandId: posts.brandId }).from(posts)
-    .where(and(eq(posts.ideaId, ideaId), inArray(posts.brandId, brandIds)));
-  const already = new Set(existing.map((e) => e.brandId));
+    const brandRows = await db.select().from(brands).where(inArray(brands.id, brandIds));
+    const existing = await db.select({ brandId: posts.brandId }).from(posts)
+      .where(and(eq(posts.ideaId, ideaId), inArray(posts.brandId, brandIds)));
+    const already = new Set(existing.map((e) => e.brandId));
 
-  const created: string[] = [];
-  const skipped: string[] = [];
-  for (const brand of brandRows) {
-    if (already.has(brand.id)) { skipped.push(brand.name); continue; }
-    const membership = await getMembership(user.id, brand.id);
-    if (!membership || !can.edit(membership.role)) { skipped.push(brand.name); continue; }
-    // Each brand's draft starts from its own version of the idea; a brand
-    // that sits this one out gets no draft.
-    const told = await ideaForBrand(idea.id, brand.id);
-    if (!told || told.skipped) { skipped.push(brand.name); continue; }
-    const mine = told.idea;
+    const created: string[] = [];
+    const skipped: string[] = [];
+    for (const brand of brandRows) {
+      if (already.has(brand.id)) { skipped.push(brand.name); continue; }
+      const membership = await getMembership(user.id, brand.id);
+      if (!membership || !can.edit(membership.role)) { skipped.push(brand.name); continue; }
+      // Each brand's draft starts from its own version of the idea; a brand
+      // that sits this one out gets no draft.
+      const told = await ideaForBrand(idea.id, brand.id);
+      if (!told || told.skipped) { skipped.push(brand.name); continue; }
+      const mine = told.idea;
 
-    const [row] = await db.insert(posts).values({
-      brandId: brand.id,
-      ideaId: idea.id,
-      title: mine.title || mine.problem,
-      body: scaffold(mine, brand),
-      status: "draft",
-      postType: mine.postType,
-      tone: mine.tone,
-      targetImpressions: mine.targetImpressions,
-      createdBy: user.id,
-    }).returning({ id: posts.id });
-    created.push(row.id);
+      const [row] = await db.insert(posts).values({
+        brandId: brand.id,
+        ideaId: idea.id,
+        title: mine.title || mine.problem,
+        body: scaffold(mine, brand),
+        status: "draft",
+        postType: mine.postType,
+        tone: mine.tone,
+        targetImpressions: mine.targetImpressions,
+        createdBy: user.id,
+      }).returning({ id: posts.id });
+      created.push(row.id);
 
-    await db.insert(activity).values({
-      brandId: brand.id, actorId: user.id, action: "fanned_out", entity: "post", entityId: row.id,
-      meta: { ideaId: idea.id },
-    });
-  }
+      await db.insert(activity).values({
+        brandId: brand.id, actorId: user.id, action: "fanned_out", entity: "post", entityId: row.id,
+        meta: { ideaId: idea.id },
+      });
+    }
 
-  // An idea with drafts against it is no longer sitting in the backlog.
-  if (created.length && idea.status === "backlog") {
-    await db.update(contentIdeas).set({ status: "drafting", updatedAt: new Date() })
-      .where(eq(contentIdeas.id, idea.id));
-  }
+    // An idea with drafts against it is no longer sitting in the backlog.
+    if (created.length && idea.status === "backlog") {
+      await db.update(contentIdeas).set({ status: "drafting", updatedAt: new Date() })
+        .where(eq(contentIdeas.id, idea.id));
+    }
 
-  revalidatePath("/ideas");
-  revalidatePath("/posts");
-  // Ids, not just a count: the board drafts each one next, one request apiece.
-  return { created: created.length, createdPostIds: created, skipped };
+    revalidatePath("/ideas");
+    revalidatePath("/posts");
+    // Ids, not just a count: the board drafts each one next, one request apiece.
+    return { created: created.length, createdPostIds: created, skipped };
+  });
 }
 
 /** The per-post plan fields the grid reports on but the composer does not own. */
@@ -171,21 +176,23 @@ export async function updatePostPlanAction(input: {
   notes?: string | null;
   repliedAt?: string | null;
 }) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, input.postId) });
-  if (!post) throw new Error("Post not found.");
-  const { role } = await requireBrandRole(post.brandId, "editor");
-  if (!can.edit(role)) throw new Error("You need editor access to change the plan.");
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, input.postId) });
+    if (!post) throw new Error("Post not found.");
+    const { role } = await requireBrandRole(post.brandId, "editor");
+    if (!can.edit(role)) throw new Error("You need editor access to change the plan.");
 
-  await db.update(posts).set({
-    targetImpressions: input.targetImpressions ?? null,
-    keyLearning: input.keyLearning?.trim() || null,
-    notes: input.notes?.trim() || null,
-    repliedAt: input.repliedAt ? new Date(input.repliedAt) : null,
-    updatedAt: new Date(),
-  }).where(eq(posts.id, input.postId));
+    await db.update(posts).set({
+      targetImpressions: input.targetImpressions ?? null,
+      keyLearning: input.keyLearning?.trim() || null,
+      notes: input.notes?.trim() || null,
+      repliedAt: input.repliedAt ? new Date(input.repliedAt) : null,
+      updatedAt: new Date(),
+    }).where(eq(posts.id, input.postId));
 
-  revalidatePath("/ideas");
-  revalidatePath(`/posts/${input.postId}`);
+    revalidatePath("/ideas");
+    revalidatePath(`/posts/${input.postId}`);
+  });
 }
 
 /* ------------------------------------------------------- brand versions */
@@ -202,31 +209,33 @@ export async function saveIdeaVersionAction(input: {
   notes?: string | null;
   skipped?: boolean;
 }) {
-  const { idea } = await requireIdea(input.ideaId, "view");
-  await requireBrandRole(input.brandId, "editor");
+  return asResult(async () => {
+    const { idea } = await requireIdea(input.ideaId, "view");
+    await requireBrandRole(input.brandId, "editor");
 
-  let version = await db.query.ideaVersions.findFirst({
-    where: and(eq(ideaVersions.ideaId, idea.id), eq(ideaVersions.brandId, input.brandId)),
+    let version = await db.query.ideaVersions.findFirst({
+      where: and(eq(ideaVersions.ideaId, idea.id), eq(ideaVersions.brandId, input.brandId)),
+    });
+    if (!version) {
+      const base = ideaValues(idea);
+      [version] = await db.insert(ideaVersions).values({
+        ideaId: idea.id, brandId: input.brandId, masterSnapshot: base,
+        ...ideaColumns(base), problem: idea.problem,
+      }).returning();
+    }
+
+    const values = input.values ?? {};
+    if (values.problem !== undefined && !values.problem.trim()) throw new Error("The problem line cannot be empty.");
+    await db.update(ideaVersions).set({
+      ...ideaColumns(values),
+      ...(input.angle !== undefined ? { angle: input.angle?.trim() || null } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      ...(input.skipped !== undefined ? { skipped: input.skipped } : {}),
+      updatedAt: new Date(),
+    }).where(eq(ideaVersions.id, version.id));
+    await syncIdeaVersion(version.id);
+    revalidatePath("/ideas");
   });
-  if (!version) {
-    const base = ideaValues(idea);
-    [version] = await db.insert(ideaVersions).values({
-      ideaId: idea.id, brandId: input.brandId, masterSnapshot: base,
-      ...ideaColumns(base), problem: idea.problem,
-    }).returning();
-  }
-
-  const values = input.values ?? {};
-  if (values.problem !== undefined && !values.problem.trim()) throw new Error("The problem line cannot be empty.");
-  await db.update(ideaVersions).set({
-    ...ideaColumns(values),
-    ...(input.angle !== undefined ? { angle: input.angle?.trim() || null } : {}),
-    ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
-    ...(input.skipped !== undefined ? { skipped: input.skipped } : {}),
-    updatedAt: new Date(),
-  }).where(eq(ideaVersions.id, version.id));
-  await syncIdeaVersion(version.id);
-  revalidatePath("/ideas");
 }
 
 async function requireOwnVersion(versionId: string) {
@@ -238,14 +247,18 @@ async function requireOwnVersion(versionId: string) {
 }
 
 export async function resolveIdeaFieldAction(versionId: string, field: IdeaField, choice: "accept" | "keep") {
-  await requireOwnVersion(versionId);
-  await syncIdeaVersion(versionId, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  revalidatePath("/ideas");
+  return asResult(async () => {
+    await requireOwnVersion(versionId);
+    await syncIdeaVersion(versionId, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    revalidatePath("/ideas");
+  });
 }
 
 /** Drops the brand's version: it tells the idea exactly as written again. */
 export async function resetIdeaVersionAction(versionId: string) {
-  await requireOwnVersion(versionId);
-  await db.delete(ideaVersions).where(eq(ideaVersions.id, versionId));
-  revalidatePath("/ideas");
+  return asResult(async () => {
+    await requireOwnVersion(versionId);
+    await db.delete(ideaVersions).where(eq(ideaVersions.id, versionId));
+    revalidatePath("/ideas");
+  });
 }

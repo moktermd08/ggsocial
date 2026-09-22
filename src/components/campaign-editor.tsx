@@ -9,6 +9,7 @@ import {
 } from "@/lib/campaigns";
 import type { CampaignStatus } from "@/lib/db/schema";
 import { archiveCampaignAction, saveCampaignAction } from "@/server/actions/campaigns";
+import { isFailure } from "@/lib/action-result";
 
 export type CampaignEditorCampaign = {
   id: string;
@@ -94,6 +95,7 @@ export function CampaignEditor({
           notes: notes || null,
           copyBrandIds: !campaign && target === "master" ? copyIds : undefined,
         });
+        if (!res.ok) { setError(res.error); return; }
         if (!campaign) {
           router.push(`/campaigns/${res.id}`);
         } else {
@@ -241,7 +243,12 @@ export function CampaignEditor({
         {campaign && canEdit && (
           <button
             onClick={() => {
-              if (confirm("Archive this campaign? Its posts keep the label.")) start(async () => { await archiveCampaignAction(campaign.id); });
+              if (!confirm("Archive this campaign? Its posts keep the label.")) return;
+              setError(null);
+              start(async () => {
+                const res = await archiveCampaignAction(campaign.id);
+                if (isFailure(res)) setError(res.error);
+              });
             }}
             className={`${buttonClass("subtle")} w-full`}
           >

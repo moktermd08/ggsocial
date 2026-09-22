@@ -200,7 +200,9 @@ export function Composer({
     try {
       const fd = new FormData();
       for (const f of Array.from(files)) fd.append("files", f);
-      const ids = await uploadMediaAction(brandId, fd);
+      const res = await uploadMediaAction(brandId, fd);
+      if (!res.ok) { setError(res.error); return; }
+      const { ids } = res;
       // Optimistically show what we just added without a round trip.
       const added = Array.from(files).map((f, i) => ({
         id: ids[i], url: URL.createObjectURL(f),
@@ -232,8 +234,9 @@ export function Composer({
     };
     start(async () => {
       try {
-        const { postId } = await savePostAction(input);
-        router.push(`/posts/${postId}`);
+        const res = await savePostAction(input);
+        if (!res.ok) { setError(res.error); return; }
+        router.push(`/posts/${res.postId}`);
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not save.");
@@ -661,7 +664,8 @@ export function Composer({
               if (confirm("Delete this post? This cannot be undone.")) {
                 start(async () => {
                   const { deletePostAction } = await import("@/server/actions/posts");
-                  await deletePostAction(post.id);
+                  const res = await deletePostAction(post.id);
+                  if (!res.ok) setError(res.error);
                 });
               }
             }}

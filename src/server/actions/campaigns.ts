@@ -1,6 +1,7 @@
 "use server";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import { db, campaigns, campaignComments, activity, type CampaignStatus } from "@/lib/db";
 import { can, getMyBrands, requireBrandRole, requireUser } from "@/lib/auth";
@@ -73,75 +74,85 @@ async function addCopies(masterId: string, brandIds: string[]) {
 }
 
 export async function saveCampaignAction(input: CampaignInput) {
-  const user = await requireUser();
-  const name = input.values.name.trim();
-  if (!name) throw new Error("Give the campaign a name.");
-  const values = { ...input.values, name };
-  const own = {
-    status: input.status,
-    notes: input.notes?.trim() || null,
-    updatedAt: new Date(),
-  };
+  return asResult(async () => {
+    const user = await requireUser();
+    const name = input.values.name.trim();
+    if (!name) throw new Error("Give the campaign a name.");
+    const values = { ...input.values, name };
+    const own = {
+      status: input.status,
+      notes: input.notes?.trim() || null,
+      updatedAt: new Date(),
+    };
 
-  if (input.id) {
-    const { row, access } = await loadCampaign(input.id);
-    if (!access.canEdit) {
-      throw new Error(row.brandId
-        ? "You need editor access on this brand."
-        : "You need editor access on every brand this campaign reaches to change it.");
+    if (input.id) {
+      const { row, access } = await loadCampaign(input.id);
+      if (!access.canEdit) {
+        throw new Error(row.brandId
+          ? "You need editor access on this brand."
+          : "You need editor access on every brand this campaign reaches to change it.");
+      }
+      await assertNameFree(name, row.brandId, row.ownerId, row.id);
+      await db.update(campaigns).set({
+        ...campaignColumns(values), ...own,
+        ...(row.brandId ? {} : { guidelines: input.guidelines?.trim() || null }),
+      }).where(eq(campaigns.id, row.id));
+      await renameCampaignLabel(row, row.name, name);
+
+      let synced = 0;
+      if (row.masterId) await syncCampaignCopy(row.id);
+      if (!row.brandId) synced = await syncAllCampaignCopies(row.id);
+      revalidatePath("/", "layout");
+      return { id: row.id, synced };
     }
-    await assertNameFree(name, row.brandId, row.ownerId, row.id);
-    await db.update(campaigns).set({
-      ...campaignColumns(values), ...own,
-      ...(row.brandId ? {} : { guidelines: input.guidelines?.trim() || null }),
-    }).where(eq(campaigns.id, row.id));
-    await renameCampaignLabel(row, row.name, name);
 
-    let synced = 0;
-    if (row.masterId) await syncCampaignCopy(row.id);
-    if (!row.brandId) synced = await syncAllCampaignCopies(row.id);
+    const brandId = input.brandId ?? null;
+    if (brandId) await requireBrandRole(brandId, "editor");
+    await assertNameFree(name, brandId, user.id);
+    const [row] = await db.insert(campaigns).values({
+      ...campaignColumns(values), ...own, name,
+      brandId, ownerId: user.id,
+      guidelines: brandId ? null : input.guidelines?.trim() || null,
+    }).returning();
+    if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
     revalidatePath("/", "layout");
-    return { id: row.id, synced };
-  }
-
-  const brandId = input.brandId ?? null;
-  if (brandId) await requireBrandRole(brandId, "editor");
-  await assertNameFree(name, brandId, user.id);
-  const [row] = await db.insert(campaigns).values({
-    ...campaignColumns(values), ...own, name,
-    brandId, ownerId: user.id,
-    guidelines: brandId ? null : input.guidelines?.trim() || null,
-  }).returning();
-  if (!brandId && input.copyBrandIds?.length) await addCopies(row.id, input.copyBrandIds);
-  revalidatePath("/", "layout");
-  return { id: row.id, synced: 0 };
+    return { id: row.id, synced: 0 };
+  });
 }
 
 export async function addCampaignCopiesAction(masterId: string, brandIds: string[]) {
-  const created = await addCopies(masterId, brandIds);
-  revalidatePath("/", "layout");
-  return { created };
+  return asResult(async () => {
+    const created = await addCopies(masterId, brandIds);
+    revalidatePath("/", "layout");
+    return { created };
+  });
 }
 
 export async function resolveCampaignFieldAction(id: string, field: CampaignField, choice: "accept" | "keep") {
-  const { row, access } = await loadCampaign(id);
-  if (!row.masterId || !access.canEdit) throw new Error("You cannot change this campaign.");
-  await syncCampaignCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadCampaign(id);
+    if (!row.masterId || !access.canEdit) throw new Error("You cannot change this campaign.");
+    await syncCampaignCopy(id, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function unlinkCampaignAction(id: string) {
-  const { row, access } = await loadCampaign(id);
-  if (!row.masterId || !access.canEdit) return;
-  await db.update(campaigns).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() }).where(eq(campaigns.id, id));
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { row, access } = await loadCampaign(id);
+    if (!row.masterId || !access.canEdit) return;
+    await db.update(campaigns).set({ masterId: null, masterSnapshot: {}, updatedAt: new Date() }).where(eq(campaigns.id, id));
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function addCampaignCommentAction(id: string, body: string) {
-  const { user } = await loadCampaign(id);
-  if (!body.trim()) return;
-  await db.insert(campaignComments).values({ campaignId: id, userId: user.id, body: body.trim() });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { user } = await loadCampaign(id);
+    if (!body.trim()) return;
+    await db.insert(campaignComments).values({ campaignId: id, userId: user.id, body: body.trim() });
+    revalidatePath("/", "layout");
+  });
 }
 
 /**
@@ -149,12 +160,14 @@ export async function addCampaignCommentAction(id: string, body: string) {
  * belong to history. A master's copies stay with their brands, unlinked.
  */
 export async function archiveCampaignAction(id: string) {
-  const { row, access } = await loadCampaign(id);
-  if (!access.canEdit) throw new Error("You cannot archive this campaign.");
-  await db.update(campaigns).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(campaigns.id, id));
-  if (!row.brandId) {
-    await db.update(campaigns).set({ masterId: null, masterSnapshot: {} }).where(eq(campaigns.masterId, id));
-  }
-  revalidatePath("/", "layout");
-  redirect("/campaigns");
+  return asResult(async () => {
+    const { row, access } = await loadCampaign(id);
+    if (!access.canEdit) throw new Error("You cannot archive this campaign.");
+    await db.update(campaigns).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(campaigns.id, id));
+    if (!row.brandId) {
+      await db.update(campaigns).set({ masterId: null, masterSnapshot: {} }).where(eq(campaigns.masterId, id));
+    }
+    revalidatePath("/", "layout");
+    redirect("/campaigns");
+  });
 }

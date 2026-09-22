@@ -8,6 +8,7 @@ import { PlatformIcon } from "./platform-icon";
 import { relativeTime, truncate } from "@/lib/format";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
 import { archiveLinkAction, createPostLinksAction } from "@/server/actions/links";
+import type { ActionResult } from "@/lib/action-result";
 import type { DestinationOption } from "@/lib/destinations";
 import { DestinationPicker } from "./link-panel";
 
@@ -66,11 +67,12 @@ export function LinkTable({
     });
   }, [rows, query, showArchived]);
 
-  function run(work: () => Promise<unknown>) {
+  function run(work: () => Promise<ActionResult>) {
     setError(null);
     startTransition(async () => {
       try {
-        await work();
+        const res = await work();
+        if (!res.ok) { setError(res.error); return; }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "That did not go through.");
@@ -231,7 +233,7 @@ function NewLinkForm({
 }: {
   brands: LinkTableBrand[];
   pending: boolean;
-  onRun: (work: () => Promise<unknown>) => void;
+  onRun: (work: () => Promise<ActionResult>) => void;
   onDone: () => void;
 }) {
   const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
@@ -250,9 +252,12 @@ function NewLinkForm({
         onSubmit={(e) => {
           e.preventDefault();
           onRun(async () => {
-            await createPostLinksAction({ brandId, destination, label, campaign, channelIds, destinationId });
-            setDestination(""); setLabel(""); setCampaign(""); setChannelIds([]); setDestinationId(null);
-            onDone();
+            const res = await createPostLinksAction({ brandId, destination, label, campaign, channelIds, destinationId });
+            if (res.ok) {
+              setDestination(""); setLabel(""); setCampaign(""); setChannelIds([]); setDestinationId(null);
+              onDone();
+            }
+            return res;
           });
         }}
       >

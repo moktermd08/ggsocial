@@ -11,6 +11,7 @@ import { IDEA_STATUSES, type IdeaStatus } from "@/lib/db/idea-status";
 import {
   saveIdeaAction, fanOutIdeaAction, saveIdeaVersionAction, resolveIdeaFieldAction, resetIdeaVersionAction, type IdeaInput,
 } from "@/server/actions/ideas";
+import type { ActionResult } from "@/lib/action-result";
 import { IDEA_FIELD_LABELS, ideaValues, readableIdeaValue, type IdeaField, type IdeaValues } from "@/lib/ideas";
 import { LabelRow, MasterTag } from "./master-panels";
 import { draftPostAction, draftingStatusAction } from "@/server/actions/drafting";
@@ -100,7 +101,8 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
           hashtags: row.hashtags,
           ...next,
         };
-        await saveIdeaAction(input);
+        const res = await saveIdeaAction(input);
+        if (!res.ok) throw new Error(res.error);
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not save that change.");
@@ -110,10 +112,14 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
   }
 
   /** Runs a brand-version change, then re-reads the board. */
-  function runVersion(fn: () => Promise<unknown>) {
+  function runVersion(fn: () => Promise<ActionResult>) {
     setError(null);
     startTransition(async () => {
-      try { await fn(); router.refresh(); }
+      try {
+        const res = await fn();
+        if (!res.ok) { setError(res.error); return; }
+        router.refresh();
+      }
       catch (e) { setError(e instanceof Error ? e.message : "Could not save that change."); }
     });
   }
@@ -126,7 +132,8 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
     setError(null);
     startTransition(async () => {
       try {
-        await saveIdeaAction({ problem, action: action ?? null, outcome: outcome ?? null });
+        const res = await saveIdeaAction({ problem, action: action ?? null, outcome: outcome ?? null });
+        if (!res.ok) { setError(res.error); return; }
         setAdding("");
         router.refresh();
       } catch (e) {
@@ -155,6 +162,7 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
         const created: string[] = [];
         for (const id of ideaIds) {
           const res = await fanOutIdeaAction(id, lanes.map((l) => l.brand.id));
+          if (!res.ok) { setError(res.error); router.refresh(); return; }
           created.push(...res.createdPostIds);
         }
         setSelected(new Set());

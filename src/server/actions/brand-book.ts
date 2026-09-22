@@ -1,6 +1,7 @@
 "use server";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { db, brands, brandBookDefaults, activity } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import type { BookField } from "@/lib/brand-book";
@@ -38,7 +39,9 @@ export async function unlinkBrandBookAction(brandId: string) {
 }
 
 export async function resolveBookFieldAction(brandId: string, field: BookField, choice: "accept" | "keep") {
-  await requireBrandRole(brandId, "admin");
-  await syncBrandBook(brandId, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    await requireBrandRole(brandId, "admin");
+    await syncBrandBook(brandId, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    revalidatePath("/", "layout");
+  });
 }

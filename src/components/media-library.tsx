@@ -6,6 +6,7 @@ import { Card, CardHeader, buttonClass } from "./ui";
 import {
   uploadMediaAction, uploadMasterMediaAction, uploadBrandVersionAction, clearBrandVersionAction, deleteMediaAction,
 } from "@/server/actions/media";
+import type { ActionResult } from "@/lib/action-result";
 import { SourceImportButtons, type SourceStatus } from "./media-sources";
 
 export type MediaRow = {
@@ -48,12 +49,26 @@ export function MediaLibrary({
   const versionInput = useRef<HTMLInputElement>(null);
   const [versionFor, setVersionFor] = useState<string | null>(null);
 
-  async function run(work: () => Promise<unknown>) {
+  async function run(work: () => Promise<ActionResult>) {
     setUploading(true);
     setError(null);
-    try { await work(); router.refresh(); }
+    try {
+      const res = await work();
+      if (!res.ok) { setError(res.error); return; }
+      router.refresh();
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Upload failed."); }
     finally { setUploading(false); }
+  }
+
+  /** Deletes and resets: no upload spinner, just the transition. */
+  function act(work: () => Promise<ActionResult>) {
+    setError(null);
+    start(async () => {
+      const res = await work();
+      if (!res.ok) { setError(res.error); return; }
+      router.refresh();
+    });
   }
 
   const filesToForm = (files: FileList) => {
@@ -122,7 +137,7 @@ export function MediaLibrary({
               {canEdit && m.canDelete !== false && !m.isMaster && (
                 <button
                   disabled={pending}
-                  onClick={() => { if (confirm(`Delete ${m.originalName}? Posts using it lose it.`)) start(async () => { await deleteMediaAction(m.id); router.refresh(); }); }}
+                  onClick={() => { if (confirm(`Delete ${m.originalName}? Posts using it lose it.`)) act(() => deleteMediaAction(m.id)); }}
                   className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
                   title="Delete"
                 >
@@ -147,7 +162,7 @@ export function MediaLibrary({
                   {canEdit && (
                     <button
                       disabled={pending}
-                      onClick={() => start(async () => { await clearBrandVersionAction(m.id); router.refresh(); })}
+                      onClick={() => act(() => clearBrandVersionAction(m.id))}
                       className="shrink-0 hover:text-text"
                       title="Use the master asset again in this brand"
                     >

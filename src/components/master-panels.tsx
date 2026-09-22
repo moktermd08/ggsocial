@@ -7,6 +7,7 @@ import { Badge, Card, CardHeader, buttonClass } from "./ui";
 import { STATUS_META, relativeTime } from "@/lib/format";
 import { MASTER_FIELD_LABELS, type MasterField } from "@/lib/masters";
 import type { PostStatus } from "@/lib/db/schema";
+import { isFailure, type ActionResult } from "@/lib/action-result";
 import {
   addMasterCommentAction, addMasterCopiesAction, removeMasterCopyAction,
 } from "@/server/actions/masters";
@@ -21,10 +22,16 @@ function useRun() {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const run = (fn: () => Promise<unknown>) => {
+  const run = (fn: () => Promise<ActionResult | void>) => {
     setError(null);
     start(async () => {
-      try { await fn(); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
+      try {
+        const res = await fn();
+        if (isFailure(res)) { setError(res.error); return; }
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Something went wrong.");
+      }
     });
   };
   return { pending, error, run };
@@ -117,7 +124,7 @@ export function MasterComments({
 }: {
   masterId?: string; comments: MasterCommentRow[]; title?: string;
   /** Where a new comment goes. Defaults to the master post's thread. */
-  add?: (body: string) => Promise<void>;
+  add?: (body: string) => Promise<ActionResult | void>;
   placeholder?: string;
   emptyHint?: string;
 }) {
@@ -143,7 +150,11 @@ export function MasterComments({
         <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={placeholder} />
         <button
           disabled={pending || !note.trim()}
-          onClick={() => run(async () => { await (add ? add(note) : addMasterCommentAction(masterId!, note)); setNote(""); })}
+          onClick={() => run(async () => {
+            const res = await (add ? add(note) : addMasterCommentAction(masterId!, note));
+            if (!isFailure(res)) setNote("");
+            return res;
+          })}
           className={buttonClass("subtle", "sm")}
         >
           <MessageSquare className="size-3.5" /> Comment
@@ -174,8 +185,8 @@ export function FromMasterPanel<F extends string>({
   fieldLabels: Record<F, string>;
   canEdit: boolean;
   /** Bound server actions for this copy. */
-  resolve: (field: F, choice: "accept" | "keep") => Promise<void>;
-  unlink: () => Promise<void>;
+  resolve: (field: F, choice: "accept" | "keep") => Promise<ActionResult | void>;
+  unlink: () => Promise<ActionResult | void>;
   unlinkConfirm: string;
 }) {
   const { pending, error, run } = useRun();
@@ -299,7 +310,7 @@ export function LinkedCopiesPanel<F extends string>({ copies, addable, fieldLabe
   addable: { id: string; name: string; color: string }[];
   fieldLabels: Record<F, string>;
   /** Bound server action: create copies in these brands. */
-  add: (brandIds: string[]) => Promise<unknown>;
+  add: (brandIds: string[]) => Promise<ActionResult>;
 }) {
   const { pending, error, run } = useRun();
   const list = (fields: F[]) => fields.map((f) => fieldLabels[f].toLowerCase()).join(", ");

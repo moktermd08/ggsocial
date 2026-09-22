@@ -1,6 +1,7 @@
 "use server";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import {
   db, masterPosts, masterPostComments, posts, postTargets, channels, attachments, activity,
@@ -56,91 +57,105 @@ async function addCopies(masterId: string, brandIds: string[]) {
 }
 
 export async function saveMasterAction(input: MasterInput) {
-  const user = await requireUser();
-  const fields = {
-    title: input.title.trim(),
-    body: input.body,
-    campaign: input.campaign?.trim() || null,
-    tags: input.tags,
-    scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
-    mediaIds: input.mediaIds,
-    platforms: input.platforms,
-    guidelines: input.guidelines?.trim() || null,
-    notes: input.notes?.trim() || null,
-    updatedAt: new Date(),
-  };
+  return asResult(async () => {
+    const user = await requireUser();
+    const fields = {
+      title: input.title.trim(),
+      body: input.body,
+      campaign: input.campaign?.trim() || null,
+      tags: input.tags,
+      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+      mediaIds: input.mediaIds,
+      platforms: input.platforms,
+      guidelines: input.guidelines?.trim() || null,
+      notes: input.notes?.trim() || null,
+      updatedAt: new Date(),
+    };
 
-  if (input.masterId) {
-    const { access } = await loadMaster(input.masterId);
-    if (!access.canEdit) throw new Error("You need editor access on every brand this master reaches to change it.");
-    await db.update(masterPosts).set(fields).where(eq(masterPosts.id, input.masterId));
-    const synced = await syncAllCopies(input.masterId);
+    if (input.masterId) {
+      const { access } = await loadMaster(input.masterId);
+      if (!access.canEdit) throw new Error("You need editor access on every brand this master reaches to change it.");
+      await db.update(masterPosts).set(fields).where(eq(masterPosts.id, input.masterId));
+      const synced = await syncAllCopies(input.masterId);
+      revalidatePath("/", "layout");
+      return { masterId: input.masterId, created: 0, synced };
+    }
+
+    const [row] = await db.insert(masterPosts).values({ ...fields, ownerId: user.id }).returning();
+    const created = await addCopies(row.id, input.brandIds ?? []);
     revalidatePath("/", "layout");
-    return { masterId: input.masterId, created: 0, synced };
-  }
-
-  const [row] = await db.insert(masterPosts).values({ ...fields, ownerId: user.id }).returning();
-  const created = await addCopies(row.id, input.brandIds ?? []);
-  revalidatePath("/", "layout");
-  return { masterId: row.id, created: created.length, synced: 0 };
+    return { masterId: row.id, created: created.length, synced: 0 };
+  });
 }
 
 export async function addMasterCopiesAction(masterId: string, brandIds: string[]) {
-  const created = await addCopies(masterId, brandIds);
-  revalidatePath("/", "layout");
-  return { created: created.length };
+  return asResult(async () => {
+    const created = await addCopies(masterId, brandIds);
+    revalidatePath("/", "layout");
+    return { created: created.length };
+  });
 }
 
 /** Takes a brand off a master. Only while its copy has not been signed off. */
 export async function removeMasterCopyAction(postId: string) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post?.masterPostId) throw new Error("Not a master copy.");
-  await requireBrandRole(post.brandId, "editor");
-  if (isLockedStatus(post.status)) {
-    throw new Error("This copy is approved or out already. Unlink it from the master instead.");
-  }
-  await db.delete(posts).where(eq(posts.id, postId));
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post?.masterPostId) throw new Error("Not a master copy.");
+    await requireBrandRole(post.brandId, "editor");
+    if (isLockedStatus(post.status)) {
+      throw new Error("This copy is approved or out already. Unlink it from the master instead.");
+    }
+    await db.delete(posts).where(eq(posts.id, postId));
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Keeps the post as it is but stops it following the master. */
 export async function unlinkCopyAction(postId: string) {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post?.masterPostId) return;
-  const { user } = await requireBrandRole(post.brandId, "editor");
-  await db.update(posts).set({ masterPostId: null, masterSnapshot: {}, updatedAt: new Date() })
-    .where(eq(posts.id, postId));
-  await db.insert(activity).values({
-    brandId: post.brandId, actorId: user.id, action: "post.unlinked_from_master", entity: "post", entityId: postId,
-    meta: { masterPostId: post.masterPostId },
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post?.masterPostId) return;
+    const { user } = await requireBrandRole(post.brandId, "editor");
+    await db.update(posts).set({ masterPostId: null, masterSnapshot: {}, updatedAt: new Date() })
+      .where(eq(posts.id, postId));
+    await db.insert(activity).values({
+      brandId: post.brandId, actorId: user.id, action: "post.unlinked_from_master", entity: "post", entityId: postId,
+      meta: { masterPostId: post.masterPostId },
+    });
+    revalidatePath("/", "layout");
   });
-  revalidatePath("/", "layout");
 }
 
 /** Take the master's version of one field, or keep this brand's. */
 export async function resolveCopyFieldAction(postId: string, field: MasterField, choice: "accept" | "keep") {
-  const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post?.masterPostId) throw new Error("Not a master copy.");
-  await requireBrandRole(post.brandId, "editor");
-  await syncCopy(postId, choice === "accept" ? { accept: [field] } : { keep: [field] });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+    if (!post?.masterPostId) throw new Error("Not a master copy.");
+    await requireBrandRole(post.brandId, "editor");
+    await syncCopy(postId, choice === "accept" ? { accept: [field] } : { keep: [field] });
+    revalidatePath("/", "layout");
+  });
 }
 
 export async function addMasterCommentAction(masterId: string, body: string) {
-  const { user } = await loadMaster(masterId);
-  if (!body.trim()) return;
-  await db.insert(masterPostComments).values({ masterPostId: masterId, userId: user.id, body: body.trim() });
-  revalidatePath("/", "layout");
+  return asResult(async () => {
+    const { user } = await loadMaster(masterId);
+    if (!body.trim()) return;
+    await db.insert(masterPostComments).values({ masterPostId: masterId, userId: user.id, body: body.trim() });
+    revalidatePath("/", "layout");
+  });
 }
 
 /** Deletes the master only. Its copies stay, as ordinary posts in each brand. */
 export async function deleteMasterAction(masterId: string) {
-  const { access } = await loadMaster(masterId);
-  if (!access.canEdit) throw new Error("You need editor access on every brand this master reaches to delete it.");
-  await db.update(posts).set({ masterSnapshot: {} }).where(eq(posts.masterPostId, masterId));
-  await db.delete(masterPosts).where(eq(masterPosts.id, masterId));
-  revalidatePath("/", "layout");
-  redirect("/posts");
+  return asResult(async () => {
+    const { access } = await loadMaster(masterId);
+    if (!access.canEdit) throw new Error("You need editor access on every brand this master reaches to delete it.");
+    await db.update(posts).set({ masterSnapshot: {} }).where(eq(posts.masterPostId, masterId));
+    await db.delete(masterPosts).where(eq(masterPosts.id, masterId));
+    revalidatePath("/", "layout");
+    redirect("/posts");
+  });
 }
 
 /**
