@@ -17,41 +17,36 @@ ggleads deployment on that box.
 
 ## Redeploying after a change
 
-Run the steps in this order. The schema push must land **before** the restart,
-or the new build serves pages whose columns do not exist yet.
-
-**1. Back up.** Nothing is scheduled, so this is the only rollback point:
+Commit first, load your SSH key into the agent once per login (the key has a
+passphrase, and the script cannot type it), then deploy:
 
 ```bash
-ssh gglink-live "bash -c 'docker exec ggsocial-pg pg_dump -U ggsocial ggsocial | gzip > /root/ggsocial-backups/ggsocial-\$(date +%F-%H%M).sql.gz'"
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+npm run deploy
 ```
 
-**2. Sync the code.** `--exclude .env` is not optional — see the warning below:
+[`scripts/deploy.sh`](scripts/deploy.sh) runs on your machine: it warns about
+uncommitted changes, checks SSH works without a prompt, rsyncs the tree, then
+streams [`scripts/deploy-remote.sh`](scripts/deploy-remote.sh) to the server
+over `ssh … 'bash -s'`. The server half:
 
-```bash
-rsync -az --delete --exclude node_modules --exclude .next --exclude .data --exclude .git --exclude .env --exclude .env.local --exclude .claude ./ gglink-live:/var/www/ggsocial.gglink.co.uk/
-```
+1. refuses to run if `.env` is missing,
+2. backs up the database to `/root/ggsocial-backups/`,
+3. `npm ci`, plus the Linux Tailwind binary pinned to the installed version,
+4. `drizzle-kit push` — before the restart, or the new build serves pages whose
+   columns do not exist yet,
+5. `rm -rf .next && npm run build`,
+6. restarts both pm2 processes and polls `/login` until it is 200.
 
-**3. Install, migrate, build, restart:**
+It stops at the first failing step. The scheduler always logs one
+`tick failed: fetch failed` during the restart window — that one is expected;
+repeated ones are not.
 
-```bash
-ssh gglink-live 'bash -c "export PATH=/usr/bin:/usr/local/bin:/bin && cd /var/www/ggsocial.gglink.co.uk \
-  && npm ci --no-audit --no-fund \
-  && npm install --no-save --no-audit --no-fund @tailwindcss/oxide-linux-x64-gnu@\$(node -p \"require(\047./node_modules/@tailwindcss/oxide/package.json\047).version\") \
-  && npx drizzle-kit push --verbose < /dev/null \
-  && rm -rf .next && npm run build \
-  && pm2 restart ggsocial-web ggsocial-scheduler --update-env"'
-```
-
-**4. Verify:**
+To check on it later without redeploying:
 
 ```bash
 ssh gglink-live 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3200/login; pm2 list --no-color | grep ggsocial'
 ```
-
-`/login` should be 200 and both processes `online`. The scheduler always logs one
-`tick failed: fetch failed` during the restart window — that one is expected;
-repeated ones are not.
 
 ### Traps in this deploy, learned the hard way
 
@@ -67,26 +62,30 @@ cron and pg secrets, *not* the full file.
 on macOS, and npm's optional-dependency handling omits
 `@tailwindcss/oxide-linux-x64-gnu` on the server, so the build dies with
 `Cannot find module './tailwindcss-oxide.linux-x64-gnu.node'`. The explicit
-`npm install --no-save` above pins it to the same version as the installed
+`npm install --no-save` in the deploy script pins it to the same version as the installed
 `@tailwindcss/oxide`. `--no-save` keeps this platform artefact out of the
 committed lockfile.
 
 **Turbopack caches the failure.** After a failed build, a retry replays the same
 error from `.next/build/chunks/` even once the real cause is fixed. Always
-`rm -rf .next` before rebuilding, which is why it is in the command above.
+`rm -rf .next` before rebuilding, which is why the deploy script does it.
 
 **A login shell builds with the wrong Node.** `bash -lc` sources nvm, which puts
 Node 18.20.8 first on the PATH. Next 16 refuses to build on it
 (`Node.js version ">=20.9.0" is required`), while pm2 runs `/usr/bin/node`
-(20.20.2). The commands above use `bash -c` with `/usr/bin` first so install,
+(20.20.2). The deploy script puts `/usr/bin` first on the PATH so install,
 build and runtime all agree — installing under 18 also resolves a different set
 of optional dependencies (412 packages vs 420). Worse, the failure lands *after*
 `rm -rf .next`, so a running server is left without its build directory: check
 `/login` immediately if a build ever fails mid-deploy.
 
 **The login shell is fish.** Anything with `$(...)` passed straight to `ssh`
-fails to parse and nothing runs — step 1 silently produced no backup until it was
-wrapped in `bash -c`. Always wrap remote commands in `bash -c`.
+fails to parse and nothing runs — the backup step once silently produced no
+backup. Nested quoting through fish then `bash -c` also broke the Tailwind pin
+(`\047` reached Node literally, the version came back empty, and the install
+quietly did nothing). The deploy script sidesteps both by streaming the server
+half over stdin, so fish only ever parses `bash -s`. For ad-hoc commands,
+wrap them in `bash -c`.
 
 **Push the schema without `--force`.** Every change so far has been additive,
 and drizzle applies additive changes without asking. Without `--force` it stops

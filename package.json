@@ -13,7 +13,8 @@
     "db:studio": "drizzle-kit studio",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
     "seed:ideas": "node --env-file=.env.local scripts/seed-ideas.mjs",
-    "scheduler": "node --env-file=.env.local scripts/scheduler.mjs"
+    "scheduler": "node --env-file=.env.local scripts/scheduler.mjs",
+    "deploy": "scripts/deploy.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
