@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
-import { db, links, linkClicks } from "@/lib/db";
-import { withUtm, visitorHash, deviceFrom, isBotAgent } from "@/lib/links";
+import { db, links, linkClicks, brands } from "@/lib/db";
+import { withUtm, visitorHash, deviceFrom, isBotAgent, shortUrl } from "@/lib/links";
+import { destinationMeta, previewHtml } from "@/server/link-preview";
+import { publicUrl } from "@/server/media";
 
 /** Every hit is a fresh lookup — a cached redirect would count nothing. */
 export const dynamic = "force-dynamic";
@@ -69,5 +71,44 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
     console.error("Could not record click for", code, err);
   }
 
+  if (bot) {
+    const preview = await brandPreview(link.brandId, code, destination, link.label);
+    if (preview) {
+      return new NextResponse(preview, {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+  }
+
   return NextResponse.redirect(destination, { status: 302 });
+}
+
+/**
+ * The card a platform builds when this link is pasted. The destination's own
+ * preview wins whenever it has an image; the brand's social image fills in
+ * only where the card would otherwise be bare. null = just redirect, which is
+ * also the answer to anything that goes wrong here.
+ */
+async function brandPreview(brandId: string, code: string, destination: string, label: string) {
+  try {
+    const brand = await db.query.brands.findFirst({
+      where: eq(brands.id, brandId),
+      columns: { name: true, tagline: true, socialImageUrl: true },
+    });
+    if (!brand?.socialImageUrl) return null;
+    const meta = await destinationMeta(destination);
+    // Unreadable to us is not the same as imageless: the platform may do better, so let it try.
+    if (!meta || meta.image) return null;
+    return previewHtml({
+      shortUrl: shortUrl(code),
+      destination,
+      siteName: brand.name,
+      title: meta.title ?? (label || brand.name),
+      description: meta.description ?? brand.tagline,
+      image: publicUrl(brand.socialImageUrl),
+    });
+  } catch (err) {
+    console.error("Could not build link preview for", code, err);
+    return null;
+  }
 }

@@ -74,7 +74,7 @@ export function visitorHash(ip: string | null, userAgent: string | null) {
 export function deviceFrom(userAgent: string | null) {
   const ua = (userAgent ?? "").toLowerCase();
   if (!ua) return "unknown";
-  if (/bot|crawler|spider|crawling|facebookexternalhit|slackbot|preview|headless|curl|wget|python-requests/.test(ua)) return "bot";
+  if (/bot|crawler|spider|crawling|facebookexternalhit|slackbot|preview|whatsapp|embedly|iframely|skypeuripreview|vkshare|headless|curl|wget|python-requests/.test(ua)) return "bot";
   if (/mobile|android|iphone|ipad|ipod/.test(ua)) return "mobile";
   return "desktop";
 }

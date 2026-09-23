@@ -52,7 +52,8 @@ export function normalisePageUrl(raw: string) {
   return url.toString();
 }
 
-function privateAddress(ip: string) {
+/** Loopback, private, link-local, CGNAT and multicast ranges: never fetched on anyone's behalf. */
+export function privateAddress(ip: string) {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split(".").map(Number);
     return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)

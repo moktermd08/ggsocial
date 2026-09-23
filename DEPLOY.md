@@ -130,10 +130,12 @@ Note `rsync` flattens when you pass individual files — always sync directories
 
 Short links (`/l/<code>`) are followed by strangers, so they have to get past
 the basic-auth wall too — otherwise every reader gets a 401 password prompt.
-They only redirect: the route does no auth and returns nothing but a 302 to the
-link's destination, and codes are random 7-character strings. Add this to
-**both** vhosts beside the media block below, then `apachectl configtest &&
-systemctl reload apache2`:
+They do no auth and return nothing but a 302 to the link's destination —
+except to a link-preview crawler when the destination has no preview image of
+its own and the brand has a social image: then the crawler gets a small card
+page using that image, which needs `/api/media/file/` open too (see below).
+Codes are random 7-character strings. Add this to **both** vhosts beside the
+media block below, then `apachectl configtest && systemctl reload apache2`:
 
 ```apache
 <Location /l/>
