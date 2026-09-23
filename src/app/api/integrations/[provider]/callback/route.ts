@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { exchangeCode, isProvider, PENDING_COOKIE, PROVIDERS, readPending, saveIntegration } from "@/server/integrations/oauth";
+import { exchangeCode, isProvider, PENDING_COOKIE, PROVIDERS, readPending, redirectUri, saveIntegration } from "@/server/integrations/oauth";
 import { getProfileName } from "@/server/integrations/canva";
 import { getAccountEmail } from "@/server/integrations/google-photos";
 
@@ -8,7 +8,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
   const { provider } = await params;
   if (!isProvider(provider)) return new NextResponse("Unknown integration", { status: 404 });
 
-  const back = new URL("/library", req.nextUrl.origin);
+  // APP_URL, not req.nextUrl: behind Apache that is the internal 127.0.0.1:3200 address.
+  const back = new URL("/library", new URL(redirectUri(provider)).origin);
   const fail = (message: string) => {
     back.searchParams.set("integrationError", message);
     const res = NextResponse.redirect(back);

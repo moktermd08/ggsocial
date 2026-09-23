@@ -9,8 +9,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
 
   // The callback lands on APP_URL's host; cookies set on another host (localhost
   // vs 127.0.0.1) would never reach it, so start from that host too.
+  // Behind Apache, nextUrl is the internal 127.0.0.1:3200 address, so compare
+  // the host the browser actually asked for.
   const home = new URL(redirectUri(provider)).origin;
-  if (req.nextUrl.origin !== home) return NextResponse.redirect(`${home}${req.nextUrl.pathname}`);
+  const asked = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  if (asked !== new URL(home).host) return NextResponse.redirect(`${home}${req.nextUrl.pathname}`);
 
   const user = await requireUser();
   let auth;
