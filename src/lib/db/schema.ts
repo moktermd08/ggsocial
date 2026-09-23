@@ -116,6 +116,8 @@ export const brands = pgTable("brands", {
   /** Logo dos and don'ts, clear space, which mark to use where. */
   logoUsage: text("logo_usage"),
   imageStyle: text("image_style"),
+  /** The Canva folder this brand's designs live in; the Canva import opens there. */
+  canvaFolderId: text("canva_folder_id"),
 
   /* --------------------------------------------------- voice & messaging */
   /** Voice/tone notes, approval rules — shown in the composer. */

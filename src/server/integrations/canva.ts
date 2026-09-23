@@ -52,15 +52,59 @@ export async function listDesigns(token: string, opts: { query?: string; continu
   const json = await call<{ items: RawDesign[]; continuation?: string }>(token, `/designs?${params}`);
   return {
     continuation: json.continuation ?? null,
-    designs: json.items.map((d): CanvaDesign => ({
-      id: d.id,
-      title: d.title || "Untitled design",
-      thumbnail: d.thumbnail?.url ?? null,
-      editUrl: d.urls?.edit_url ?? null,
-      pageCount: d.page_count ?? null,
-      updatedAt: d.updated_at ? new Date(d.updated_at * 1000).toISOString() : null,
-    })),
+    designs: json.items.map(toDesign),
   };
+}
+
+function toDesign(d: RawDesign): CanvaDesign {
+  return {
+    id: d.id,
+    title: d.title || "Untitled design",
+    thumbnail: d.thumbnail?.url ?? null,
+    editUrl: d.urls?.edit_url ?? null,
+    pageCount: d.page_count ?? null,
+    updatedAt: d.updated_at ? new Date(d.updated_at * 1000).toISOString() : null,
+  };
+}
+
+/* ---------------------------------------------------------------- folders */
+
+export type CanvaFolder = { id: string; name: string };
+
+/**
+ * Takes a folder link (canva.com/folder/FAHWCXWEHw4) or a bare ID and returns
+ * the ID, or null when it doesn't look like either.
+ */
+export function parseFolderId(input: string) {
+  const s = input.trim();
+  const m = s.match(/canva\.com\/folder\/([A-Za-z0-9_-]+)/) ?? s.match(/^([A-Za-z0-9_-]{6,})$/);
+  return m?.[1] ?? null;
+}
+
+export async function getFolder(token: string, folderId: string): Promise<CanvaFolder> {
+  const json = await call<{ folder: { id: string; name?: string } }>(token, `/folders/${encodeURIComponent(folderId)}`);
+  return { id: json.folder.id, name: json.folder.name || "Untitled folder" };
+}
+
+type RawFolderItem =
+  | { type: "folder"; folder: { id: string; name?: string } }
+  | { type: "design"; design: RawDesign }
+  | { type: "image" | "brand_template" };
+
+/** One page of a folder: its subfolders and designs. Uploaded images are skipped; they can't be exported. */
+export async function listFolderItems(token: string, folderId: string, continuation?: string) {
+  const params = new URLSearchParams({ sort_by: "modified_descending" });
+  if (continuation) params.set("continuation", continuation);
+  const json = await call<{ items: RawFolderItem[]; continuation?: string }>(
+    token, `/folders/${encodeURIComponent(folderId)}/items?${params}`,
+  );
+  const folders: CanvaFolder[] = [];
+  const designs: CanvaDesign[] = [];
+  for (const item of json.items) {
+    if (item.type === "folder") folders.push({ id: item.folder.id, name: item.folder.name || "Untitled folder" });
+    else if (item.type === "design") designs.push(toDesign(item.design));
+  }
+  return { continuation: json.continuation ?? null, folders, designs };
 }
 
 export async function getDesign(token: string, designId: string) {

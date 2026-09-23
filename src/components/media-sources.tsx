@@ -1,14 +1,17 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, ExternalLink, Images, Loader2, Palette, Search, Unplug, X } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, Folder, FolderOpen, Images, Loader2, Palette, Search, Star, Unplug, X } from "lucide-react";
 import { Button, Card, buttonClass } from "./ui";
-import type { CanvaDesign, CanvaFormat } from "@/server/integrations/canva";
+import type { CanvaDesign, CanvaFolder, CanvaFormat } from "@/server/integrations/canva";
 import {
   disconnectIntegrationAction,
+  getCanvaBrandFolderAction,
   importCanvaDesignAction,
   importGooglePhotosAction,
   listCanvaDesignsAction,
+  listCanvaFolderAction,
   pollGooglePhotosPickerAction,
+  setCanvaBrandFolderAction,
   startGooglePhotosPickerAction,
 } from "@/server/actions/integrations";
 import type { ActionResult } from "@/lib/action-result";
@@ -95,6 +98,11 @@ export function SourceImportButtons({ brandId, sources, onError }: {
 
 function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => void }) {
   const [query, setQuery] = useState("");
+  /** The brand's folder: undefined while it loads, null when none is set. */
+  const [brandFolder, setBrandFolder] = useState<CanvaFolder | null | undefined>(undefined);
+  /** Breadcrumb trail. Empty means every design in the account. */
+  const [path, setPath] = useState<CanvaFolder[]>([]);
+  const [folders, setFolders] = useState<CanvaFolder[]>([]);
   const [designs, setDesigns] = useState<CanvaDesign[]>([]);
   const [continuation, setContinuation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,26 +110,50 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [linkInput, setLinkInput] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** Drops responses for a folder or search the person has already moved away from. */
+  const request = useRef(0);
 
-  async function load(q: string, cont?: string) {
+  const current = path.at(-1) ?? null;
+
+  // Open in the brand's folder when it has one.
+  useEffect(() => {
+    void (async () => {
+      const res = await getCanvaBrandFolderAction(brandId);
+      if (!res.ok) { setError(res.error); setBrandFolder(null); return; }
+      setBrandFolder(res.folder);
+      if (res.folder) setPath([res.folder]);
+    })();
+  }, [brandId]);
+
+  async function load(folderId: string | null, q: string, cont?: string) {
+    const id = ++request.current;
     setLoading(true);
     setError(null);
     try {
-      const page = unwrap(await listCanvaDesignsAction(q, cont));
+      const page = folderId
+        ? unwrap(await listCanvaFolderAction(folderId, cont))
+        : { folders: [], ...unwrap(await listCanvaDesignsAction(q, cont)) };
+      if (id !== request.current) return;
+      setFolders((prev) => (cont ? [...prev, ...page.folders] : page.folders));
       setDesigns((prev) => (cont ? [...prev, ...page.designs] : page.designs));
       setContinuation(page.continuation);
     } catch (e) {
-      setError(message(e));
+      if (id === request.current) setError(message(e));
     } finally {
-      setLoading(false);
+      if (id === request.current) setLoading(false);
     }
   }
 
-  // Debounced search; the first run is the initial load.
+  // Canva can't search inside a folder, so there the box filters what's loaded;
+  // across the whole account it's a debounced Canva search.
+  const searchKey = current ? "" : query;
   useEffect(() => {
-    const t = setTimeout(() => { void load(query); }, query ? 350 : 0);
+    if (brandFolder === undefined) return;
+    const t = setTimeout(() => { void load(current?.id ?? null, searchKey); }, searchKey ? 350 : 0);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [brandFolder, current?.id, searchKey]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -142,6 +174,31 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
     }
   }
 
+  async function saveFolder(input: string | null) {
+    setSaving(true);
+    setError(null);
+    try {
+      const { folder } = unwrap(await setCanvaBrandFolderAction(brandId, input));
+      setBrandFolder(folder);
+      setLinkInput(null);
+      if (folder && folder.id !== current?.id) setPath([folder]);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function open(folder: CanvaFolder) {
+    setQuery("");
+    setPath((prev) => [...prev, folder]);
+  }
+
+  const filter = current ? query.trim().toLowerCase() : "";
+  const shownFolders = filter ? folders.filter((f) => f.name.toLowerCase().includes(filter)) : folders;
+  const shownDesigns = filter ? designs.filter((d) => d.title.toLowerCase().includes(filter)) : designs;
+  const empty = shownFolders.length === 0 && shownDesigns.length === 0;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => { if (!busy) onClose(); }}>
       <div
@@ -154,7 +211,7 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
           <h2 className="mr-auto flex items-center gap-1.5 text-sm font-semibold"><Palette className="size-4 text-muted" /> Import from Canva</h2>
           <label className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search designs" className="w-48 pl-7" autoFocus />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={current ? "Filter this folder" : "Search designs"} className="w-48 pl-7" autoFocus />
           </label>
           <select value={format} onChange={(e) => setFormat(e.target.value as CanvaFormat)} aria-label="Export format" className="w-auto">
             <option value="png">PNG</option>
@@ -166,11 +223,80 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
           </button>
         </div>
 
+        <nav className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-2 text-xs" aria-label="Canva folders">
+          <button
+            onClick={() => { setQuery(""); setPath([]); }}
+            className={`rounded px-1.5 py-0.5 hover:bg-surface-2 ${current ? "text-muted" : "font-medium"}`}
+          >
+            All designs
+          </button>
+          {path.map((f, i) => (
+            <span key={f.id} className="flex items-center gap-1">
+              <ChevronRight className="size-3 text-muted" />
+              <button
+                onClick={() => { setQuery(""); setPath(path.slice(0, i + 1)); }}
+                className={`flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-2 ${i === path.length - 1 ? "font-medium" : "text-muted"}`}
+              >
+                {f.id === brandFolder?.id && <Star className="size-3 fill-current text-warn" aria-label="This brand's folder" />}
+                {f.name}
+              </button>
+            </span>
+          ))}
+          <span className="ml-auto flex items-center gap-2">
+            {current && current.id !== brandFolder?.id && (
+              <Button size="sm" disabled={saving} onClick={() => saveFolder(current.id)}>
+                <Star className="size-3.5" /> Use this folder for this brand
+              </Button>
+            )}
+            {!current && brandFolder === null && linkInput === null && (
+              <Button size="sm" onClick={() => setLinkInput("")}><FolderOpen className="size-3.5" /> Set brand folder</Button>
+            )}
+            {brandFolder && current?.id === brandFolder.id && (
+              <button disabled={saving} onClick={() => saveFolder(null)} className="text-muted underline hover:text-text">
+                Stop opening here
+              </button>
+            )}
+          </span>
+        </nav>
+
+        {linkInput !== null && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); void saveFolder(linkInput); }}
+            className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2"
+          >
+            <input
+              value={linkInput}
+              onChange={(e) => setLinkInput(e.target.value)}
+              placeholder="Paste a Canva folder link, e.g. https://www.canva.com/folder/FAH…"
+              className="min-w-0 flex-1 text-xs"
+              autoFocus
+            />
+            <Button size="sm" variant="primary" type="submit" disabled={saving || !linkInput.trim()}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
+            </Button>
+            <Button size="sm" type="button" onClick={() => setLinkInput(null)}>Cancel</Button>
+          </form>
+        )}
+
         {error && <p className="mx-4 mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
 
         <div className="overflow-y-auto p-4">
+          {shownFolders.length > 0 && (
+            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {shownFolders.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => open(f)}
+                  className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-xs hover:bg-surface-2"
+                >
+                  <Folder className="size-4 shrink-0 text-muted" />
+                  <span className="min-w-0 truncate" title={f.name}>{f.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {designs.map((d) => (
+            {shownDesigns.map((d) => (
               <div key={d.id} className="group overflow-hidden rounded-lg border border-border">
                 <button
                   disabled={!!busy}
@@ -203,13 +329,15 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
               </div>
             ))}
           </div>
-          {!loading && designs.length === 0 && !error && (
-            <p className="py-10 text-center text-sm text-muted">{query ? "No designs match." : "No designs in this Canva account yet."}</p>
+          {!loading && empty && !error && (
+            <p className="py-10 text-center text-sm text-muted">
+              {query ? "No designs match." : current ? "This folder is empty." : "No designs in this Canva account yet."}
+            </p>
           )}
           {loading && <p className="flex justify-center py-6"><Loader2 className="size-5 animate-spin text-muted" /></p>}
           {!loading && continuation && (
             <div className="mt-4 flex justify-center">
-              <Button size="sm" onClick={() => load(query, continuation)}>Load more</Button>
+              <Button size="sm" onClick={() => load(current?.id ?? null, searchKey, continuation)}>Load more</Button>
             </div>
           )}
         </div>

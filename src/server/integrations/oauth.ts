@@ -23,7 +23,7 @@ export const PROVIDERS: Record<IntegrationProvider, ProviderConfig> = {
     name: "Canva",
     authorizeUrl: "https://www.canva.com/api/oauth/authorize",
     tokenUrl: "https://api.canva.com/rest/v1/oauth/token",
-    scopes: ["design:meta:read", "design:content:read", "profile:read"],
+    scopes: ["design:meta:read", "design:content:read", "profile:read", "folder:read"],
     clientIdEnv: "CANVA_CLIENT_ID",
     clientSecretEnv: "CANVA_CLIENT_SECRET",
     basicAuth: true,

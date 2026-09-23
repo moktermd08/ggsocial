@@ -2,7 +2,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { asResult } from "@/lib/action-result";
-import { db, integrations, media, type IntegrationProvider } from "@/lib/db";
+import { brands, db, integrations, media, type IntegrationProvider } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import { storeBuffer } from "@/server/media";
 import { getAccessToken } from "@/server/integrations/oauth";
@@ -24,6 +24,53 @@ export async function listCanvaDesignsAction(query?: string, continuation?: stri
     const user = await requireUser();
     const token = await getAccessToken(user.id, "canva");
     return canva.listDesigns(token, { query: query?.trim() || undefined, continuation });
+  });
+}
+
+/** Folder calls need the folder:read scope, which connections made before folder support don't have. */
+async function inFolder<T>(work: () => Promise<T>) {
+  try {
+    return await work();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Canva refused.";
+    throw new Error(`${msg} If you connected Canva before folders were supported, disconnect it on this page and connect again.`);
+  }
+}
+
+/** The brand's Canva folder, where the import opens. null when none is set. */
+export async function getCanvaBrandFolderAction(brandId: string) {
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId);
+    const [brand] = await db.select({ folderId: brands.canvaFolderId }).from(brands).where(eq(brands.id, brandId));
+    if (!brand?.folderId) return { folder: null };
+    const token = await getAccessToken(user.id, "canva");
+    return { folder: await inFolder(() => canva.getFolder(token, brand.folderId!)) };
+  });
+}
+
+export async function listCanvaFolderAction(folderId: string, continuation?: string) {
+  return asResult(async () => {
+    const user = await requireUser();
+    const token = await getAccessToken(user.id, "canva");
+    return inFolder(() => canva.listFolderItems(token, folderId, continuation));
+  });
+}
+
+/** Points the brand at a Canva folder (a folder link or ID), or clears it with null. */
+export async function setCanvaBrandFolderAction(brandId: string, input: string | null) {
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "editor");
+    if (!input?.trim()) {
+      await db.update(brands).set({ canvaFolderId: null }).where(eq(brands.id, brandId));
+      return { folder: null };
+    }
+    const folderId = canva.parseFolderId(input);
+    if (!folderId) throw new Error("Paste a Canva folder link, like https://www.canva.com/folder/FAH…");
+    const token = await getAccessToken(user.id, "canva");
+    // Checks the folder exists and this account can see it before saving.
+    const folder = await inFolder(() => canva.getFolder(token, folderId));
+    await db.update(brands).set({ canvaFolderId: folder.id }).where(eq(brands.id, brandId));
+    return { folder };
   });
 }
 
