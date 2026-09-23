@@ -17,6 +17,15 @@ with the copy and files ready to paste.
 - **Calendar** — every brand on one month grid, colour-coded, drag a post to move it.
 - **Approvals** — draft → needs approval → approved → scheduled, with comments and
   change requests. Approver role can sign off without being able to edit.
+- **Playbook** — the master instructions for every format (post, reel, story, carousel,
+  short, video, thread, article, newsletter) and every kind of engagement work (replies,
+  DMs, comments, reviews). Each rule has limits the app checks by itself — title words,
+  hashtag count, copy length, media type, aspect ratio, size and length, posting windows —
+  and a checklist people and agents confirm. The composer checks as you type, Claude
+  drafts to it, scheduling and approval refuse a broken "must", and each activity shows
+  the rule it follows. Every brand follows the master and can tune any limit; editors and
+  agents suggest, approvers decide, and a daily job suggests posting times from what
+  performed. Every change is logged with who, why and the numbers behind it.
 - **Publish queue** — anything due on a manual channel, with copy buttons, the media to
   download and platform-specific steps. Tick it off and it is marked published.
 - **Channels** — 109 platforms, each either *manual* (works immediately) or *live*

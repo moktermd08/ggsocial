@@ -14,6 +14,9 @@ import { findPlaceholders, type TemplateOption } from "@/lib/templates";
 import { LabelRow, MasterTag } from "./master-panels";
 import { uploadMediaAction } from "@/server/actions/media";
 import { generateDraftAction } from "@/server/actions/drafting";
+import { withDims } from "@/lib/media-dims";
+import { checkTargets, type EffectiveRule } from "@/lib/playbook/check";
+import { PlaybookCard } from "./playbook-card";
 
 export type ComposerChannel = {
   id: string; platform: string; handle: string; displayName: string | null; mode: string;
@@ -22,6 +25,8 @@ export type ComposerChannel = {
 };
 export type ComposerMedia = {
   id: string; url: string; kind: string; originalName: string;
+  /** Pixel size and length where known — what the playbook checks sizes against. */
+  width?: number | null; height?: number | null; durationMs?: number | null;
   /** A master asset, shared by every brand. */
   isMaster?: boolean;
 };
@@ -40,6 +45,8 @@ export type ComposerPost = {
   body: string;
   scheduledAt: string | null;
   campaign: string | null;
+  /** The playbook format picked for the post; null = worked out per channel. */
+  postType?: string | null;
   mediaIds: string[];
   targets: { channelId: string; bodyOverride: string | null; firstComment: string | null; options: Record<string, unknown>; status: string }[];
 };
@@ -48,7 +55,7 @@ type TargetState = { channelId: string; bodyOverride: string | null; firstCommen
 
 export function Composer({
   brands, channelsByBrand, mediaByBrand, platforms, post, initialBrandId, initialDate, canApprove, sidebarExtras, master,
-  campaignsByBrand = {}, initialCampaign, templatesByBrand = {},
+  campaignsByBrand = {}, initialCampaign, templatesByBrand = {}, playbookByBrand = {},
 }: {
   brands: ComposerBrand[];
   channelsByBrand: Record<string, ComposerChannel[]>;
@@ -67,6 +74,8 @@ export function Composer({
   initialCampaign?: string;
   /** Templates a post in each brand can start from. */
   templatesByBrand?: Record<string, TemplateOption[]>;
+  /** Each brand's playbook: the rules every channel's copy is checked against. */
+  playbookByBrand?: Record<string, EffectiveRule[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -83,7 +92,7 @@ export function Composer({
   const [title, setTitle] = useState(post?.title ?? "");
   const [body, setBody] = useState(post?.body ?? "");
   const [campaign, setCampaign] = useState(post?.campaign ?? initialCampaign ?? "");
-  const [postType, setPostType] = useState<string | null>(null);
+  const [postType, setPostType] = useState<string | null>(post?.postType ?? null);
   const [mediaIds, setMediaIds] = useState<string[]>(post?.mediaIds ?? []);
   const [when, setWhen] = useState(
     post?.scheduledAt
@@ -154,6 +163,19 @@ export function Composer({
       issues: meta ? quickValidate(meta, { body: t.bodyOverride ?? body, media: selectedMedia, options: t.options }) : [],
     };
   });
+  // The brand's playbook, per channel: the same checks the server runs before scheduling and approval.
+  const rules = playbookByBrand[brandId] ?? [];
+  const formats = rules.filter((r) => r.kind === "format" && r.enabled);
+  const playbook = checkTargets(rules, {
+    title, body, postType, timezone: tz,
+    scheduledAt: when && brand ? fromLocalInput(when, brand.timezone)?.toISOString() ?? null : null,
+    media: selectedMedia,
+    targets: targets.map((t) => ({
+      channelId: t.channelId, platform: channels.find((c) => c.id === t.channelId)?.platform ?? "",
+      bodyOverride: t.bodyOverride, firstComment: t.firstComment, options: t.options,
+    })),
+  });
+  for (const v of validation) v.issues.push(...(playbook.find((p) => p.channelId === v.channelId)?.issues ?? []));
   const errorCount = validation.reduce((n, v) => n + v.issues.filter((i) => i.level === "error").length, 0);
 
   // Brand-book checks run over the base copy and every per-channel override, so
@@ -198,16 +220,17 @@ export function Composer({
     setUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      for (const f of Array.from(files)) fd.append("files", f);
+      const list = Array.from(files);
+      const fd = await withDims(list);
       const res = await uploadMediaAction(brandId, fd);
       if (!res.ok) { setError(res.error); return; }
       const { ids } = res;
+      const dims = JSON.parse(String(fd.get("dims"))) as { width: number | null; height: number | null; durationMs: number | null }[];
       // Optimistically show what we just added without a round trip.
-      const added = Array.from(files).map((f, i) => ({
+      const added = list.map((f, i) => ({
         id: ids[i], url: URL.createObjectURL(f),
         kind: f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "document",
-        originalName: f.name,
+        originalName: f.name, ...dims[i],
       }));
       setLibrary((prev) => [...added, ...prev]);
       setMediaIds((prev) => [...prev, ...ids]);
@@ -223,7 +246,7 @@ export function Composer({
     const scheduledAt = when && brand ? fromLocalInput(when, brand.timezone)?.toISOString() ?? null : null;
     const input: PostInput = {
       brandId, postId: post?.id, title, body, scheduledAt, campaign: campaign || null,
-      tags: [], mediaIds, postType: postType ?? undefined,
+      tags: [], mediaIds, postType,
       targets: targets.map((t) => ({
         channelId: t.channelId,
         bodyOverride: t.bodyOverride,
@@ -248,6 +271,8 @@ export function Composer({
   const activeChannel = channels.find((c) => c.id === activeTab);
   const activeMeta = activeChannel ? metaFor(activeChannel.platform) : null;
   const activeIssues = validation.find((v) => v.channelId === activeTab)?.issues ?? [];
+  const activeRule = rules.find((r) => r.code === (playbook.find((p) => p.channelId === activeTab) ?? playbook[0])?.rule?.code)
+    ?? (postType ? formats.find((r) => r.code === postType) : undefined);
 
   /**
    * Fills the editor with Claude's draft — base copy plus one override per
@@ -264,6 +289,8 @@ export function Composer({
       const res = await generateDraftAction({
         brandId, postId: post?.id ?? null, ideaId: post?.ideaId ?? null,
         title, body, channelIds: targets.map((t) => t.channelId),
+        postType, options: Object.fromEntries(targets.map((t) => [t.channelId, t.options])),
+        media: selectedMedia.map((m) => ({ kind: m.kind })),
       });
       if (!res.ok) { setError(res.error); return; }
       const { draft } = res;
@@ -367,6 +394,15 @@ export function Composer({
                   <datalist id="composer-campaigns">
                     {(campaignsByBrand[brandId] ?? []).map((n) => <option key={n} value={n} />)}
                   </datalist>
+                </Field>
+              </div>
+              <div className="min-w-36 flex-1">
+                <Field label="Format" hint="Picks the playbook rule the post is checked against.">
+                  <select value={postType ?? ""} onChange={(e) => setPostType(e.target.value || null)}>
+                    <option value="">Auto — per channel</option>
+                    {formats.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}
+                    {postType && !formats.some((r) => r.code === postType) && <option value={postType}>{postType}</option>}
+                  </select>
                 </Field>
               </div>
               <div className="min-w-52 flex-1">
@@ -550,6 +586,18 @@ export function Composer({
         {sidebarExtras}
 
         {brand && <BrandBook brand={brand} onInsert={appendToBody} />}
+
+        {activeRule && (
+          <PlaybookCard
+            rule={activeRule}
+            channels={playbook.filter((p) => p.rule).map((p) => ({
+              label: channels.find((c) => c.id === p.channelId)?.handle ?? "",
+              platform: p.platform, rule: p.rule!.name,
+              errors: p.issues.filter((i) => i.level === "error").length,
+              warnings: p.issues.filter((i) => i.level === "warn").length,
+            }))}
+          />
+        )}
 
         <Card>
           <CardHeader title="Channels" subtitle={`${targets.length} of ${channels.length} selected`} />

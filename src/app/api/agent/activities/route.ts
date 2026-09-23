@@ -2,6 +2,7 @@ import { FREQUENCIES, type Frequency } from "@/lib/activities/meta";
 import { isDateKey, todayIn } from "@/lib/activities/periods";
 import { getChecklist } from "@/server/activities";
 import { AgentError, pickBrands, withAgent } from "@/server/agent-api";
+import { getPlaybookRules } from "@/server/playbook";
 
 /**
  * What is on the plan, and what is still open.
@@ -27,6 +28,10 @@ export async function GET(req: Request) {
     const today = todayIn(picked[0]?.timezone ?? "UTC");
     const frequencies = !f || f === "all" ? [...FREQUENCIES] : [f as Frequency];
 
+    // Which playbook rules say how each activity is done: GET /api/agent/playbook has them in full.
+    const rules = await getPlaybookRules();
+    const playbookFor = (code: string) => rules.filter((r) => r.activityCodes.includes(code)).map((r) => r.code);
+
     const checklists = await Promise.all(frequencies.map(async (frequency) => {
       const list = await getChecklist({ brands: picked, frequency, date: date ?? today, today });
       return {
@@ -50,6 +55,7 @@ export async function GET(req: Request) {
           return [{
             code: t.code, title: t.title, description: t.description, category: t.category,
             platforms: t.platforms, unit: t.unit, proof: t.proof, performer: t.performer, leadImpact: t.leadImpact,
+            playbook: playbookFor(t.code),
             brands: perBrand,
           }];
         }),

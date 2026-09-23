@@ -66,7 +66,22 @@ Goals — the targets the activities serve (followers, site visitors, comments, 
    POST ${root}/goals/snapshots
    {"brand": "<slug>", "channel": "instagram" | "<handle>" | "<channel id>", "metric": "followers", "value": 12480}
    Leave out "channel" for a whole-brand count the app cannot see (e.g. "metric": "site_visitors" from analytics). Send {"snapshots": [ … ]} for several.
-7. After logging fresh numbers you may re-plan a goal: POST ${root}/goals/{id}/recalibrate. Big changes come back "waitingForApproval" — a person approves those in the app; do not try to.`;
+7. After logging fresh numbers you may re-plan a goal: POST ${root}/goals/{id}/recalibrate. Big changes come back "waitingForApproval" — a person approves those in the app; do not try to.
+
+Playbook — the master instructions for every format (post, reel, story, carousel, short, video, thread, article, newsletter) and every kind of engagement work (replies, DMs, comments, reviews, connection requests). Every brand follows it, with its own adjustments:
+8. GET ${root}/playbook?brand=all
+   Per brand, each rule's limits (title words, hashtag count, copy length, media type, aspect ratio, size, video length, posting windows and days, cadence), the checklist to meet, and how to do it. Each activity above lists the rule codes that govern it in "playbook". Follow the rule in everything you make or do; the same limits block scheduling and approval in the app.
+9. Before handing over any content, check it:
+   POST ${root}/playbook/check
+   {"brand": "<slug>", "platform": "instagram", "format": "reel", "title": "…", "body": "…", "firstComment": "…", "scheduledAt": "2026-09-24T19:30:00+06:00", "media": [{"kind": "video", "width": 1080, "height": 1920, "durationSeconds": 42}]}
+   or {"postId": "…"} for a saved post. Fix every "error" before you record the work; mention any "warn" in your notes.
+10. If the numbers show a rule should change (say, reels do better at a different time), suggest it with the evidence:
+   POST ${root}/playbook/adjustments
+   {"brand": "<slug or master>", "rule": "reel", "field": "windows", "value": "18:00-21:00", "reason": "…", "evidence": {…}}
+   It waits for the daily review unless "apply": true and your token's owner is an approver or admin.
+11. Daily review (activity D-27): GET ${root}/playbook/adjustments?status=proposed, then decide the ones you can judge:
+   POST ${root}/playbook/adjustments/decisions  {"id": "…", "decision": "approved" | "rejected", "note": "why"}
+   Never decide your own suggestion; leave anything you are unsure of for a person.`;
 
   function run(work: () => Promise<ActionResult>) {
     setError(null);

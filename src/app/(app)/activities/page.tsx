@@ -11,7 +11,9 @@ import { PLATFORM_LIST } from "@/lib/platforms";
 import { FREQUENCIES, FREQUENCY_META, CATEGORY_META, type Frequency } from "@/lib/activities/meta";
 import { isDateKey, periodFor, todayIn } from "@/lib/activities/periods";
 import { completion, getActivityReport, getActivityTemplates, getChecklist } from "@/server/activities";
-import { ActivityChecklist, type ChecklistRowView } from "@/components/activity-checklist";
+import { ActivityChecklist, type ActivityPlaybook, type ChecklistRowView } from "@/components/activity-checklist";
+import { describeRule, effectiveRule } from "@/lib/playbook/check";
+import { getBrandPlaybooks, getPlaybookRules, masterInput } from "@/server/playbook";
 import { ActivityLibrary, type LibrarySetting } from "@/components/activity-library";
 import { AgentAccess } from "@/components/agent-access";
 import { BarList, Ring } from "@/components/charts";
@@ -84,7 +86,19 @@ export default async function ActivitiesPage({ searchParams }: { searchParams: P
 /* ------------------------------------------------------------ checklist */
 
 async function ChecklistView({ brands, frequency, date, today }: { brands: BrandWithRole[]; frequency: Frequency; date: string; today: string }) {
-  const { period, phase, rows } = await getChecklist({ brands, frequency, date, today });
+  const [{ period, phase, rows }, masters, playbooks] = await Promise.all([
+    getChecklist({ brands, frequency, date, today }),
+    getPlaybookRules(),
+    getBrandPlaybooks(brands.length === 1 ? [brands[0].id] : []),
+  ]);
+  // One brand in view: its own version of each rule. Several: the master they all start from.
+  const rules = brands.length === 1 ? playbooks.get(brands[0].id) ?? [] : masters.map((r) => effectiveRule(masterInput(r)));
+  const playbookFor = (code: string): ActivityPlaybook[] => rules
+    .filter((r) => r.enabled && r.activityCodes.includes(code))
+    .map((r) => ({
+      code: r.code, name: r.name, instructions: r.instructions, brandNotes: r.brandNotes,
+      lines: describeRule(r).slice(0, -1), points: r.checklist.map((i) => i.text),
+    }));
   const cells = rows.flatMap((r) => r.cells);
   const done = completion(cells);
   const recorded = cells.filter((c) => c.check);
@@ -96,6 +110,7 @@ async function ChecklistView({ brands, frequency, date, today }: { brands: Brand
   const views: ChecklistRowView[] = rows.map(({ template: t, cells }) => ({
     id: t.id, code: t.code, title: t.title, description: t.description, category: t.category, platforms: t.platforms,
     unit: t.unit, proof: t.proof, performer: t.performer, leadImpact: t.leadImpact, estMinutes: t.estMinutes,
+    playbook: playbookFor(t.code),
     cells: cells.map((c) => ({
       brandId: c.brandId, applies: c.applies, target: c.target, status: c.status,
       count: c.check?.count ?? null, proofUrl: c.check?.proofUrl ?? null, notes: c.check?.notes ?? null,

@@ -875,6 +875,92 @@ export const activityChecks = pgTable("activity_checks", {
   index("activity_checks_period_idx").on(t.brandId, t.periodStart),
 ]);
 
+/* ---------------------------------------------------------------- playbook */
+
+import type {
+  RuleKind, EnforceLevel, RuleLimits, ChecklistItem, AdjustStatus, AdjustSource,
+} from "../playbook/meta";
+
+/**
+ * The master playbook: one rule per format (post, reel, story…) or kind of
+ * work (replying, DMs…), with the limits the app checks and the points people
+ * and agents confirm. Seeded from `src/lib/playbook/library.ts` by `code`,
+ * then editable here; every brand works to it unless it has adjusted a limit.
+ */
+export const playbookRules = pgTable("playbook_rules", {
+  id: id(),
+  /** Permanent: posts carry it as their format and agents address it. */
+  code: text("code").notNull(),
+  kind: text("kind").$type<RuleKind>().notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  instructions: text("instructions").notNull().default(""),
+  platforms: jsonb("platforms").$type<string[]>().notNull().default([]),
+  activityCodes: jsonb("activity_codes").$type<string[]>().notNull().default([]),
+  enforce: text("enforce").$type<EnforceLevel>().notNull().default("block"),
+  limits: jsonb("limits").$type<RuleLimits>().notNull().default({}),
+  checklist: jsonb("checklist").$type<ChecklistItem[]>().notNull().default([]),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isCustom: boolean("is_custom").notNull().default(false),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("playbook_rules_code_idx").on(t.code)]);
+
+/**
+ * Where one brand departs from a master rule. Only the limits it has changed
+ * are stored, so everything else keeps following the master. No row = the
+ * master as-is.
+ */
+export const brandPlaybookRules = pgTable("brand_playbook_rules", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  ruleId: text("rule_id").notNull().references(() => playbookRules.id, { onDelete: "cascade" }),
+  /** null = follow the master (on). */
+  enabled: boolean("enabled"),
+  enforce: text("enforce").$type<EnforceLevel>(),
+  limits: jsonb("limits").$type<RuleLimits>().notNull().default({}),
+  /** Points only this brand checks, after the master's. */
+  extraChecklist: jsonb("extra_checklist").$type<ChecklistItem[]>().notNull().default([]),
+  /** Master points this brand leaves out, by id. */
+  hiddenChecklist: jsonb("hidden_checklist").$type<string[]>().notNull().default([]),
+  /** This brand's own instructions, shown after the master's. */
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("brand_playbook_rules_idx").on(t.brandId, t.ruleId)]);
+
+/**
+ * Every change to a rule, and every change someone suggested: the field, the
+ * value before and after (JSON text), why, the numbers behind it, and who
+ * made or decided it. The daily review works through the "proposed" rows.
+ * No brand = a change to the master.
+ */
+export const playbookAdjustments = pgTable("playbook_adjustments", {
+  id: id(),
+  ruleId: text("rule_id").notNull().references(() => playbookRules.id, { onDelete: "cascade" }),
+  brandId: text("brand_id").references(() => brands.id, { onDelete: "cascade" }),
+  field: text("field").notNull(),
+  before: text("before"),
+  after: text("after"),
+  reason: text("reason").notNull().default(""),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>(),
+  status: text("status").$type<AdjustStatus>().notNull(),
+  source: text("source").$type<AdjustSource>().notNull(),
+  actorKind: text("actor_kind").$type<ActorKind>().notNull(),
+  actorName: text("actor_name"),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  decidedKind: text("decided_kind").$type<ActorKind>(),
+  decidedName: text("decided_name"),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decisionNote: text("decision_note"),
+  createdAt: now(),
+}, (t) => [
+  index("playbook_adjustments_brand_idx").on(t.brandId, t.status, t.createdAt),
+  index("playbook_adjustments_rule_idx").on(t.ruleId, t.createdAt),
+]);
+
 /* ------------------------------------------------------------------- goals */
 
 import type { DriverSpec, GoalDriver, GoalMetric, Curve, GoalStatus, GoalPlan, RevisionKind, RevisionStatus } from "../goals/meta";

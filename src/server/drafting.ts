@@ -4,6 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import type { brands, contentIdeas } from "@/lib/db";
 import { platformOrNull } from "@/lib/platforms";
+import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
 
 /**
  * Claude drafting: one idea, told in one brand's voice, written separately
@@ -42,6 +43,8 @@ export type DraftChannel = {
   handle: string;
   /** The tracked short link for this channel, when one has been issued. */
   link?: string | null;
+  /** The channel's platform options — an Instagram reel or story, say — which pick its playbook rule. */
+  options?: Record<string, unknown>;
 };
 
 export type DraftBrief = {
@@ -51,7 +54,25 @@ export type DraftBrief = {
   title?: string;
   body?: string;
   channels: DraftChannel[];
+  /** The brand's playbook, and the format picked for the post, so each channel's copy follows its rule. */
+  playbook?: EffectiveRule[];
+  postType?: string | null;
+  media?: { kind: string }[];
 };
+
+/** The limits a writer controls. Media and timing are the person's to sort. */
+const COPY_KEYS = new Set(["titleRequired", "titleMaxWords", "hashtagsMin", "hashtagsMax", "bodyMinChars", "bodyMaxChars"]);
+
+/** The playbook rule each channel falls under, by channel id. */
+function rulesFor(brief: DraftBrief) {
+  const out = new Map<string, EffectiveRule>();
+  if (!brief.playbook?.length) return out;
+  for (const c of brief.channels) {
+    const rule = resolveFormat(brief.playbook, { platform: c.platform, options: c.options, postType: brief.postType, media: brief.media });
+    if (rule) out.set(c.id, rule);
+  }
+  return out;
+}
 
 export type DraftResult = {
   draft: Draft;
@@ -127,6 +148,7 @@ export function draftRequestText(brief: DraftBrief) {
 
   parts.push("", `Write the base post for ${brief.brand.name}, then one version per channel below.`);
 
+  const rules = rulesFor(brief);
   if (channels.length === 0) {
     parts.push("No channels are picked yet: write the base post only and return an empty channels list.");
   } else {
@@ -142,7 +164,24 @@ export function draftRequestText(brief: DraftBrief) {
         k ? `first comment: ${k.supportsFirstComment ? "supported" : "not supported"}` : "",
         k && k.supportsLinks === false ? "links: not clickable here" : "",
         c.link ? `tracked link: ${c.link}` : "",
+        rules.get(c.id) ? `playbook: ${rules.get(c.id)!.name}` : "",
       ].filter(Boolean).join(" | "));
+    }
+  }
+
+  // The house rules for each format in play, once each: what the reviewer will hold the draft to.
+  const inPlay = [...new Map([...rules.values()].map((r) => [r.code, r])).values()];
+  if (inPlay.length) {
+    parts.push("", "Playbook — the brand's house rules for these formats. Where they set a title length or a hashtag count, that wins over any general advice: hashtags go at the end of each channel's copy, and the title field is the post's public title.");
+    for (const r of inPlay) {
+      const limits = describeRule(r).filter((l) => /^(Title|Hashtags|Copy):/.test(l));
+      const points = r.checklist.filter((i) => i.for !== "human").map((i) => i.text);
+      parts.push([
+        `- ${r.name}: ${r.instructions}`,
+        r.brandNotes ? `  For this brand: ${r.brandNotes}` : "",
+        limits.length ? `  Limits: ${limits.join("; ")}` : "",
+        points.length ? `  Check before returning: ${points.join("; ")}` : "",
+      ].filter(Boolean).join("\n"));
     }
   }
 
@@ -188,6 +227,18 @@ export function checkDraft(draft: Draft, brief: DraftBrief): string[] {
     const v = draft.channels.find((d) => d.channelId === c.id);
     const text = `${v?.body ?? ""}\n${v?.firstComment ?? ""}`;
     if (v && !text.includes(c.link)) issues.push(`${platformOrNull(c.platform)?.name ?? c.platform}: the tracked link is missing.`);
+  }
+
+  // The playbook's copy limits, per channel, exactly as the composer and approval will check them.
+  const rules = rulesFor(brief);
+  for (const v of draft.channels) {
+    const rule = rules.get(v.channelId);
+    if (!rule) continue;
+    const c = brief.channels.find((ch) => ch.id === v.channelId);
+    const name = platformOrNull(c?.platform ?? "")?.name ?? "a channel";
+    const found = checkContent(rule, { title: draft.title, body: v.body, firstComment: v.firstComment, media: [], timezone: "UTC" })
+      .filter((i) => COPY_KEYS.has(i.key));
+    for (const i of found) issues.push(`${name}: ${i.message}`);
   }
 
   const expected = new Set(brief.channels.map((c) => c.id));

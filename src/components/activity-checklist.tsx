@@ -55,7 +55,11 @@ export type ChecklistRowView = {
   leadImpact: LeadImpact;
   estMinutes: number;
   cells: ChecklistCellView[];
+  /** The playbook rules that say how this activity is done well. */
+  playbook?: ActivityPlaybook[];
 };
+
+export type ActivityPlaybook = { code: string; name: string; lines: string[]; points: string[]; instructions: string; brandNotes: string | null };
 
 const STATUS_ICON: Record<CellStatus, typeof Circle> = {
   open: Circle, done: CircleCheck, partial: CircleDashed, skipped: CircleSlash, missed: CircleX,
@@ -430,6 +434,21 @@ function RowDetail({
   return (
     <div className="space-y-3 pt-1">
       <p className="max-w-3xl text-sm text-text">{row.description}</p>
+      {row.playbook?.map((p) => (
+        <div key={p.code} className="max-w-3xl rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+          <p className="font-medium">
+            Playbook · {p.name} <a href="/playbook" className="ml-1 font-normal text-muted hover:underline">open</a>
+          </p>
+          <p className="mt-1 leading-relaxed">{p.instructions}</p>
+          {p.brandNotes && <p className="mt-1 leading-relaxed text-accent">{p.brandNotes}</p>}
+          {p.lines.length > 0 && <p className="mt-1 text-muted">{p.lines.join(" · ")}</p>}
+          {p.points.length > 0 && (
+            <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+              {p.points.map((t) => <li key={t} className="flex items-start gap-1"><span className="text-muted">✓</span>{t}</li>)}
+            </ul>
+          )}
+        </div>
+      ))}
       <div className="flex flex-wrap gap-1.5">
         <Badge color={CATEGORY_META[row.category].color}>{CATEGORY_META[row.category].label}</Badge>
         <Badge>Proof: {PROOF_META[row.proof]}</Badge>

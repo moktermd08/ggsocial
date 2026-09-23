@@ -9,10 +9,23 @@ import { syncCopy } from "@/server/masters";
 
 const MAX_BYTES = 200 * 1024 * 1024;
 
+/** Pixel size and length the browser read before upload, one per file in order. Never trusted beyond being numbers. */
+function readDims(formData: FormData, count: number) {
+  let raw: unknown = [];
+  try { raw = JSON.parse(String(formData.get("dims") ?? "[]")); } catch { /* sent without sizes */ }
+  const list = Array.isArray(raw) ? raw : [];
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+  return Array.from({ length: count }, (_, i) => {
+    const d = (list[i] ?? {}) as Record<string, unknown>;
+    return { width: num(d.width), height: num(d.height), durationMs: num(d.durationMs) };
+  });
+}
+
 async function storeAll(formData: FormData, row: { brandId: string | null; ownerId?: string | null; masterMediaId?: string | null }, userId: string) {
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  const dims = readDims(formData, files.length);
   const saved: string[] = [];
-  for (const file of files) {
+  for (const [i, file] of files.entries()) {
     if (file.size === 0) continue;
     if (file.size > MAX_BYTES) throw new Error(`${file.name} is over the 200 MB limit.`);
     const stored = await storeUpload(file);
@@ -23,6 +36,7 @@ async function storeAll(formData: FormData, row: { brandId: string | null; owner
       originalName: file.name,
       mimeType: file.type || "application/octet-stream",
       size: stored.size,
+      ...dims[i],
       uploadedBy: userId,
     }).returning();
     saved.push(inserted.id);
@@ -74,6 +88,8 @@ export async function uploadBrandVersionAction(brandId: string, masterMediaId: s
     if (!first) throw new Error("Choose a file.");
     const fd = new FormData();
     fd.append("files", first);
+    const firstIndex = formData.getAll("files").indexOf(first);
+    fd.append("dims", JSON.stringify([readDims(formData, firstIndex + 1)[firstIndex]]));
 
     await db.update(media).set({ masterMediaId: null })
       .where(and(eq(media.brandId, brandId), eq(media.masterMediaId, masterMediaId)));

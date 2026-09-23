@@ -13,6 +13,7 @@ import { STATUS_META, inZone } from "@/lib/format";
 import { duplicatePostAction } from "@/server/actions/posts";
 import { promoteToMasterAction, resolveCopyFieldAction, unlinkCopyAction } from "@/server/actions/masters";
 import { getCopyContext } from "@/server/masters";
+import { checkSavedPost } from "@/server/playbook";
 import { findBrandCampaign } from "@/server/campaigns";
 import { destinationOptionsByBrand } from "@/server/destinations";
 import { CampaignBriefCard } from "@/components/campaign-panels";
@@ -36,9 +37,10 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   ]);
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
-  const [copy, campaign] = await Promise.all([
+  const [copy, campaign, playbook] = await Promise.all([
     getCopyContext(post, post.media.map((m) => m.id)),
     findBrandCampaign(post.brandId, post.campaign),
+    checkSavedPost(post.id),
   ]);
 
   // A copy can carry media from another brand's library (picked on the
@@ -46,7 +48,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   const library = data.mediaByBrand[post.brandId] ?? [];
   const extra = [...post.media, ...(copy?.master.media ?? [])]
     .filter((m, i, all) => !library.some((l) => l.id === m.id) && all.findIndex((x) => x.id === m.id) === i)
-    .map((m) => ({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName }));
+    .map((m) => ({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, width: m.width, height: m.height, durationMs: m.durationMs }));
   data.mediaByBrand[post.brandId] = [...extra, ...library];
 
   const readable: Partial<Record<MasterField, string>> = {};
@@ -143,6 +145,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
         status={post.status}
         canApprove={can.approve(membership.role)}
         canEdit={can.edit(membership.role)}
+        playbook={playbook ?? []}
         comments={post.comments.map((c) => ({
           id: c.id, body: c.body, kind: c.kind,
           createdAt: c.createdAt.toISOString(), author: c.user?.name ?? "Someone",
@@ -183,6 +186,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           mediaByBrand={data.mediaByBrand}
           campaignsByBrand={data.campaignsByBrand}
           templatesByBrand={data.templatesByBrand}
+          playbookByBrand={data.playbookByBrand}
           platforms={data.platforms}
           initialBrandId={post.brandId}
           canApprove={can.approve(membership.role)}
@@ -195,6 +199,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
             body: post.body,
             scheduledAt: post.scheduledAt?.toISOString() ?? null,
             campaign: post.campaign,
+            postType: post.postType,
             mediaIds: post.media.map((m) => m.id),
             targets: post.targets.map((t) => ({
               channelId: t.channelId,

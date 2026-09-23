@@ -2,6 +2,7 @@
   "crons": [
     { "path": "/api/cron/publish", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/goals", "schedule": "7 * * * *" },
-    { "path": "/api/cron/pages", "schedule": "23 * * * *" }
+    { "path": "/api/cron/pages", "schedule": "23 * * * *" },
+    { "path": "/api/cron/playbook", "schedule": "41 * * * *" }
   ]
 }

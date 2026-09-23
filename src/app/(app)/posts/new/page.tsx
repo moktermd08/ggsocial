@@ -37,6 +37,7 @@ export default async function NewPostPage({ searchParams }: { searchParams: Prom
         mediaByBrand={data.mediaByBrand}
         campaignsByBrand={data.campaignsByBrand}
         templatesByBrand={data.templatesByBrand}
+        playbookByBrand={data.playbookByBrand}
         initialCampaign={campaign}
         platforms={data.platforms}
         initialBrandId={initialBrandId}

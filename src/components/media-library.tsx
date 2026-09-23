@@ -7,6 +7,7 @@ import {
   uploadMediaAction, uploadMasterMediaAction, uploadBrandVersionAction, clearBrandVersionAction, deleteMediaAction,
 } from "@/server/actions/media";
 import type { ActionResult } from "@/lib/action-result";
+import { withDims } from "@/lib/media-dims";
 import { SourceImportButtons, type SourceStatus } from "./media-sources";
 
 export type MediaRow = {
@@ -71,22 +72,23 @@ export function MediaLibrary({
     });
   }
 
-  const filesToForm = (files: FileList) => {
-    const fd = new FormData();
-    for (const f of Array.from(files)) fd.append("files", f);
-    return fd;
-  };
+  // Each file goes with its pixel size, so the playbook can check sizes and ratios.
+  const filesToForm = (files: FileList) => withDims(Array.from(files));
 
   function upload(files: FileList | null) {
     if (!files?.length) return;
-    const fd = filesToForm(files);
-    void run(() => (brandId ? uploadMediaAction(brandId, fd) : uploadMasterMediaAction(fd)));
+    const list = files;
+    void run(async () => {
+      const fd = await filesToForm(list);
+      return brandId ? uploadMediaAction(brandId, fd) : uploadMasterMediaAction(fd);
+    });
   }
 
   function uploadVersion(files: FileList | null) {
     const masterId = versionFor;
     if (!files?.length || !masterId || !brandId) return;
-    void run(() => uploadBrandVersionAction(brandId, masterId, filesToForm(files)));
+    const list = files;
+    void run(async () => uploadBrandVersionAction(brandId, masterId, await filesToForm(list)));
     if (versionInput.current) versionInput.current.value = "";
   }
 

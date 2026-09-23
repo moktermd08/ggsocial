@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { asResult, type ActionResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import {
-  db, posts, postTargets, channels, attachments, comments, activity, media,
+  db, posts, postTargets, channels, attachments, comments, activity, media, brands,
   type PostStatus,
 } from "@/lib/db";
 import { requireBrandRole, requireUser, can } from "@/lib/auth";
@@ -12,6 +12,8 @@ import { defaultOptions, getPlatform, validateTarget, type MediaItem } from "@/l
 import { publishTarget, markTargetPosted, rollupPostStatus } from "@/server/publish";
 import { syncCopy } from "@/server/masters";
 import { findPlaceholders } from "@/lib/templates";
+import { checkTargets } from "@/lib/playbook/check";
+import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 
 export type TargetInput = {
   channelId: string;
@@ -66,6 +68,31 @@ export async function validatePostAction(input: PostInput) {
   });
 }
 
+/**
+ * The brand's playbook, checked on the server with the same code the composer
+ * runs: a "must" rule that is broken stops scheduling. Timing is only ever a
+ * warning, so it never blocks here.
+ */
+async function assertPlaybook(input: PostInput, scheduledAt: Date | null) {
+  const [brand, items, rules] = await Promise.all([
+    db.query.brands.findFirst({ where: eq(brands.id, input.brandId) }),
+    loadMedia(input.mediaIds),
+    getBrandPlaybook(input.brandId),
+  ]);
+  const chans = await db.select({ id: channels.id, platform: channels.platform }).from(channels)
+    .where(inArray(channels.id, input.targets.map((t) => t.channelId)));
+  const results = checkTargets(rules, {
+    title: input.title, body: input.body, postType: input.postType, timezone: brand?.timezone ?? "UTC",
+    scheduledAt: scheduledAt?.toISOString() ?? null, media: items,
+    targets: input.targets.map((t) => ({
+      channelId: t.channelId, platform: chans.find((c) => c.id === t.channelId)?.platform ?? "",
+      bodyOverride: t.bodyOverride, firstComment: t.firstComment, options: t.options,
+    })),
+  });
+  const blocked = blockingText(results);
+  if (blocked) throw new Error(blocked);
+}
+
 export async function savePostAction(input: PostInput) {
   return asResult(async () => {
     const { user, role } = await requireBrandRole(input.brandId, "editor");
@@ -83,6 +110,7 @@ export async function savePostAction(input: PostInput) {
         input.title, input.body, ...input.targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
       ].join("\n"));
       if (holes.length) throw new Error(`Fill in the template placeholders first: ${holes.join(", ")}.`);
+      await assertPlaybook(input, scheduledAt);
     }
 
     const status: PostStatus =
@@ -221,7 +249,13 @@ export async function submitForReviewAction(postId: string): Promise<ActionResul
   });
 }
 
-export async function reviewPostAction(postId: string, decision: "approve" | "request_changes", note: string): Promise<ActionResult> {
+/**
+ * `confirmed` is the playbook checklist the reviewer ticked. Approval needs
+ * every point meant for people, and no broken "must" rule.
+ */
+export async function reviewPostAction(
+  postId: string, decision: "approve" | "request_changes", note: string, confirmed: string[] = [],
+): Promise<ActionResult> {
   return asResult(async () => {
     const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
     if (!post) throw new Error("Post not found");
@@ -234,6 +268,18 @@ export async function reviewPostAction(postId: string, decision: "approve" | "re
         post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
       ].join("\n"));
       if (holes.length) throw new Error(`This post still has template placeholders to fill: ${holes.join(", ")}.`);
+      const playbook = await checkSavedPost(postId) ?? [];
+      const blocked = blockingText(playbook);
+      if (blocked) throw new Error(`${blocked} Fix the post, or adjust the brand's playbook, before approving.`);
+      // A point shared by several rules is confirmed once, by any of its ids.
+      const points = playbook.flatMap((r) => r.checklist).filter((i) => i.for !== "agent");
+      const required = [...new Set(points.map((i) => i.text))];
+      const missing = required.filter((text) => !points.some((i) => i.text === text && confirmed.includes(i.id)));
+      if (missing.length) throw new Error(`Confirm every playbook point first — still open: ${missing.join("; ")}.`);
+      await db.insert(activity).values({
+        brandId: post.brandId, actorId: user.id, action: "post.playbook_confirmed", entity: "post", entityId: postId,
+        meta: { rules: [...new Set(playbook.map((r) => r.rule?.code).filter(Boolean))], confirmed: required },
+      });
       await db.update(posts).set({
         status: post.scheduledAt ? "scheduled" : "approved",
         approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date(),

@@ -82,10 +82,32 @@ async function pagesTick() {
   }
 }
 
-console.log(`scheduler watching ${url} every 60s (goals and pages hourly)`);
+/**
+ * Playbook: suggests posting windows from what performed. It only ever
+ * suggests — people and agents decide in the daily review — so hourly is fine.
+ */
+async function playbookTick() {
+  try {
+    const res = await fetch(`${url}/api/cron/playbook`, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
+    });
+    if (!res.ok) {
+      console.error(`playbook tick got ${res.status} from ${url}`);
+      return;
+    }
+    const json = await res.json();
+    if (json.proposed?.length) console.log(new Date().toISOString(), "playbook", json);
+  } catch (err) {
+    console.error("playbook tick failed:", err.message);
+  }
+}
+
+console.log(`scheduler watching ${url} every 60s (goals, pages and playbook hourly)`);
 tick();
 setInterval(tick, 60_000);
 goalsTick();
 setInterval(goalsTick, 60 * 60_000);
 pagesTick();
 setInterval(pagesTick, 60 * 60_000);
+playbookTick();
+setInterval(playbookTick, 60 * 60_000);

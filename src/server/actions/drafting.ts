@@ -6,6 +6,7 @@ import { ideaForBrand } from "@/server/ideas";
 import { requireBrandRole, can } from "@/lib/auth";
 import { platformOrNull } from "@/lib/platforms";
 import { shortUrl } from "@/lib/links";
+import { getBrandPlaybook } from "@/server/playbook";
 import { draftPost, draftingConfigured, DraftingError, NOT_CONFIGURED, type DraftChannel, type Draft } from "@/server/drafting";
 
 export type DraftResponse =
@@ -31,12 +32,17 @@ async function linksFor(postId: string | null | undefined) {
   return out;
 }
 
-async function loadChannels(brandId: string, channelIds: string[], postId?: string | null): Promise<DraftChannel[]> {
+async function loadChannels(
+  brandId: string, channelIds: string[], postId?: string | null, options: Record<string, Record<string, unknown>> = {},
+): Promise<DraftChannel[]> {
   if (channelIds.length === 0) return [];
   const rows = await db.select().from(channels)
     .where(and(inArray(channels.id, channelIds), eq(channels.brandId, brandId)));
   const linkMap = await linksFor(postId);
-  return rows.map((c) => ({ id: c.id, platform: c.platform, handle: c.handle, link: linkMap.get(c.id) ?? null }));
+  return rows.map((c) => ({
+    id: c.id, platform: c.platform, handle: c.handle, link: linkMap.get(c.id) ?? null,
+    options: { ...(c.settings ?? {}), ...(options[c.id] ?? {}) },
+  }));
 }
 
 /** Failures come back as values, so the UI can show them next to the button. */
@@ -68,6 +74,10 @@ export async function generateDraftAction(input: {
   title: string;
   body: string;
   channelIds: string[];
+  /** The playbook format picked in the composer, and each channel's options there. */
+  postType?: string | null;
+  options?: Record<string, Record<string, unknown>>;
+  media?: { kind: string }[];
 }): Promise<DraftResponse> {
   return guarded(async () => {
     const { user, role } = await requireBrandRole(input.brandId, "editor");
@@ -85,7 +95,8 @@ export async function generateDraftAction(input: {
 
     const result = await draftPost({
       brand, idea, title: input.title, body: input.body,
-      channels: await loadChannels(input.brandId, input.channelIds, input.postId),
+      channels: await loadChannels(input.brandId, input.channelIds, input.postId, input.options),
+      playbook: await getBrandPlaybook(brand.id), postType: input.postType, media: input.media,
     });
     await logUsage(brand.id, user.id, input.postId ?? null, result.usage);
     return { ok: true, draft: result.draft, issues: result.issues };
@@ -113,7 +124,10 @@ export async function draftPostAction(postId: string): Promise<DraftResponse> {
     const idea = post.ideaId ? (await ideaForBrand(post.ideaId, post.brandId))?.idea ?? null : null;
 
     const targets = await db.select().from(postTargets).where(eq(postTargets.postId, post.id));
-    const draftChannels = await loadChannels(post.brandId, targets.map((t) => t.channelId), post.id);
+    const draftChannels = await loadChannels(
+      post.brandId, targets.map((t) => t.channelId), post.id,
+      Object.fromEntries(targets.map((t) => [t.channelId, t.options])),
+    );
 
     // A fanned-out post's body is only the scaffold, so it is not passed back
     // in as "what the writer has so far" when there is an idea behind it.
@@ -122,6 +136,7 @@ export async function draftPostAction(postId: string): Promise<DraftResponse> {
       title: idea ? "" : post.title,
       body: idea ? "" : post.body,
       channels: draftChannels,
+      playbook: await getBrandPlaybook(brand.id), postType: post.postType,
     });
     const { draft } = result;
 

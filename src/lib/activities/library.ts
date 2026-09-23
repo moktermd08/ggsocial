@@ -136,6 +136,9 @@ const DAILY = group("daily", [
   ["D-26", "outreach", "Reply to WhatsApp and Telegram enquiries",
     "Answer every enquiry in business messaging apps and move qualified ones to a call or proposal.",
     { proof: "count", leadImpact: "high", minutes: 10, platforms: ["whatsapp", "telegram", "messenger"] }],
+  ["D-27", "analytics", "Review the playbook's suggested changes",
+    "Open Playbook → Daily review. Approve the changes the numbers back (posting times from the daily tuning job, agents' and editors' suggestions), reject the rest with a reason, and tune any rule that kept blocking good work yesterday. Agents: GET /api/agent/playbook/adjustments?status=proposed, then decide each.",
+    { unit: "all open suggestions", proof: "note", performer: "either", leadImpact: "medium", minutes: 5 }],
 ]);
 
 /* =========================================================== every 2 days */

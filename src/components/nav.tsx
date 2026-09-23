@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, Goal, Images, Plug, BarChart3, Link2, Building2,
+  LayoutDashboard, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Images, Plug, BarChart3, Link2, Building2,
 } from "lucide-react";
 
 const ITEMS = [
@@ -15,6 +15,7 @@ const ITEMS = [
   { href: "/queue", label: "Publish queue", short: "Queue", icon: ListChecks, badgeKey: "queue" as const },
   { href: "/engage", label: "Engagement", icon: MessagesSquare, badgeKey: "engage" as const },
   { href: "/activities", label: "Activities", short: "Tasks", icon: ClipboardCheck },
+  { href: "/playbook", label: "Playbook", icon: BookCheck },
   { href: "/goals", label: "Goals", icon: Goal },
   { href: "/library", label: "Media", icon: Images },
   { href: "/channels", label: "Channels", icon: Plug },

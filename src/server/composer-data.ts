@@ -3,6 +3,7 @@ import { getBrandChannels } from "./queries";
 import { campaignNamesByBrand } from "./campaigns";
 import { templateOptionsByBrand } from "./templates";
 import { brandLibraries } from "./media-library";
+import { getBrandPlaybooks } from "./playbook";
 import { platformMeta } from "@/lib/platforms/meta";
 import type { BrandWithRole } from "@/lib/auth";
 import type { ComposerBrand, ComposerChannel, ComposerMedia } from "@/components/composer";
@@ -24,7 +25,10 @@ export async function getComposerData(brands: BrandWithRole[], userId: string) {
   const libraries = await brandLibraries(userId, ids);
   const mediaByBrand: Record<string, ComposerMedia[]> = {};
   for (const [brandId, items] of libraries) {
-    mediaByBrand[brandId] = items.map((m) => ({ id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, isMaster: m.isMaster }));
+    mediaByBrand[brandId] = items.map((m) => ({
+      id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, isMaster: m.isMaster,
+      width: m.width, height: m.height, durationMs: m.durationMs,
+    }));
   }
 
   const composerBrands: ComposerBrand[] = brands.map((b) => ({
@@ -34,9 +38,12 @@ export async function getComposerData(brands: BrandWithRole[], userId: string) {
     defaultHashtags: b.defaultHashtags, emojiPolicy: b.emojiPolicy,
   }));
 
-  const [campaignsByBrand, templatesByBrand] = await Promise.all([
-    campaignNamesByBrand(ids), templateOptionsByBrand(userId, ids),
+  const [campaignsByBrand, templatesByBrand, playbooks] = await Promise.all([
+    campaignNamesByBrand(ids), templateOptionsByBrand(userId, ids), getBrandPlaybooks(ids),
   ]);
 
-  return { composerBrands, channelsByBrand, mediaByBrand, campaignsByBrand, templatesByBrand, platforms: platformMeta() };
+  return {
+    composerBrands, channelsByBrand, mediaByBrand, campaignsByBrand, templatesByBrand,
+    playbookByBrand: Object.fromEntries(playbooks), platforms: platformMeta(),
+  };
 }
