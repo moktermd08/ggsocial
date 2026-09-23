@@ -143,11 +143,12 @@ media block below, then `apachectl configtest && systemctl reload apache2`:
 </Location>
 ```
 
-## Before switching a channel to live mode
+## Uploaded media is open
 
 Instagram, Facebook, Pinterest and TikTok fetch post media from `APP_URL` with no
-credentials, so the basic-auth wall will block them. Uncomment this block in
-**both** vhosts and reload Apache:
+credentials, and so do link-preview crawlers loading a brand's social image, so
+the media route is let past the basic-auth wall. This is already in both vhosts
+(added 23 Sep 2026); re-add it if a vhost is ever rebuilt:
 
 ```apache
 <Location /api/media/file/>
