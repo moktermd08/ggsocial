@@ -99,7 +99,16 @@ export const brands = pgTable("brands", {
   contactEmail: text("contact_email"),
 
   /* ------------------------------------------------------ visual identity */
+  /** The primary logo: the full lockup, used wherever one mark is shown. */
   logoUrl: text("logo_url"),
+  /** The icon or mark on its own, for avatars and anywhere too small for the lockup. */
+  logoIconUrl: text("logo_icon_url"),
+  /** The logo for dark or photographic backgrounds (white or single-colour). */
+  logoReversedUrl: text("logo_reversed_url"),
+  /** What a shared link to the brand shows (Open Graph / Twitter card, 1200×630). */
+  socialImageUrl: text("social_image_url"),
+  /** The fallback visual for a post that needs an image and has none of its own. */
+  defaultImageUrl: text("default_image_url"),
   /** Named palette entries — primary, accent, ink, and so on. */
   palette: jsonb("palette").$type<BrandColor[]>().notNull().default([]),
   fontHeading: text("font_heading"),

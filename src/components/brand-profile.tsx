@@ -1,11 +1,12 @@
 "use client";
 import { useRef, useState, useTransition } from "react";
 import Image from "next/image";
-import { Loader2, Plus, Trash2, Upload, X } from "lucide-react";
+import { ImageIcon, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { Button, Field, buttonClass } from "./ui";
 import { readableOn } from "@/lib/color";
 import type { BrandColor, BrandLink } from "@/lib/db/schema";
-import { uploadBrandLogoAction, clearBrandLogoAction } from "@/server/actions/brands";
+import { uploadBrandImageAction, clearBrandImageAction } from "@/server/actions/brands";
+import { BRAND_IMAGE_SLOTS, type BrandImageSlot } from "@/lib/brand-images";
 
 let nextRowId = 0;
 const withIds = <T,>(rows: T[]) => rows.map((row) => ({ key: `r${nextRowId++}`, row }));
@@ -115,9 +116,14 @@ export function LinksEditor({ value, disabled }: { value: BrandLink[]; disabled?
   );
 }
 
-export function LogoUploader({
-  brandId, logoUrl, brandName, brandColor, canEdit,
-}: { brandId: string; logoUrl: string | null; brandName: string; brandColor: string; canEdit: boolean }) {
+/**
+ * One of the brand's image slots — a logo version, the social image or the
+ * default image — with a preview shaped for what goes in it.
+ */
+export function BrandImageUploader({
+  brandId, slot, url, brandName, brandColor, canEdit,
+}: { brandId: string; slot: BrandImageSlot; url: string | null; brandName: string; brandColor: string; canEdit: boolean }) {
+  const def = BRAND_IMAGE_SLOTS[slot];
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,8 +135,8 @@ export function LogoUploader({
     setError(null);
     try {
       const fd = new FormData();
-      fd.append("logo", file);
-      const res = await uploadBrandLogoAction(brandId, fd);
+      fd.append("file", file);
+      const res = await uploadBrandImageAction(brandId, slot, fd);
       if (!res.ok) setError(res.error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
@@ -140,17 +146,27 @@ export function LogoUploader({
     }
   }
 
+  const wide = def.shape === "wide";
+  const dark = def.shape === "square-dark";
+  // An empty primary logo falls back to the brand's initials, as it does everywhere else.
+  const initials = slot === "logo" && !url;
+
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3">
+      <div className="space-y-2">
         <span
-          className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-border"
-          style={logoUrl ? undefined : { background: brandColor, color: readableOn(brandColor) }}
+          className={`grid shrink-0 place-items-center overflow-hidden rounded-xl border border-border ${
+            wide ? "aspect-[1.91/1] w-full max-w-xs" : "size-16"
+          } ${dark ? "bg-neutral-900" : url ? "bg-surface-2" : initials ? "" : "border-dashed"}`}
+          style={initials ? { background: brandColor, color: readableOn(brandColor) } : undefined}
         >
-          {logoUrl ? (
-            <Image src={logoUrl} alt={`${brandName} logo`} width={64} height={64} className="size-full object-contain" unoptimized />
-          ) : (
+          {url ? (
+            <Image src={url} alt={`${brandName} ${def.label.toLowerCase()}`} width={wide ? 320 : 64} height={wide ? 168 : 64}
+              className={`size-full ${wide ? "object-cover" : "object-contain"}`} unoptimized />
+          ) : initials ? (
             <span className="text-lg font-bold">{brandName.slice(0, 2).toUpperCase()}</span>
+          ) : (
+            <ImageIcon className={`size-5 ${dark ? "text-neutral-500" : "text-muted"}`} />
           )}
         </span>
 
@@ -158,13 +174,13 @@ export function LogoUploader({
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => input.current?.click()} className={buttonClass("subtle", "sm")}>
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-              {logoUrl ? "Replace" : "Upload logo"}
+              {url ? "Replace" : "Upload"}
             </button>
-            {logoUrl && (
+            {url && (
               <button
                 type="button"
                 className={buttonClass("ghost", "sm")}
-                onClick={() => { setError(null); start(async () => { const res = await clearBrandLogoAction(brandId); if (!res.ok) setError(res.error); }); }}
+                onClick={() => { setError(null); start(async () => { const res = await clearBrandImageAction(brandId, slot); if (!res.ok) setError(res.error); }); }}
               >
                 <X className="size-3.5" /> Remove
               </button>

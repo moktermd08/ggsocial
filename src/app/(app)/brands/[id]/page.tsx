@@ -5,7 +5,8 @@ import { updateBrandAction, archiveBrandAction } from "@/server/actions/brands";
 import { TeamManager } from "@/components/team-manager";
 import { Card, CardHeader, Field, PageHeader, buttonClass, Badge, LinkButton } from "@/components/ui";
 import { PlatformIcon } from "@/components/platform-icon";
-import { ChipListField, LinksEditor, LogoUploader, PaletteEditor } from "@/components/brand-profile";
+import { BrandImageUploader, ChipListField, LinksEditor, PaletteEditor } from "@/components/brand-profile";
+import { BRAND_IMAGE_SLOTS, LOGO_SLOTS } from "@/lib/brand-images";
 import { COMMON_TIMEZONES } from "@/lib/format";
 import { readableOn } from "@/lib/color";
 import { EMOJI_POLICIES } from "@/lib/db";
@@ -155,18 +156,42 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             section="visual"
             revision={rev(brand.palette, brand.fontHeading, brand.fontBody, brand.logoUsage, brand.imageStyle)}
             title="Visual identity"
-            subtitle="Logo, palette and type — what the brand is allowed to look like."
+            subtitle="Logos, key images, palette and type — what the brand is allowed to look like."
             editable={editable}
           >
-            <Field label="Logo" hint="Stored in this brand's media library. PNG or SVG with transparency works best.">
-              <LogoUploader
-                brandId={id}
-                logoUrl={brand.logoUrl}
-                brandName={brand.name}
-                brandColor={brand.color}
-                canEdit={editable}
-              />
+            <Field label="Logos" hint="Up to three versions, stored in this brand's media library. PNG or SVG with transparency works best.">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4">
+                {LOGO_SLOTS.map((slot) => (
+                  <div key={slot} className="space-y-1.5">
+                    <p className="text-xs font-medium">{BRAND_IMAGE_SLOTS[slot].label}</p>
+                    <p className="text-[11px] text-muted">{BRAND_IMAGE_SLOTS[slot].hint}</p>
+                    <BrandImageUploader
+                      brandId={id}
+                      slot={slot}
+                      url={brand[BRAND_IMAGE_SLOTS[slot].column]}
+                      brandName={brand.name}
+                      brandColor={brand.color}
+                      canEdit={editable}
+                    />
+                  </div>
+                ))}
+              </div>
             </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(["social", "default"] as const).map((slot) => (
+                <Field key={slot} label={BRAND_IMAGE_SLOTS[slot].label} hint={BRAND_IMAGE_SLOTS[slot].hint}>
+                  <BrandImageUploader
+                    brandId={id}
+                    slot={slot}
+                    url={brand[BRAND_IMAGE_SLOTS[slot].column]}
+                    brandName={brand.name}
+                    brandColor={brand.color}
+                    canEdit={editable}
+                  />
+                </Field>
+              ))}
+            </div>
 
             <Field label="Palette" hint="Name each colour so people know when to reach for it.">
               <PaletteEditor value={brand.palette} disabled={ro} />

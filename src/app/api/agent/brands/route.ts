@@ -4,11 +4,15 @@ import { EMOJI_LABELS } from "@/lib/brand-book";
 import { platformOrNull } from "@/lib/platforms";
 import type { BrandWithRole } from "@/lib/auth";
 import { pickBrands, withAgent } from "@/server/agent-api";
+import { publicUrl } from "@/server/media";
+
+const abs = (url: string | null) => (url ? publicUrl(url) : null);
 
 /**
  * Each brand's voice, so drafts sound like the brand: the brand book (the
  * master book's values are already synced into each brand), the company
- * profile, and every channel with the limits its platform writes to.
+ * profile, the brand's logos and key images, and every channel with the
+ * limits its platform writes to.
  *
  *   GET /api/agent/brands?brand=all
  *
@@ -49,6 +53,14 @@ export async function GET(req: Request) {
           boilerplate: b.boilerplate,
           imageStyle: b.imageStyle,
           links: b.links,
+        },
+        /** Absolute URLs; null where the brand has not uploaded one. */
+        images: {
+          logo: abs(b.logoUrl),
+          logoIcon: abs(b.logoIconUrl),
+          logoReversed: abs(b.logoReversedUrl),
+          socialImage: abs(b.socialImageUrl),
+          defaultImage: abs(b.defaultImageUrl),
         },
         channels: channelRows.filter((c) => c.brandId === b.id).map((c) => {
           const p = platformOrNull(c.platform);

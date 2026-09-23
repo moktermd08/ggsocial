@@ -8,6 +8,7 @@ import { requireUser, requireBrandRole } from "@/lib/auth";
 import { emojiPolicy, hashtags, hex, links, list, palette, str, year } from "@/server/brand-form";
 import { storeUpload, kindFromMime } from "@/server/media";
 import { getBookDefaults, linkBrandToBook, syncBrandBook } from "@/server/brand-book";
+import { BRAND_IMAGE_SLOTS, isBrandImageSlot, type BrandImageSlot } from "@/lib/brand-images";
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "brand";
@@ -121,16 +122,22 @@ export async function updateBrandAction(brandId: string, formData: FormData) {
   revalidatePath("/", "layout");
 }
 
-const MAX_LOGO_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-/** Uploads a logo into the brand's media library and points the brand at it. */
-export async function uploadBrandLogoAction(brandId: string, formData: FormData) {
+function imageSlot(slot: string) {
+  if (!isBrandImageSlot(slot)) throw new Error("Unknown brand image.");
+  return BRAND_IMAGE_SLOTS[slot];
+}
+
+/** Uploads an image into the brand's media library and puts it in one of the brand's image slots. */
+export async function uploadBrandImageAction(brandId: string, slot: BrandImageSlot, formData: FormData) {
   return asResult(async () => {
     const { user } = await requireBrandRole(brandId, "admin");
-    const file = formData.get("logo");
+    const target = imageSlot(slot);
+    const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) throw new Error("Choose an image to upload.");
-    if (file.size > MAX_LOGO_BYTES) throw new Error("Logos are capped at 10 MB.");
-    if (!file.type.startsWith("image/")) throw new Error("A logo has to be an image.");
+    if (file.size > MAX_IMAGE_BYTES) throw new Error("Images are capped at 10 MB.");
+    if (!file.type.startsWith("image/")) throw new Error(`The ${target.label.toLowerCase()} has to be an image.`);
 
     const stored = await storeUpload(file);
     await db.insert(media).values({
@@ -141,18 +148,20 @@ export async function uploadBrandLogoAction(brandId: string, formData: FormData)
       mimeType: file.type,
       size: stored.size,
       uploadedBy: user.id,
-      tags: ["logo"],
+      tags: [target.tag],
     });
-    await db.update(brands).set({ logoUrl: stored.url }).where(eq(brands.id, brandId));
+    await db.update(brands).set({ [target.column]: stored.url }).where(eq(brands.id, brandId));
     revalidatePath("/", "layout");
     return { url: stored.url };
   });
 }
 
-export async function clearBrandLogoAction(brandId: string) {
+/** Empties an image slot. The file stays in the media library. */
+export async function clearBrandImageAction(brandId: string, slot: BrandImageSlot) {
   return asResult(async () => {
     await requireBrandRole(brandId, "admin");
-    await db.update(brands).set({ logoUrl: null }).where(eq(brands.id, brandId));
+    const target = imageSlot(slot);
+    await db.update(brands).set({ [target.column]: null }).where(eq(brands.id, brandId));
     revalidatePath("/", "layout");
   });
 }
