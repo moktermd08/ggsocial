@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, Loader2, Plus, Sparkles, Trash2, Upload, X, Zap } from "lucide-react";
+import { AlertCircle, Check, ImageIcon, Loader2, Plus, Sparkles, Trash2, Upload, X, Zap } from "lucide-react";
 import { PlatformIcon } from "./platform-icon";
 import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
@@ -35,6 +35,8 @@ export type ComposerBrand = {
   /** The parts of the brand book a writer needs while writing. */
   brief: string | null; voice: string | null; audience: string | null; ctaText: string | null;
   valueProps: string[]; bannedWords: string[]; defaultHashtags: string[]; emojiPolicy: string;
+  /** The brand's fallback visual, offered as a one-click attach. */
+  defaultImageUrl: string | null;
 };
 
 export type ComposerPost = {
@@ -113,6 +115,9 @@ export function Composer({
     () => mediaIds.map((id) => library.find((m) => m.id === id)).filter(Boolean) as ComposerMedia[],
     [mediaIds, library],
   );
+  // The brand default image is a file in its library; offer it until it is attached.
+  const defaultImage = brand?.defaultImageUrl ? library.find((m) => m.url === brand.defaultImageUrl) : undefined;
+  const canUseDefault = !!defaultImage && !mediaIds.includes(defaultImage.id);
 
   // Per-field: does this brand copy still match its master?
   const tz = brand?.timezone ?? "UTC";
@@ -419,10 +424,22 @@ export function Composer({
             title="Media"
             subtitle={<span className="flex items-center gap-2">{selectedMedia.length} attached {followTag("media", () => setMediaIds(JSON.parse(master!.media)))}</span>}
             action={
-              <label className={`${buttonClass("subtle", "sm")} cursor-pointer`}>
-                {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
-                <input type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
-              </label>
+              <div className="flex flex-wrap gap-2">
+                {canUseDefault && (
+                  <button
+                    type="button"
+                    onClick={() => setMediaIds((prev) => [...prev, defaultImage.id])}
+                    className={buttonClass("ghost", "sm")}
+                    title={`Attach ${brand?.name}'s default image`}
+                  >
+                    <ImageIcon className="size-4" /> Use brand default image
+                  </button>
+                )}
+                <label className={`${buttonClass("subtle", "sm")} cursor-pointer`}>
+                  {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
+                  <input type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
+                </label>
+              </div>
             }
           />
           <div className="p-4">

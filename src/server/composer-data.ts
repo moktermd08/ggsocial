@@ -36,6 +36,7 @@ export async function getComposerData(brands: BrandWithRole[], userId: string) {
     brief: b.brief, voice: b.voice, audience: b.audience, ctaText: b.ctaText,
     valueProps: b.valueProps, bannedWords: b.bannedWords,
     defaultHashtags: b.defaultHashtags, emojiPolicy: b.emojiPolicy,
+    defaultImageUrl: b.defaultImageUrl,
   }));
 
   const [campaignsByBrand, templatesByBrand, playbooks] = await Promise.all([
