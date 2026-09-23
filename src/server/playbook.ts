@@ -26,20 +26,34 @@ export type PlaybookAdjustment = typeof playbookAdjustments.$inferSelect;
 let seeding: Promise<void> | null = null;
 
 /**
- * Inserts any rule in the built-in library that has no row yet. Never
- * overwrites, so edits made in the app stick and new library rules arrive
- * with the next deploy.
+ * Inserts any rule in the built-in library that has no row yet, and links
+ * built-in rules to activities the library has since assigned them. Never
+ * overwrites limits, instructions or checklists, so edits made in the app
+ * stick; new rules and new activity links arrive with the next deploy.
  */
 export function ensurePlaybookLibrary() {
   seeding ??= db.insert(playbookRules)
     .values(PLAYBOOK_LIBRARY.map((r, i) => ({ ...r, sortOrder: (i + 1) * 10 })))
     .onConflictDoNothing({ target: playbookRules.code })
-    .then(() => undefined)
+    .then(linkNewActivities)
     .catch((e) => {
       seeding = null;
       throw e;
     });
   return seeding;
+}
+
+/** Adds library activity codes a built-in rule does not carry yet. Only ever adds. */
+async function linkNewActivities() {
+  const rows = await db.select({ id: playbookRules.id, code: playbookRules.code, activityCodes: playbookRules.activityCodes })
+    .from(playbookRules).where(eq(playbookRules.isCustom, false));
+  for (const row of rows) {
+    const lib = PLAYBOOK_LIBRARY.find((r) => r.code === row.code);
+    const missing = lib?.activityCodes.filter((c) => !row.activityCodes.includes(c)) ?? [];
+    if (missing.length) {
+      await db.update(playbookRules).set({ activityCodes: [...row.activityCodes, ...missing] }).where(eq(playbookRules.id, row.id));
+    }
+  }
 }
 
 export async function getPlaybookRules(opts: { includeArchived?: boolean } = {}) {

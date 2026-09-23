@@ -10,12 +10,15 @@
  * every adjustment, by a person, an agent or the daily tuning job, is logged.
  */
 
-export const RULE_KINDS = ["format", "activity"] as const;
+export const RULE_KINDS = ["format", "activity", "profile", "ads", "operations"] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 
 export const RULE_KIND_META: Record<RuleKind, { label: string; hint: string }> = {
-  format: { label: "Content formats", hint: "What gets published: posts, reels, stories, videos, articles" },
-  activity: { label: "Engagement & outreach", hint: "How recurring work is done: replies, DMs, comments, reviews" },
+  format: { label: "Content formats", hint: "What gets published: posts, reels, stories, videos, articles, listings" },
+  activity: { label: "Engagement & outreach", hint: "How recurring work is done: replies, DMs, comments, reviews, communities, leads" },
+  profile: { label: "Profiles, graphics & listings", hint: "Bios and details, profile pictures, covers and banners, products and services" },
+  ads: { label: "Paid ads", hint: "Creative, targeting, budget and sign-off for anything with spend behind it" },
+  operations: { label: "Planning, reporting & accounts", hint: "Content plans, reports, reviews of the numbers, access and security" },
 };
 
 /** What a failed limit does. Posting-time advice is always a warning: news and launches do not wait for a window. */

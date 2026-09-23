@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db, posts, channels } from "@/lib/db";
 import { eq, inArray } from "drizzle-orm";
-import { checkTargets } from "@/lib/playbook/check";
+import { checkContent, checkTargets } from "@/lib/playbook/check";
 import { checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 import { AgentError, pickBrands, withAgent } from "@/server/agent-api";
 
@@ -17,7 +17,7 @@ const Draft = z.object({
   brand: z.string().min(1),
   /** A platform id (instagram, tiktok…) or a channel handle on the brand. */
   platform: z.string().min(1),
-  /** A playbook code (post, reel…). Leave out to let the platform and media decide. */
+  /** A playbook code: a format (post, reel…), or any other rule with limits (ads, profile-picture, cover-graphics). Leave out to let the platform and media decide. */
   format: z.string().nullish(),
   title: z.string().max(500).default(""),
   body: z.string().max(100_000).default(""),
@@ -70,13 +70,29 @@ export async function POST(req: Request) {
     const channel = chans.find((c) => c.handle.toLowerCase() === d.platform.toLowerCase());
     const platform = channel?.platform ?? d.platform.toLowerCase();
 
-    const [result] = checkTargets(await getBrandPlaybook(brand.id), {
+    const rules = await getBrandPlaybook(brand.id);
+    const media = d.media.map((m, i) => ({
+      kind: m.kind, originalName: m.name ?? `file ${i + 1}`, width: m.width, height: m.height,
+      durationMs: m.durationSeconds ? Math.round(m.durationSeconds * 1000) : null,
+    }));
+    const scheduledAt = d.scheduledAt ? new Date(d.scheduledAt).toISOString() : null;
+
+    // Ads, profile pictures and covers are not published through a channel: check them against their rule directly.
+    const direct = rules.find((r) => r.code === d.format?.trim().toLowerCase() && r.kind !== "format");
+    if (direct) {
+      if (!direct.enabled) return { passed: true, rule: direct.code, issues: [], checklist: [], note: "This rule is switched off for the brand." };
+      const issues = checkContent(direct, { title: d.title, body: d.body, firstComment: d.firstComment, media, scheduledAt, timezone: brand.timezone });
+      return {
+        passed: !issues.some((i) => i.level === "error"),
+        rule: direct.code,
+        issues: issues.map(({ level, message }) => ({ level, message })),
+        checklist: direct.checklist.filter((i) => i.for !== "human").map((i) => i.text),
+      };
+    }
+
+    const [result] = checkTargets(rules, {
       title: d.title, body: d.body, postType: d.format ?? null, timezone: brand.timezone,
-      scheduledAt: d.scheduledAt ? new Date(d.scheduledAt).toISOString() : null,
-      media: d.media.map((m, i) => ({
-        kind: m.kind, originalName: m.name ?? `file ${i + 1}`, width: m.width, height: m.height,
-        durationMs: m.durationSeconds ? Math.round(m.durationSeconds * 1000) : null,
-      })),
+      scheduledAt, media,
       targets: [{ channelId: channel?.id ?? "draft", platform, firstComment: d.firstComment, options: { ...(channel?.settings ?? {}), ...(d.options ?? {}) } }],
     });
     return {

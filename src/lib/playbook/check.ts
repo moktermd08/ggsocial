@@ -73,6 +73,7 @@ const BLOG = new Set(["wordpress", "ghost", "webflow", "shopify_blog", "devto", 
 const EMAIL = new Set(["beehiiv", "mailchimp", "brevo", "convertkit", "klaviyo", "resend", "sendgrid"]);
 const TEXT_FIRST = new Set(["x", "threads", "bluesky", "mastodon", "farcaster"]);
 const SHORT_FIRST = new Set(["tiktok", "snapchat", "douyin", "kuaishou"]);
+const COMMERCE = new Set(["facebook_marketplace", "etsy", "ebay", "amazon_posts", "olx", "craigslist", "gumtree", "bikroy", "daraz", "gumroad"]);
 
 function fits(rule: { platforms: string[] }, platform: string) {
   return rule.platforms.length === 0 || rule.platforms.includes(platform);
@@ -105,7 +106,8 @@ export function resolveFormat<R extends { code: string; name: string; kind: Rule
   let code = "post";
   if (args.platform === "instagram") {
     code = o.format === "reel" ? "reel" : o.format === "story" ? "story" : media.length > 1 ? "carousel" : "post";
-  } else if (BLOG.has(args.platform)) code = "article";
+  } else if (COMMERCE.has(args.platform)) code = "listing";
+  else if (BLOG.has(args.platform)) code = "article";
   else if (EMAIL.has(args.platform)) code = "newsletter";
   else if (SHORT_FIRST.has(args.platform)) code = "short";
   else if (args.platform === "x" && o.thread) code = "thread";

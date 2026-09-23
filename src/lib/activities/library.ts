@@ -49,6 +49,8 @@ function group(frequency: Frequency, rows: Row[]): LibraryActivity[] {
 const SHORT_VIDEO = ["instagram", "tiktok", "youtube", "facebook"];
 const LIVE = ["linkedin", "facebook", "instagram", "youtube", "x", "tiktok", "twitch"];
 const REVIEW_SITES = ["google_business", "trustpilot", "clutch", "g2", "capterra", "yelp", "tripadvisor"];
+/** Where brands can run ads or boost posts. */
+const ADS = ["facebook", "instagram", "linkedin", "tiktok", "x", "youtube", "pinterest", "reddit", "google_business"];
 const LISTINGS = ["google_business", "apple_business", "bing_places", "yelp", "clutch", "g2", "capterra", "trustpilot"];
 
 /* ================================================================== daily */
@@ -272,6 +274,9 @@ const WEEKLY = group("weekly", [
   ["W-34", "content", "Post in the YouTube Community tab",
     "Share a poll, image or update in the Community tab to keep subscribers engaged between uploads.",
     { proof: "link", performer: "either", leadImpact: "low", minutes: 10, platforms: ["youtube", "youtube_community"] }],
+  ["W-35", "analytics", "Check running ads",
+    "For every live ad or boost: spend against budget, results against the success number, and comments. Pause anything past its kill number, and answer comments on ads like any other post. Agents report; a person changes spend.",
+    { proof: "note", performer: "either", leadImpact: "high", minutes: 15, platforms: ADS }],
 ]);
 
 /* ================================================================ monthly */
@@ -376,6 +381,9 @@ const MONTHLY = group("monthly", [
   ["M-33", "profile", "Update review and directory listings",
     "Refresh details, services, pricing, portfolio and screenshots on Clutch, G2, Capterra, Trustpilot and similar listings.",
     { proof: "link", leadImpact: "high", minutes: 30, platforms: ["clutch", "g2", "capterra", "trustpilot", "upwork", "fiverr", "product_hunt"] }],
+  ["M-34", "content", "Refresh ad creative and audiences",
+    "Replace ads whose results have dropped as people tire of them, test one new creative or headline against the best one, and prune audiences that cost the most per result. Draft changes for a person to approve before any spend moves.",
+    { proof: "note", performer: "either", leadImpact: "high", minutes: 45, platforms: ADS }],
 ]);
 
 /* ============================================================== quarterly */
