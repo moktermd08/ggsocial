@@ -6,7 +6,6 @@ import {
 import { defaultOptions, platformOrNull } from "@/lib/platforms";
 import { toLocalInput } from "@/lib/format";
 import { findPlaceholders } from "@/lib/templates";
-import { screenCopy } from "@/lib/workflows/safety";
 import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
 import { draftPost, type Draft, type DraftChannel } from "@/server/drafting";
@@ -23,7 +22,7 @@ import type { StepContext, StepResult, WorkflowImpl, WorkflowRun } from "@/serve
  *
  * With review on for "draft" (the default) the run stops after writing, just
  * as the writer's posts always waited for an approver. With it off, a post
- * that passes the playbook and the safety screen goes out by itself.
+ * that passes the playbook and the reviewer goes out by itself.
  */
 
 const HOUR = 3_600_000;
@@ -69,19 +68,39 @@ const reviewNote = (draft: Draft, issues: string[]) => [
   issues.length ? `Still to fix before approval:\n${issues.map((i) => `- ${i}`).join("\n")}` : "",
 ].filter(Boolean).join("\n\n");
 
-/** Safety reasons in a saved post: broken playbook musts, template holes, risky wording. */
-async function safetyReasons(postId: string) {
+/**
+ * A saved post, checked: the safety reasons code can find by itself (broken
+ * playbook musts, template holes), and the post laid out for the reviewer —
+ * every channel's copy with the playbook points it still misses.
+ */
+async function inspect(postId: string) {
   const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
-  if (!post) return [];
-  const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
-  const texts = [post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride, t.firstComment])];
+  if (!post) return { reasons: [], review: undefined };
+  const targets = await db.select({ target: postTargets, platform: channels.platform }).from(postTargets)
+    .innerJoin(channels, eq(channels.id, postTargets.channelId))
+    .where(eq(postTargets.postId, postId));
+  const texts = [post.title, post.body, ...targets.flatMap((t) => [t.target.bodyOverride, t.target.firstComment])];
+  const checks = (await checkSavedPost(postId)) ?? [];
   const reasons: string[] = [];
-  const blocked = blockingText((await checkSavedPost(postId)) ?? []);
-  if (blocked) reasons.push(`${blocked}`);
+  const blocked = blockingText(checks);
+  if (blocked) reasons.push(blocked);
   const holes = findPlaceholders(texts.filter(Boolean).join("\n"));
   if (holes.length) reasons.push(`Template placeholders are still unfilled: ${holes.join(", ")}.`);
-  reasons.push(...screenCopy(texts));
-  return reasons;
+
+  const text = [
+    `Working title: ${post.title}`,
+    `Base copy:\n${post.body}`,
+    ...targets.map(({ target, platform }) => {
+      const warns = checks.find((c) => c.channelId === target.channelId)?.issues.map((i) => i.message) ?? [];
+      return [
+        `--- ${platformOrNull(platform)?.name ?? platform}:`,
+        target.bodyOverride ?? "(base copy)",
+        target.firstComment ? `First comment: ${target.firstComment}` : "",
+        warns.length ? `Playbook points still open: ${warns.join("; ")}` : "",
+      ].filter(Boolean).join("\n");
+    }),
+  ].join("\n\n");
+  return { reasons, review: { kind: "social post", text, screen: texts.filter((t): t is string => Boolean(t)) } };
 }
 
 async function loadPost(run: WorkflowRun) {
@@ -115,7 +134,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
 
     const result = await draftPost({
       brand, idea, title: existing.title, body: existing.body, channels: chans, playbook,
-      postType: existing.postType, guidelines: config?.guidelines, feedback,
+      postType: existing.postType, guidelines: config?.guidelines, feedback, source: "workflow:publish-post",
     });
     await db.update(posts).set({
       title: result.draft.title, body: result.draft.body, status: "in_review",
@@ -145,7 +164,9 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     const chans = toDraftChannels(chanRows);
 
     // Draft first, so a failed call leaves no empty post behind.
-    const result = await draftPost({ brand, idea, channels: chans, playbook, postType: idea.postType, guidelines: config?.guidelines });
+    const result = await draftPost({
+      brand, idea, channels: chans, playbook, postType: idea.postType, guidelines: config?.guidelines, source: "workflow:publish-post",
+    });
     const d = result.draft;
     const [post] = await db.insert(posts).values({
       brandId: brand.id, ideaId: idea.id, title: d.title, body: d.body,
@@ -177,6 +198,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     usage = result.usage;
   }
 
+  const checked = await inspect(postId);
   const when = existing?.scheduledAt ?? (run.context.slot ? new Date(String(run.context.slot)) : null);
   return {
     outcome: "done",
@@ -184,7 +206,8 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     subject: { type: "post", id: postId },
     output: { postId, title },
     usage,
-    reasons: await safetyReasons(postId),
+    reasons: checked.reasons,
+    review: checked.review,
     href: `/posts/${postId}`,
   };
 }

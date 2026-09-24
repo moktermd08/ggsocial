@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { Bot, Hand, ShieldAlert, Workflow, Wrench } from "lucide-react";
+import { Bot, Gauge, Hand, ShieldAlert, Workflow, Wrench } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { RUN_STATUS_META, WORKFLOWS, WORKFLOW_BY_CODE, type StepPerformer } from "@/lib/workflows/meta";
 import { relativeTime } from "@/lib/format";
 import { getRecentRuns, getStepSettings } from "@/server/workflows";
 import { Badge, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui";
-import { StepReviewSwitch } from "@/components/review-inbox";
+import { AutomationSettings, StepReviewSwitch } from "@/components/review-inbox";
+import { spendByBrand } from "@/server/ai-usage";
 
 const PERFORMER: Record<StepPerformer, { label: string; icon: typeof Bot }> = {
   agent: { label: "Agent", icon: Bot },
@@ -20,7 +21,7 @@ export default async function WorkflowsPage() {
   const scope = await getScope(brands);
   const inScope = brands.filter((b) => scope.brandIds.includes(b.id));
   const ids = inScope.map((b) => b.id);
-  const [settings, runs] = await Promise.all([getStepSettings(ids), getRecentRuns(ids, 30)]);
+  const [settings, runs, spend] = await Promise.all([getStepSettings(ids), getRecentRuns(ids, 30), spendByBrand(inScope)]);
   const byId = new Map(inScope.map((b) => [b.id, b]));
 
   return (
@@ -34,14 +35,32 @@ export default async function WorkflowsPage() {
       <Card className="mb-5 flex items-start gap-3 p-4">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-danger" />
         <p className="text-sm text-text">
-          Safety stops apply whatever the switches say. A run always stops for a person when its copy breaks a playbook
-          &ldquo;must&rdquo;, mentions prices, refunds, legal or health matters, apologises for the brand, or when a step keeps failing.
+          Safety stops apply whatever the switches say. A run always stops for a person when the reviewer flags a risk
+          (prices, refunds, legal or health matters, an apology, a complaint, a sensitive topic, a claim it cannot check) or
+          scores the work under the pass mark, when the copy breaks a playbook &ldquo;must&rdquo;, when the reviewer cannot run,
+          when the brand&rsquo;s daily AI budget is spent, or when a step keeps failing.
         </p>
       </Card>
 
       {inScope.length === 0 ? (
         <Card><EmptyState icon={Workflow} title="No brands yet" body="Add a brand to set up its workflows." /></Card>
-      ) : WORKFLOWS.map((wf) => (
+      ) : (
+        <Card className="mb-5">
+          <CardHeader icon={Gauge} title="AI budget and reviewer"
+            subtitle="Every agent step is read by a reviewer that scores it out of 100 and flags risks. Work that scores under the pass mark, or has a flag, stops for a person. Past the daily budget, agents stop until tomorrow. Only the owner changes these." />
+          <div className="space-y-3 px-4 pb-4">
+            {inScope.map((brand) => (
+              <div key={brand.id}>
+                <p className="mb-1.5 flex items-center gap-2 text-sm font-medium text-text"><span className="size-2.5 rounded-full" style={{ background: brand.color }} />{brand.name}</p>
+                <AutomationSettings brandId={brand.id} budget={brand.aiDailyBudget} threshold={brand.reviewThreshold}
+                  spent={spend.get(brand.id) ?? 0} canEdit={brand.role === "owner"} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {inScope.length > 0 && WORKFLOWS.map((wf) => (
         <Card key={wf.code} className="mb-5">
           <CardHeader title={wf.name} subtitle={`${wf.summary} Started by: ${wf.startedBy}.`} />
           <div className="divide-y divide-border">

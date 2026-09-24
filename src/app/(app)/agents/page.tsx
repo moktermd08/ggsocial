@@ -6,6 +6,7 @@ import { getScope } from "@/lib/scope";
 import { db, channels } from "@/lib/db";
 import { AGENTS, AGENT_BY_CODE, AGENT_RUN_STATUS_META, type AgentCode } from "@/lib/agents/meta";
 import { relativeTime } from "@/lib/format";
+import { costOf, formatUsd } from "@/lib/ai-cost";
 import { draftingConfigured, NOT_CONFIGURED } from "@/server/drafting";
 import { getCrew, getReviewCounts, getRuns, type AgentRun, type BrandAgent } from "@/server/agents";
 import { Badge, Card, CardHeader, EmptyState, IconChip, LinkButton, PageHeader, StatTile } from "@/components/ui";
@@ -146,7 +147,7 @@ function RunLog({ runs, brands }: { runs: AgentRun[]; brands: BrandWithRole[] })
                   <span className="font-medium text-text">{AGENT_BY_CODE[r.agentCode]?.name ?? r.agentCode}</span>
                   {brand && <span className="flex items-center gap-1 text-xs text-muted"><span className="size-2 rounded-full" style={{ background: brand.color }} />{brand.name}</span>}
                   <span className="text-xs text-muted">{relativeTime(r.startedAt)}{r.trigger === "manual" ? " · run by hand" : ""}</span>
-                  {tokens > 0 && <span className="ml-auto text-[11px] text-muted" title={`${r.usage!.input} in, ${r.usage!.output} out, ${r.usage!.cacheRead} cached — ${r.usage!.model}`}>{tokens.toLocaleString()} tokens</span>}
+                  {tokens > 0 && <span className="ml-auto text-[11px] text-muted" title={`${r.usage!.input} in, ${r.usage!.output} out, ${r.usage!.cacheRead} cached — ${r.usage!.model}`}>{formatUsd(costOf(r.usage))} · {tokens.toLocaleString()} tokens</span>}
                 </div>
                 <p className="mt-1 text-muted">{r.status === "failed" ? <span className="text-danger">{r.error}</span> : r.summary}</p>
                 {r.items.length > 0 && (

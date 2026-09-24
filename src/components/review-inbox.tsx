@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, ExternalLink, Loader2, RotateCcw, Square, Undo2 } from "lucide-react";
 import { Button, buttonClass } from "./ui";
-import { decideStepAction, setStepReviewAction } from "@/server/actions/workflows";
+import { decideStepAction, setAutomationAction, setStepReviewAction } from "@/server/actions/workflows";
+import { formatUsd } from "@/lib/ai-cost";
 import type { PauseKind } from "@/lib/workflows/meta";
 
 const input = "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none";
@@ -157,6 +158,62 @@ export function StepReviewSwitch({ brandId, code, stepKey, review, reason, canTu
         </div>
       )}
       {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * A brand's daily AI budget, with today's spend, and the reviewer score its
+ * agents' work must reach to go on without a person. Owner-set.
+ */
+export function AutomationSettings({ brandId, budget, threshold, spent, canEdit }: {
+  brandId: string; budget: number; threshold: number; spent: number; canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [b, setB] = useState(String(budget));
+  const [t, setT] = useState(String(threshold));
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const share = budget > 0 ? Math.min(1, spent / budget) : 1;
+  const dirty = Number(b) !== budget || Number(t) !== threshold;
+
+  const save = () => {
+    setMessage(null);
+    start(async () => {
+      try {
+        const r = await setAutomationAction({ brandId, aiDailyBudget: Number(b), reviewThreshold: Number(t) });
+        if (!r.ok) { setMessage({ ok: false, text: r.error }); return; }
+        setMessage({ ok: true, text: "Saved. Agents follow it from their next run." });
+        router.refresh();
+      } catch {
+        setMessage({ ok: false, text: "Could not reach the server. Check your connection and try again." });
+      }
+    });
+  };
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-border px-3 py-2.5 md:grid-cols-[minmax(0,1.2fr)_auto_auto_auto] md:items-end">
+      <div className="min-w-0">
+        <p className="text-xs text-muted">
+          AI spend today: <span className="font-medium text-text">{formatUsd(spent)}</span> of {formatUsd(budget)}
+          {share >= 1 && <span className="text-danger"> — spent; agents wait until tomorrow</span>}
+        </p>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={Math.round(share * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Share of today's AI budget spent">
+          <div className={`h-full ${share >= 1 ? "bg-danger" : share >= 0.8 ? "bg-warn" : "bg-accent"}`} style={{ width: `${share * 100}%` }} />
+        </div>
+      </div>
+      <label className="block">
+        <span className="mb-1 block text-[11px] text-muted">Daily budget ($)</span>
+        <input type="number" min={0} max={1000} step={0.5} className={`${input} w-28`} value={b} disabled={!canEdit || pending} onChange={(e) => setB(e.target.value)} />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[11px] text-muted">Reviewer pass mark</span>
+        <input type="number" min={0} max={100} step={5} className={`${input} w-24`} value={t} disabled={!canEdit || pending} onChange={(e) => setT(e.target.value)} />
+      </label>
+      {canEdit ? (
+        <Button size="sm" variant="primary" disabled={pending || !dirty} onClick={save}>{pending && <Loader2 className="size-3.5 animate-spin" />} Save</Button>
+      ) : <span className="text-[11px] text-muted md:pb-2">Owner only</span>}
+      {message && <p className={`text-xs md:col-span-4 ${message.ok ? "text-muted" : "text-danger"}`}>{message.text}</p>}
     </div>
   );
 }

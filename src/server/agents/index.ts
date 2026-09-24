@@ -7,6 +7,7 @@ import { runWriter } from "@/server/agents/writer";
 import { runCommunity } from "@/server/agents/community";
 import { analystDue, runAnalyst } from "@/server/agents/analyst";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
+import { assertBudget, spentToday } from "@/server/ai-usage";
 
 export type BrandAgent = typeof brandAgents.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
@@ -85,6 +86,8 @@ export async function runAgentNow(brandId: string, agentCode: AgentCode, userId:
     columns: { id: true },
   });
   if (busy) throw new Error("This agent is already working on this brand. Give it a minute.");
+  const brand = await db.query.brands.findFirst({ where: eq(brands.id, brandId) });
+  if (brand) await assertBudget(brand, now);
   await db.update(brandAgents).set({ lastRunAt: now }).where(eq(brandAgents.id, config.id));
   // One item per click: the web request has to finish inside the proxy's timeout.
   return execute(config, { trigger: "manual", userId, limit: 1, now });
@@ -117,6 +120,12 @@ export async function runDueAgents(now = new Date(), budgetMs = 180_000) {
     const cutoff = new Date(now.getTime() - def.everyMinutes * 60_000);
     if (config.lastRunAt && config.lastRunAt > cutoff) continue;
     if (config.agentCode === "analyst" && !(await analystDue(brand.id, brand.timezone, now))) continue;
+    // Past the daily budget an agent does not run; the next day it picks up again.
+    const spent = await spentToday(brand, now);
+    if (spent >= brand.aiDailyBudget) {
+      ran.push({ brand: brand.name, agent: config.agentCode, status: "skipped", summary: "Today's AI budget is spent." });
+      continue;
+    }
 
     const claimed = await db.update(brandAgents).set({ lastRunAt: now })
       .where(and(eq(brandAgents.id, config.id), or(isNull(brandAgents.lastRunAt), lt(brandAgents.lastRunAt, cutoff))))

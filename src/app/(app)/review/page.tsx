@@ -5,6 +5,7 @@ import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, channels, posts, postTargets } from "@/lib/db";
 import { PAUSE_META, WORKFLOW_BY_CODE, stepDef } from "@/lib/workflows/meta";
+import { isVerdict } from "@/lib/workflows/review";
 import { inZone, relativeTime, truncate } from "@/lib/format";
 import { getOpenPauses } from "@/server/workflows";
 import { Badge, Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui";
@@ -46,6 +47,7 @@ export default async function ReviewPage() {
     // An agent's post is approved where its playbook checklist is.
     const reviewOnPage = Boolean(post) && pause.after && item.step.stepKey === "draft";
     const meta = PAUSE_META[pause.kind];
+    const verdict = item.step.output?.review;
 
     return (
       <li key={item.step.id} className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -66,6 +68,17 @@ export default async function ReviewPage() {
                 {platforms.map((p) => <PlatformIcon key={p} platform={p} size={16} />)}
                 {post.scheduledAt && <span>for {inZone(post.scheduledAt, brand.timezone)}</span>}
               </div>
+            </div>
+          )}
+          {isVerdict(verdict) && (
+            <div className="text-xs">
+              <p className="flex flex-wrap items-center gap-1.5 text-muted">
+                <Badge color={verdict.score >= brand.reviewThreshold ? "#15803d" : "#b45309"}>Reviewer {verdict.score}/100</Badge>
+                <span className="text-text">{verdict.summary}</span>
+              </p>
+              {verdict.fixes.length > 0 && (
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">{verdict.fixes.map((f) => <li key={f}>{f}</li>)}</ul>
+              )}
             </div>
           )}
           {pause.reasons.length > 0 && (

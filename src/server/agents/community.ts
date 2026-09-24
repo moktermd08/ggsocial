@@ -89,7 +89,7 @@ export async function runCommunity(job: AgentJob): Promise<AgentOutcome> {
     ].filter(Boolean).join("\n")),
   ].filter((l) => l !== "").join("\n");
 
-  const { output, usage } = await askClaude({ schema: ReplySchema, system: SYSTEM, brand, task });
+  const { output, usage } = await askClaude({ schema: ReplySchema, system: SYSTEM, brand, task, source: "agent:community" });
   out.usage = usage;
 
   const banned = brand.bannedWords.map((w) => w.trim().toLowerCase()).filter(Boolean);

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { BrandOffering, brands, contentIdeas } from "@/lib/db";
 import { platformOrNull } from "@/lib/platforms";
 import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
+import { recordUsage } from "@/server/ai-usage";
 
 /**
  * Claude drafting: one idea, told in one brand's voice, written separately
@@ -17,12 +18,15 @@ import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@
 /**
  * Which model does which job. Social copy and replies are short and the brand
  * book does most of the steering, so Sonnet writes them at well under half of
- * Opus's price per token. Set CLAUDE_WRITING_MODEL or CLAUDE_ANALYSIS_MODEL
- * (to claude-opus-5, say) to move a job back to a bigger model.
+ * Opus's price per token. The reviewer reads one short piece of work and
+ * scores it, which the cheapest model does well. Set CLAUDE_WRITING_MODEL,
+ * CLAUDE_ANALYSIS_MODEL or CLAUDE_REVIEW_MODEL (to claude-opus-5, say) to
+ * move a job to a bigger model.
  */
 export const MODELS = {
   writing: process.env.CLAUDE_WRITING_MODEL || "claude-sonnet-5",
   analysis: process.env.CLAUDE_ANALYSIS_MODEL || "claude-sonnet-5",
+  review: process.env.CLAUDE_REVIEW_MODEL || "claude-haiku-4-5",
 };
 export type ModelJob = keyof typeof MODELS;
 
@@ -80,6 +84,8 @@ export type DraftBrief = {
   guidelines?: string | null;
   /** What a reviewer asked to change, when this is a revision of a sent-back post. */
   feedback?: string | null;
+  /** Who asked, for the spend ledger: "workflow:publish-post", say. A person in the composer when unset. */
+  source?: string;
 };
 
 /** The limits a writer controls. Media and timing are the person's to sort. */
@@ -392,8 +398,11 @@ export async function draftPost(brief: DraftBrief): Promise<DraftResult> {
     console.info(
       `[drafting] ${brief.brand.name}: ${usage.input} in / ${usage.output} out / ${usage.cacheRead} cached (${usage.model}, ${Date.now() - started}ms)`,
     );
+    await recordUsage(brief.brand.id, brief.source ?? "composer", usage);
     return { draft, issues, usage };
   } catch (err) {
+    // Paid for whether or not the draft came back usable.
+    if (usage.input + usage.output > 0) await recordUsage(brief.brand.id, brief.source ?? "composer", usage);
     explain(err);
   }
 }

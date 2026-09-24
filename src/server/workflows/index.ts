@@ -5,9 +5,13 @@ import {
   MAX_ATTEMPTS, MAX_REVISIONS, WORKFLOW_BY_CODE, stepDef,
   type Pause, type RunStatus, type StepDecision, type WorkflowCode,
 } from "@/lib/workflows/meta";
+import { screenCopy } from "@/lib/workflows/safety";
+import { isVerdict, type ReviewRecord } from "@/lib/workflows/review";
 import { draftingConfigured } from "@/server/drafting";
+import { BudgetError, assertBudget } from "@/server/ai-usage";
+import { reviewWork, verdictReasons } from "@/server/reviewer";
 import { publishPost } from "@/server/workflows/publish-post";
-import type { StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
+import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 export type RunStep = typeof workflowRunSteps.$inferSelect;
 
@@ -138,6 +142,21 @@ export async function advance(runId: string, opts: { agentSteps: boolean; now?: 
         run = await update(run, { status: "running", nextAt: now });
         break;
       }
+      if (step.performer === "agent") {
+        // The daily budget is a safety stop: an agent never calls Claude past it.
+        try {
+          await assertBudget(brand, now);
+        } catch (err) {
+          if (!(err instanceof BudgetError)) throw err;
+          await pauseStep(run, step.key, {
+            kind: "safety", question: "Raise the brand's AI budget in Workflows, or wait for tomorrow, then retry.",
+            reasons: [err.message], href: "/workflows", after: false, sendBackTo: null,
+          }, { summary: err.message });
+          run = await update(run, { status: "waiting_review", nextAt: null, summary: "Stopped: today's AI budget is spent." });
+          report.steps.push({ key: step.key, outcome: "stop", summary: err.message, usage: null });
+          break;
+        }
+      }
 
       const retry = run.context.retryStep === step.key;
       let result: StepResult;
@@ -176,21 +195,43 @@ export async function advance(runId: string, opts: { agentSteps: boolean; now?: 
           const waiting = await openPause(run.id, step.key);
           if (waiting) await decideRow(waiting.id, "done", null, null);
 
-          const reasons = result.reasons ?? [];
-          const review = !result.byHuman && (await reviewOn(run.brandId, run.workflowCode, step.key));
-          if (review || reasons.length) {
+          const reasons = [...(result.reasons ?? [])];
+          const output: Record<string, unknown> = { ...(result.output ?? {}) };
+          // Everything an agent makes is read by the reviewer before it can go anywhere.
+          if (step.performer === "agent" && result.review) {
+            const checked = await review(brand, run, result.review);
+            output.review = checked.record;
+            // Weak but not risky: the agent gets one go at the reviewer's fixes
+            // before a person is asked to spend time on it.
+            const v = checked.record;
+            if (isVerdict(v) && v.flags.length === 0 && reasons.length === 0 && v.score < brand.reviewThreshold
+              && !context.autoRevised && v.fixes.length > 0) {
+              await db.insert(workflowRunSteps).values({
+                runId: run.id, brandId: run.brandId, stepKey: step.key, status: "done", output, usage,
+                summary: `Reviewer scored it ${v.score}/100; the agent is redoing it with the reviewer's fixes.`,
+              });
+              run = await update(run, {
+                ...base, ...subject, context: { ...merged, autoRevised: true }, status: "running", nextAt: now,
+                feedback: `An editor reviewed this and scored it ${v.score}/100: ${v.summary}\nFix:\n${v.fixes.map((f) => `- ${f}`).join("\n")}`,
+              });
+              break;
+            }
+            reasons.push(...checked.reasons);
+          }
+          const reviewing = !result.byHuman && (await reviewOn(run.brandId, run.workflowCode, step.key));
+          if (reviewing || reasons.length) {
             await pauseStep(run, step.key, {
               kind: reasons.length ? "safety" : "review",
               question: result.question ?? step.reviewQuestion ?? "Check this, then approve it.",
               reasons: reasons.length ? reasons : ["Review is on for this step."],
               href: result.href, after: true,
               sendBackTo: step.performer === "agent" ? step.key : null,
-            }, { summary: result.summary, output: result.output, usage });
+            }, { summary: result.summary, output, usage });
             run = await update(run, { ...base, ...subject, context: merged, feedback: null, status: "waiting_review", nextAt: null });
           } else {
             await db.insert(workflowRunSteps).values({
               runId: run.id, brandId: run.brandId, stepKey: step.key, status: "done",
-              summary: result.summary, output: result.output ?? {}, usage,
+              summary: result.summary, output, usage,
             });
             run = await update(run, { ...base, ...subject, context: merged, feedback: null, status: "running", stepIndex: run.stepIndex + 1, nextAt: now });
           }
@@ -422,4 +463,26 @@ export async function getRecentRuns(brandIds: string[], limit = 40) {
   if (brandIds.length === 0) return [];
   return db.select().from(workflowRuns).where(inArray(workflowRuns.brandId, brandIds))
     .orderBy(desc(workflowRuns.updatedAt)).limit(limit);
+}
+
+/* -------------------------------------------------------------- reviewer */
+
+/**
+ * The reviewer's read of one agent step. Its flags and a score below the
+ * brand's threshold become safety reasons. When it cannot run — the budget
+ * is spent, the API is down — nobody has read the work, so that is a safety
+ * reason too, and the word screen says what the person should look for.
+ */
+async function review(brand: Brand, run: WorkflowRun, input: NonNullable<Extract<StepResult, { outcome: "done" }>["review"]>) {
+  try {
+    await assertBudget(brand);
+    const verdict = await reviewWork({ brand, kind: input.kind, text: input.text, source: `review:${run.workflowCode}` });
+    return { record: verdict as ReviewRecord, reasons: verdictReasons(verdict, brand.reviewThreshold) };
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    return {
+      record: { skipped: why } as ReviewRecord,
+      reasons: [`The reviewer could not read this, so a person checks it. ${why}`, ...screenCopy(input.screen)],
+    };
+  }
 }

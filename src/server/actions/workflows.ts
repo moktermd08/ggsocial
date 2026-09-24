@@ -2,7 +2,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { asResult } from "@/lib/action-result";
-import { db, workflowRunSteps } from "@/lib/db";
+import { db, activity, brands, workflowRunSteps } from "@/lib/db";
 import { requireBrandRole, can } from "@/lib/auth";
 import { isWorkflowCode, stepDef } from "@/lib/workflows/meta";
 import { decide, setStepReview, type Decision } from "@/server/workflows";
@@ -44,6 +44,28 @@ export async function setStepReviewAction(input: { brandId: string; code: string
     const reason = input.reason?.trim() || null;
     if (!input.review && !reason) throw new Error("Say why review can come off this step — it is kept in the log.");
     await setStepReview({ brandId: input.brandId, code: input.code, stepKey: input.stepKey, review: input.review, reason, userId: user.id });
+    revalidatePath("/workflows");
+  });
+}
+
+/**
+ * A brand's daily AI budget and the reviewer score its agents' work must
+ * reach. Owner only: both decide how much runs, and what goes out, unwatched.
+ */
+export async function setAutomationAction(input: { brandId: string; aiDailyBudget: number; reviewThreshold: number }) {
+  return asResult(async () => {
+    const { user, role } = await requireBrandRole(input.brandId, "viewer");
+    if (role !== "owner") throw new Error("Only the brand's owner can change the AI budget and the review score.");
+    const budget = Number(input.aiDailyBudget);
+    const threshold = Math.round(Number(input.reviewThreshold));
+    if (!Number.isFinite(budget) || budget < 0 || budget > 1000) throw new Error("The daily budget must be between $0 and $1,000.");
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) throw new Error("The review score must be between 0 and 100.");
+    const before = await db.query.brands.findFirst({ where: eq(brands.id, input.brandId), columns: { aiDailyBudget: true, reviewThreshold: true } });
+    await db.update(brands).set({ aiDailyBudget: Math.round(budget * 100) / 100, reviewThreshold: threshold }).where(eq(brands.id, input.brandId));
+    await db.insert(activity).values({
+      brandId: input.brandId, actorId: user.id, action: "workflow.automation_changed", entity: "brand", entityId: input.brandId,
+      meta: { before, after: { aiDailyBudget: budget, reviewThreshold: threshold } },
+    });
     revalidatePath("/workflows");
   });
 }

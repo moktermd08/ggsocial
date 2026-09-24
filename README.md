@@ -38,9 +38,14 @@ with the copy and files ready to paste.
 - **Workflows and the Review inbox** — each kind of work runs as a workflow of steps, done
   by an agent, a tool or a person. After an agent's step the run stops for a person only
   where that step's review is on — and review is on for every step until the brand's owner
-  switches it off, with a reason that is kept in the log. Safety stops pause a run whatever
-  the setting: a broken playbook "must", copy that mentions prices, refunds, legal or health
-  matters or apologises for the brand, and a step that keeps failing. Everything waiting on
+  switches it off, with a reason that is kept in the log. A reviewer (Claude Haiku) reads
+  everything an agent makes, scores it out of 100 and flags risks; weak but safe work goes
+  back to the agent once with the reviewer's fixes before a person is asked. Safety stops
+  pause a run whatever the setting: a risk the reviewer flags (prices, refunds, legal or
+  health matters, an apology, a complaint, a sensitive topic, a claim it cannot check), a
+  score under the brand's pass mark, a broken playbook "must", the reviewer being unable to
+  run, the brand's daily AI budget being spent, and a step that keeps failing. Every Claude
+  call is logged with its cost, and the Workflows page shows each brand's spend today. Everything waiting on
   a person — reviews, safety stops, and steps only a person can do, like attaching media or
   posting on a manual channel — lands in one Review inbox. Approve, send back with a note
   (the agent redoes it) or stop the run. Approving an agent's post on its own page moves its
@@ -108,7 +113,7 @@ npm run scheduler
 | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | Optional. Enables importing Canva designs into Media. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media. |
 | `ANTHROPIC_API_KEY` | Optional. Enables drafting with Claude and the brand agents, which run from `/api/cron/agents` every five minutes (the scheduler and `vercel.json` both call it). |
-| `CLAUDE_WRITING_MODEL`, `CLAUDE_ANALYSIS_MODEL` | Optional. The model that writes posts and replies, and the one that writes the analyst's reports. Both default to `claude-sonnet-5`; set `claude-opus-5` to trade cost for a bigger model. |
+| `CLAUDE_WRITING_MODEL`, `CLAUDE_ANALYSIS_MODEL`, `CLAUDE_REVIEW_MODEL` | Optional. The model that writes posts and replies, the one that writes the analyst's reports, and the reviewer. Writing and analysis default to `claude-sonnet-5`, the reviewer to `claude-haiku-4-5`; set `claude-opus-5` to trade cost for a bigger model. |
 
 ## Media sources: Canva and Google Photos
 

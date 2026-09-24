@@ -180,6 +180,15 @@ export const brands = pgTable("brands", {
    */
   replySlaMinutes: integer("reply_sla_minutes").notNull().default(60),
 
+  /* ----------------------------------------------------------- automation */
+  /**
+   * The most the brand's agents may spend on Claude in a day (its own
+   * timezone), in US dollars. Reaching it is a safety stop. Owner-set.
+   */
+  aiDailyBudget: doublePrecision("ai_daily_budget").notNull().default(5),
+  /** The reviewer's score (0–100) below which an agent's work stops for a person. Owner-set. */
+  reviewThreshold: integer("review_threshold").notNull().default(75),
+
   /** Anything else the team needs to know. Never published. */
   notes: text("notes"),
 
@@ -1278,6 +1287,25 @@ export const workflowRunSteps = pgTable("workflow_run_steps", {
   index("workflow_run_steps_run_idx").on(t.runId, t.createdAt),
   index("workflow_run_steps_open_idx").on(t.brandId, t.status),
 ]);
+
+/**
+ * Every Claude call, with what it cost: the ledger the daily budget is
+ * checked against. `source` says who asked — an agent, a workflow step,
+ * the reviewer, or a person in the composer.
+ */
+export const aiUsage = pgTable("ai_usage", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  /** US dollars, at the list price when the call was made. */
+  cost: doublePrecision("cost").notNull(),
+  createdAt: now(),
+}, (t) => [index("ai_usage_brand_idx").on(t.brandId, t.createdAt)]);
 
 /* ------------------------------------------------------- review & activity */
 

@@ -35,6 +35,11 @@ export type StepResult =
       href?: string;
       /** A person did this step, so there is nothing of an agent's to review. */
       byHuman?: boolean;
+      /**
+       * The work as the reviewer should read it. `screen` is the raw copy the
+       * word screen falls back on when the reviewer cannot run.
+       */
+      review?: { kind: string; text: string; screen: string[] };
     }
   | { outcome: "skip"; summary: string }
   /** Nothing to do yet: look again at `until`. */
