@@ -103,7 +103,9 @@ async function playbookTick() {
 }
 
 /**
- * Brand agents: each switched-on agent decides whether it is due (community
+ * Workflow runs and brand agents. Runs that are due move on first (a post
+ * someone approved gets scheduled, a publish is watched); then each
+ * switched-on agent decides whether it is due (community
  * every 15 minutes, writer hourly, analyst each morning). A tick can run for a
  * few minutes, so a new one never starts while the last is still going.
  */
@@ -120,6 +122,7 @@ async function agentsTick() {
       return;
     }
     const json = await res.json();
+    if (json.workflows?.moved?.length) console.log(new Date().toISOString(), "workflows", JSON.stringify(json.workflows.moved));
     if (json.ran?.length) console.log(new Date().toISOString(), "agents", JSON.stringify(json.ran));
   } catch (err) {
     console.error("agents tick failed:", err.message);

@@ -14,7 +14,25 @@ import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@
  * the composer applies a draft for review rather than saving over anyone's work.
  */
 
-export const MODEL = "claude-opus-5";
+/**
+ * Which model does which job. Social copy and replies are short and the brand
+ * book does most of the steering, so Sonnet writes them at well under half of
+ * Opus's price per token. Set CLAUDE_WRITING_MODEL or CLAUDE_ANALYSIS_MODEL
+ * (to claude-opus-5, say) to move a job back to a bigger model.
+ */
+export const MODELS = {
+  writing: process.env.CLAUDE_WRITING_MODEL || "claude-sonnet-5",
+  analysis: process.env.CLAUDE_ANALYSIS_MODEL || "claude-sonnet-5",
+};
+export type ModelJob = keyof typeof MODELS;
+
+/**
+ * Opus and Fable can hand a declined request to a fallback model inside the
+ * same call; other models return the refusal, which callers already handle.
+ */
+export function fallbackFor(model: string) {
+  return /opus|fable/.test(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {};
+}
 
 /**
  * Medium effort: social copy is short and the brand book does most of the
@@ -301,12 +319,11 @@ type Params = Parameters<Anthropic["beta"]["messages"]["parse"]>[0];
 
 async function call(api: Anthropic, messages: Anthropic.Beta.BetaMessageParam[], brand: typeof brands.$inferSelect) {
   const params = {
-    model: MODEL,
+    model: MODELS.writing,
     max_tokens: 16_000,
-    // If a safety classifier declines, the API retries on a fallback model
+    // If a safety classifier declines, Opus retries on a fallback model
     // inside the same call rather than handing back nothing.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+    ...fallbackFor(MODELS.writing),
     output_config: { effort: EFFORT, format: betaZodOutputFormat(DraftSchema) },
     system: [
       { type: "text", text: SYSTEM },
@@ -334,7 +351,7 @@ async function call(api: Anthropic, messages: Anthropic.Beta.BetaMessageParam[],
 export async function draftPost(brief: DraftBrief): Promise<DraftResult> {
   const api = client();
   const started = Date.now();
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, model: MODEL };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, model: MODELS.writing };
   const add = (u: Anthropic.Beta.BetaUsage, model: string) => {
     usage.input += u.input_tokens;
     usage.output += u.output_tokens;

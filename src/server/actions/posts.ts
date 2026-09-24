@@ -14,6 +14,7 @@ import { syncCopy } from "@/server/masters";
 import { findPlaceholders } from "@/lib/templates";
 import { checkTargets } from "@/lib/playbook/check";
 import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
+import { syncSubjectReview } from "@/server/workflows";
 
 export type TargetInput = {
   channelId: string;
@@ -299,6 +300,11 @@ export async function reviewPostAction(
       });
     }
     await db.insert(activity).values({ brandId: post.brandId, actorId: user.id, action: `post.${decision}`, entity: "post", entityId: postId });
+    // An agent's post waits in a workflow run: move the run on with the decision made here.
+    await syncSubjectReview({
+      subjectType: "post", subjectId: postId, stepKey: "draft",
+      decision: decision === "approve" ? "approve" : "send_back", note: note.trim() || null, userId: user.id,
+    });
     revalidatePath("/", "layout");
   });
 }

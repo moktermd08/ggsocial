@@ -4,7 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import type { brands } from "@/lib/db";
 import type { AgentUsage } from "@/lib/agents/meta";
-import { MODEL, brandBook, client, explain, DraftingError } from "@/server/drafting";
+import { MODELS, brandBook, client, explain, fallbackFor, DraftingError, type ModelJob } from "@/server/drafting";
 
 /**
  * One structured answer from Claude for an agent: a fixed instruction block,
@@ -17,15 +17,16 @@ export async function askClaude<S extends z.ZodType>(opts: {
   brand: typeof brands.$inferSelect;
   task: string;
   effort?: "low" | "medium" | "high";
+  /** Which job this is, for the model that does it. Replies are writing; reports are analysis. */
+  job?: ModelJob;
 }): Promise<{ output: z.infer<S>; usage: AgentUsage }> {
   const api = client();
   try {
     const res = await api.beta.messages.parse({
-      model: MODEL,
+      model: MODELS[opts.job ?? "writing"],
       max_tokens: 16_000,
-      // A declined request is retried on a fallback model inside the same call.
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      // On Opus, a declined request is retried on a fallback model inside the same call.
+      ...fallbackFor(MODELS[opts.job ?? "writing"]),
       output_config: { effort: opts.effort ?? "medium", format: betaZodOutputFormat(opts.schema) },
       system: [
         { type: "text", text: opts.system },

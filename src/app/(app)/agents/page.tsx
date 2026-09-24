@@ -45,7 +45,7 @@ export default async function AgentsPage() {
       <PageHeader
         icon={Bot}
         title="Agents"
-        subtitle="A crew for each brand that does the hourly work: writing posts, drafting replies and reading the numbers. You set the guidelines and approve what they make. Nothing they write goes out without a person."
+        subtitle="A crew for each brand that does the hourly work: writing posts, drafting replies and reading the numbers. You set the guidelines and review what they make, in the Review inbox. Nothing goes out unreviewed unless a brand's owner switches review off in Workflows."
       />
 
       {!configured && (

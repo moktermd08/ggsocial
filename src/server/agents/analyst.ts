@@ -121,7 +121,7 @@ export async function runAnalyst(job: AgentJob): Promise<AgentOutcome> {
     ...lines,
   ].filter(Boolean).join("\n");
 
-  const { output, usage } = await askClaude({ schema: ReportSchema, system: SYSTEM, brand, task, effort: "low" });
+  const { output, usage } = await askClaude({ schema: ReportSchema, system: SYSTEM, brand, task, effort: "low", job: "analysis" });
   out.usage = usage;
 
   // A lesson goes on a standout post only where nobody has written one.

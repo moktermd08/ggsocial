@@ -5,6 +5,7 @@ import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, postTargets, posts } from "@/lib/db";
 import { getEngagementCounts } from "@/server/queries";
+import { countOpenPauses } from "@/server/workflows";
 import { BrandSwitcher } from "@/components/brand-switcher";
 import { Nav } from "@/components/nav";
 import { signOutAction } from "@/server/actions/auth";
@@ -15,7 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
 
-  const [queueRows, engagement] = await Promise.all([
+  const [queueRows, engagement, review] = await Promise.all([
     scope.brandIds.length
       ? db.select({ id: postTargets.id })
           .from(postTargets)
@@ -23,8 +24,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .where(and(inArray(posts.brandId, scope.brandIds), inArray(postTargets.status, ["awaiting_manual", "failed"])))
       : Promise.resolve([]),
     getEngagementCounts(scope.brandIds),
+    countOpenPauses(scope.brandIds),
   ]);
-  const counts = { queue: queueRows.length, engage: engagement.overdue };
+  const counts = { queue: queueRows.length, engage: engagement.overdue, review };
   const newHref = scope.isMaster ? "/posts/master/new" : "/posts/new";
 
   return (

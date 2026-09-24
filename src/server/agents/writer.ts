@@ -1,22 +1,21 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray } from "drizzle-orm";
-import {
-  db, activity, channels, comments, contentIdeas, memberships, posts, postTargets,
-} from "@/lib/db";
-import { defaultOptions, platformOrNull } from "@/lib/platforms";
-import { toLocalInput } from "@/lib/format";
+import { db, comments, contentIdeas, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
 import type { EffectiveRule } from "@/lib/playbook/check";
 import { openSlots } from "@/lib/agents/slots";
 import { getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
-import { draftPost, type Draft, type DraftChannel } from "@/server/drafting";
+import { writerChannels } from "@/server/workflows/publish-post";
+import { advance, runsForSubjects, startRun } from "@/server/workflows";
 import { addUsage } from "@/server/agents/claude";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
 
 /**
- * The content writer: revises its own sent-back posts, then fills the open
- * posting slots from the content plan. Every post it writes lands in review
- * with its slot booked; an approver's sign-off is what schedules it.
+ * The content writer starts the "publish a planned post" workflow: one run
+ * per open posting slot, each with the next idea from the content plan. The
+ * run's first step — writing the post — happens here, inside the agent's
+ * tick; what follows (review, media, scheduling, publishing) is the
+ * workflow's, and stops for a person wherever the brand's settings say.
  */
 
 const DAY = 86_400_000;
@@ -26,102 +25,83 @@ function num(v: unknown, fallback: number, min: number, max: number) {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
 }
 
-async function brandChannels(brandId: string, picked: unknown): Promise<(typeof channels.$inferSelect)[]> {
-  const all = await db.select().from(channels)
-    .where(and(eq(channels.brandId, brandId), isNull(channels.archivedAt)));
-  const ids = Array.isArray(picked) ? picked.filter((x): x is string => typeof x === "string") : [];
-  return ids.length ? all.filter((c) => ids.includes(c.id)) : all;
-}
-
-function toDraftChannels(rows: (typeof channels.$inferSelect)[], options: Record<string, Record<string, unknown>> = {}): DraftChannel[] {
-  return rows.map((c) => ({
-    id: c.id, platform: c.platform, handle: c.handle, link: null,
-    options: { ...defaultOptions(c.platform), ...(c.settings ?? {}), ...(options[c.id] ?? {}) },
-  }));
-}
-
-/** Writes a draft onto a post's targets, as the composer's "draft with Claude" does. */
-async function applyToTargets(draft: Draft, targets: (typeof postTargets.$inferSelect)[], chans: DraftChannel[]) {
-  for (const v of draft.channels) {
-    const target = targets.find((t) => t.channelId === v.channelId);
-    const channel = chans.find((c) => c.id === v.channelId);
-    if (!target || !channel) continue;
-    const supportsFirstComment = platformOrNull(channel.platform)?.constraints.supportsFirstComment;
-    await db.update(postTargets).set({
-      bodyOverride: v.body,
-      firstComment: supportsFirstComment ? v.firstComment : target.firstComment,
-    }).where(eq(postTargets.id, target.id));
+/**
+ * Posts the writer made before workflows existed get a run of their own, so
+ * they show up in the review inbox and carry on the same way as new ones.
+ */
+async function adoptOldPosts(brandId: string) {
+  const old = await db.select().from(posts).where(and(
+    eq(posts.brandId, brandId), eq(posts.agentCode, "writer"), inArray(posts.status, ["in_review", "changes_requested"]),
+  ));
+  if (old.length === 0) return 0;
+  const owned = new Set((await runsForSubjects("post", old.map((p) => p.id))).map((r) => r.subjectId));
+  let adopted = 0;
+  for (const post of old) {
+    if (owned.has(post.id)) continue;
+    const subject = { type: "post", id: post.id };
+    const run = await startRun({ brandId, code: "publish-post", startedBy: "writer", subject });
+    if (post.status === "in_review") {
+      await db.insert(workflowRunSteps).values({
+        runId: run.id, brandId, stepKey: "draft", status: "paused", summary: `Wrote "${post.title}".`,
+        pause: {
+          kind: "review", question: "Approve this post, or send it back with a note.",
+          reasons: ["Review is on for this step."], href: `/posts/${post.id}`, after: true, sendBackTo: "draft",
+        },
+      });
+      await db.update(workflowRuns).set({ status: "waiting_review", nextAt: null, summary: `Wrote "${post.title}".` })
+        .where(eq(workflowRuns.id, run.id));
+    } else {
+      const [note] = await db.select().from(comments)
+        .where(and(eq(comments.postId, post.id), eq(comments.kind, "changes_requested")))
+        .orderBy(desc(comments.createdAt)).limit(1);
+      await db.update(workflowRuns).set({ feedback: note?.body ?? null, revisions: 1 }).where(eq(workflowRuns.id, run.id));
+    }
+    adopted++;
   }
+  return adopted;
 }
-
-const reviewNote = (draft: Draft, issues: string[]) => [
-  `Written by the content writer agent. ${draft.note}`.trim(),
-  issues.length ? `Still to fix before approval:\n${issues.map((i) => `- ${i}`).join("\n")}` : "",
-].filter(Boolean).join("\n\n");
 
 export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const { brand, config } = job;
   const s = config.settings ?? {};
   const perRun = job.limit ?? num(s.perRun, 2, 1, 5);
   const out: AgentOutcome = { summary: "", items: [], issues: [], usage: null };
-  let done = 0;
-  const playbook = await getBrandPlaybook(brand.id);
 
-  /* ------------------------------------------ 1. posts sent back to it */
-  const sentBack = await db.select().from(posts)
-    .where(and(eq(posts.brandId, brand.id), eq(posts.agentCode, "writer"), eq(posts.status, "changes_requested")))
-    .orderBy(asc(posts.scheduledAt))
-    .limit(perRun);
-  let revised = 0;
-  for (const post of sentBack) {
-    const [note] = await db.select().from(comments)
-      .where(and(eq(comments.postId, post.id), eq(comments.kind, "changes_requested")))
-      .orderBy(desc(comments.createdAt)).limit(1);
-    const targets = await db.select().from(postTargets).where(eq(postTargets.postId, post.id));
-    const chanRows = targets.length
-      ? await db.select().from(channels).where(inArray(channels.id, targets.map((t) => t.channelId)))
-      : [];
-    const chans = toDraftChannels(chanRows, Object.fromEntries(targets.map((t) => [t.channelId, t.options])));
-    const idea = post.ideaId ? (await ideaForBrand(post.ideaId, brand.id))?.idea ?? null : null;
+  const adopted = await adoptOldPosts(brand.id);
 
-    const result = await draftPost({
-      brand, idea, title: post.title, body: post.body, channels: chans, playbook, postType: post.postType,
-      guidelines: config.guidelines,
-      feedback: note?.body ?? "The reviewer requested changes without a note. Tighten the hook and check it against the playbook.",
-    });
-    out.usage = addUsage(out.usage, result.usage);
-    await db.update(posts).set({
-      title: result.draft.title, body: result.draft.body, status: "in_review",
-      notes: reviewNote(result.draft, result.issues), updatedAt: new Date(),
-    }).where(eq(posts.id, post.id));
-    await applyToTargets(result.draft, targets, chans);
-    await db.insert(comments).values({
-      postId: post.id, userId: null,
-      body: `Content writer agent: revised to address the review${note ? "" : " (no note was left)"}. ${result.draft.note}`.trim(),
-    });
-    await db.insert(activity).values({
-      brandId: brand.id, actorId: null, action: "agent.post_revised", entity: "post", entityId: post.id,
-      meta: { agent: "writer", ...result.usage },
-    });
-    out.items.push({ kind: "post", id: post.id, label: `Revised: ${result.draft.title}`, href: `/posts/${post.id}` });
-    out.issues.push(...result.issues.map((i) => `${result.draft.title}: ${i}`));
+  /* ------------------------------------------ 1. runs sent back to it */
+  // Revisions are the workflow's; the writer gives them its tick so they
+  // happen as soon as they would have before.
+  const sentBack = await db.select({ id: workflowRuns.id }).from(workflowRuns).where(and(
+    eq(workflowRuns.brandId, brand.id), eq(workflowRuns.workflowCode, "publish-post"),
+    eq(workflowRuns.status, "running"), eq(workflowRuns.stepIndex, 0), lte(workflowRuns.nextAt, job.now),
+  )).orderBy(asc(workflowRuns.nextAt)).limit(perRun);
+  let done = 0, revised = 0;
+  for (const { id } of sentBack) {
+    const report = await advance(id, { agentSteps: true, now: job.now });
+    if (!report) continue;
+    for (const step of report.steps) {
+      if (step.usage) out.usage = addUsage(out.usage, step.usage);
+      if (step.outcome === "failed") out.issues.push(step.summary);
+    }
+    if (report.run.subjectId) out.items.push({ kind: "post", id: report.run.subjectId, label: report.run.summary ?? "Revised a post", href: `/posts/${report.run.subjectId}` });
     revised++;
     done++;
   }
-
-  /* ----------------------------------------------- 2. open posting slots */
   if (done >= perRun) {
     out.summary = `Revised ${revised} post${revised === 1 ? "" : "s"} sent back by a reviewer.`;
     return out;
   }
 
-  const chanRows = await brandChannels(brand.id, s.channelIds);
+  /* ----------------------------------------------- 2. open posting slots */
+  const chanRows = await writerChannels(brand.id, s.channelIds);
   if (chanRows.length === 0) {
     out.issues.push("This brand has no channels for the writer to write for. Add a channel, or tick some in the writer's settings.");
     out.summary = revised ? `Revised ${revised} post${revised === 1 ? "" : "s"}; no channels to write new ones for.` : "No channels to write for.";
     return out;
   }
 
+  const playbook = await getBrandPlaybook(brand.id);
   const postRule: EffectiveRule | undefined = playbook.find((r) => r.code === "post" && r.enabled);
   const daysAhead = num(s.daysAhead, 7, 1, 30);
   const perWeek = num(s.perWeek, postRule?.limits.perWeek ?? 5, 1, 21);
@@ -139,9 +119,11 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   });
 
   if (slots.length === 0) {
-    out.summary = revised
-      ? `Revised ${revised} post${revised === 1 ? "" : "s"}. The next ${daysAhead} days are already planned.`
-      : `The next ${daysAhead} days are already planned.`;
+    out.summary = [
+      revised ? `Revised ${revised} post${revised === 1 ? "" : "s"}.` : "",
+      `The next ${daysAhead} days are already planned.`,
+      adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
+    ].filter(Boolean).join(" ");
     return out;
   }
 
@@ -165,54 +147,28 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   // Planned before backlog, each in plan order.
   candidates.sort((a, b) => (a.status === b.status ? a.sequence - b.sequence : a.status === "planned" ? -1 : 1));
 
-  const chans = toDraftChannels(chanRows);
   let written = 0;
   for (const candidate of candidates) {
     if (done >= perRun || written >= slots.length) break;
     const mine = await ideaForBrand(candidate.id, brand.id);
     if (!mine || mine.skipped) continue;
-    const idea = mine.idea;
-    const at = slots[written];
 
-    // Draft first, so a failed call leaves no empty post behind.
-    const result = await draftPost({
-      brand, idea, channels: chans, playbook, postType: idea.postType, guidelines: config.guidelines,
+    const run = await startRun({
+      brandId: brand.id, code: "publish-post", startedBy: "writer",
+      context: { ideaId: candidate.id, slot: slots[written].toISOString() },
     });
-    out.usage = addUsage(out.usage, result.usage);
-    const { draft } = result;
-
-    const [post] = await db.insert(posts).values({
-      brandId: brand.id, ideaId: idea.id, title: draft.title, body: draft.body,
-      status: "in_review", scheduledAt: at, postType: idea.postType, tone: idea.tone,
-      targetImpressions: idea.targetImpressions, agentCode: "writer",
-      notes: [reviewNote(draft, result.issues), idea.needsMedia ? "This idea needs media: attach an image or video before approving." : ""].filter(Boolean).join("\n\n"),
-    }).returning({ id: posts.id });
-
-    for (const c of chanRows) {
-      const v = draft.channels.find((d) => d.channelId === c.id);
-      const supportsFirstComment = platformOrNull(c.platform)?.constraints.supportsFirstComment;
-      await db.insert(postTargets).values({
-        postId: post.id, channelId: c.id,
-        bodyOverride: v?.body ?? null,
-        firstComment: supportsFirstComment ? v?.firstComment ?? null : null,
-        options: { ...defaultOptions(c.platform), ...(c.settings ?? {}) },
-        status: "pending", scheduledAt: at,
-      });
+    const report = await advance(run.id, { agentSteps: true, now: job.now });
+    if (!report) continue;
+    for (const step of report.steps) {
+      if (step.usage) out.usage = addUsage(out.usage, step.usage);
+      if (step.outcome === "failed") out.issues.push(`${candidate.title}: ${step.summary}`);
     }
-
-    if (candidate.status === "backlog") {
-      await db.update(contentIdeas).set({ status: "drafting", updatedAt: new Date() }).where(eq(contentIdeas.id, idea.id));
+    const postId = report.run.subjectId;
+    if (postId) {
+      const stopped = report.run.status === "waiting_review" ? "waiting for review" : report.run.status === "waiting_human" ? "waiting for a person" : "on its way";
+      out.items.push({ kind: "post", id: postId, label: `${report.run.summary ?? candidate.title} — ${stopped}`, href: `/posts/${postId}` });
+      written++;
     }
-    await db.insert(activity).values({
-      brandId: brand.id, actorId: null, action: "agent.post_written", entity: "post", entityId: post.id,
-      meta: { agent: "writer", ideaId: idea.id, ...result.usage },
-    });
-
-    const when = toLocalInput(at, brand.timezone).replace("T", " ");
-    out.items.push({ kind: "post", id: post.id, label: `${draft.title} — for ${when}`, href: `/posts/${post.id}` });
-    out.issues.push(...result.issues.map((i) => `${draft.title}: ${i}`));
-    if (idea.needsMedia) out.issues.push(`${draft.title}: needs media before it can be approved.`);
-    written++;
     done++;
   }
 
@@ -222,8 +178,9 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   }
   out.summary = [
     revised ? `Revised ${revised} sent-back post${revised === 1 ? "" : "s"}.` : "",
-    written ? `Wrote ${written} new post${written === 1 ? "" : "s"} for review.` : "",
+    written ? `Wrote ${written} new post${written === 1 ? "" : "s"}.` : "",
     open > 0 && written > 0 ? `${open} slot${open === 1 ? "" : "s"} still open for later runs.` : "",
+    adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
   ].filter(Boolean).join(" ") || "Nothing to write.";
   return out;
 }

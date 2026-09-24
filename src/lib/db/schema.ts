@@ -1184,6 +1184,89 @@ export const agentRuns = pgTable("agent_runs", {
   index("agent_runs_agent_idx").on(t.brandId, t.agentCode, t.startedAt),
 ]);
 
+/* --------------------------------------------------------------- workflows */
+
+import type { Pause, RunStatus, StepDecision, WorkflowCode } from "../workflows/meta";
+
+/**
+ * Where a brand departs from "a person reviews this step". No row = review
+ * is on, as every step starts. Only a brand owner may switch review off.
+ */
+export const workflowStepSettings = pgTable("workflow_step_settings", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  workflowCode: text("workflow_code").$type<WorkflowCode>().notNull(),
+  stepKey: text("step_key").notNull(),
+  review: boolean("review").notNull(),
+  /** Why the owner changed it — shown next to the switch and in the log. */
+  reason: text("reason"),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("workflow_step_settings_idx").on(t.brandId, t.workflowCode, t.stepKey)]);
+
+/**
+ * One piece of work moving through a workflow: this post for this brand, say.
+ * `stepIndex` is the step it is on; a run that is waiting is picked up again
+ * by the tick at `nextAt`, or by a person's decision.
+ */
+export const workflowRuns = pgTable("workflow_runs", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  workflowCode: text("workflow_code").$type<WorkflowCode>().notNull(),
+  status: text("status").$type<RunStatus>().notNull().default("running"),
+  stepIndex: integer("step_index").notNull().default(0),
+  /** What the run is working on, once it exists — `post` and its id. */
+  subjectType: text("subject_type"),
+  subjectId: text("subject_id"),
+  /** What the steps hand each other: the idea, the slot. */
+  context: jsonb("context").$type<Record<string, unknown>>().notNull().default({}),
+  /** A person's note from "send back", read by the step it re-runs. */
+  feedback: text("feedback"),
+  /** Failures in a row on the current step. */
+  attempts: integer("attempts").notNull().default(0),
+  /** Times a person sent it back. */
+  revisions: integer("revisions").notNull().default(0),
+  nextAt: timestamp("next_at", { withTimezone: true }),
+  /** Held by one tick while it works, so two ticks never run the same step. */
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  summary: text("summary"),
+  /** The agent or person that started it. */
+  startedBy: text("started_by"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [
+  index("workflow_runs_due_idx").on(t.status, t.nextAt),
+  index("workflow_runs_brand_idx").on(t.brandId, t.startedAt),
+  index("workflow_runs_subject_idx").on(t.subjectType, t.subjectId),
+]);
+
+/**
+ * Every time a step ran: what it did and cost, and — when it stopped for a
+ * person — why, what they were asked, and what they decided. An open pause
+ * is `status = "paused"` with no decision yet; those rows are the review inbox.
+ */
+export const workflowRunSteps = pgTable("workflow_run_steps", {
+  id: id(),
+  runId: text("run_id").notNull().references(() => workflowRuns.id, { onDelete: "cascade" }),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  stepKey: text("step_key").notNull(),
+  status: text("status").$type<"done" | "skipped" | "paused" | "failed">().notNull(),
+  summary: text("summary"),
+  output: jsonb("output").$type<Record<string, unknown>>().notNull().default({}),
+  usage: jsonb("usage").$type<AgentUsage | null>(),
+  error: text("error"),
+  pause: jsonb("pause").$type<Pause | null>(),
+  decision: text("decision").$type<StepDecision>(),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  note: text("note"),
+  createdAt: now(),
+}, (t) => [
+  index("workflow_run_steps_run_idx").on(t.runId, t.createdAt),
+  index("workflow_run_steps_open_idx").on(t.brandId, t.status),
+]);
+
 /* ------------------------------------------------------- review & activity */
 
 export const comments = pgTable("comments", {

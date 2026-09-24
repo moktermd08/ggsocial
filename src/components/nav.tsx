@@ -2,11 +2,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Bot, Images, Plug, BarChart3, Link2, Building2,
+  LayoutDashboard, Inbox, Workflow, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Bot, Images, Plug, BarChart3, Link2, Building2,
 } from "lucide-react";
 
 const ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/review", label: "Review", icon: Inbox, badgeKey: "review" as const },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/ideas", label: "Content plan", short: "Plan", icon: Lightbulb },
   { href: "/posts", label: "Content", icon: PenSquare },
@@ -18,6 +19,7 @@ const ITEMS = [
   { href: "/playbook", label: "Playbook", icon: BookCheck },
   { href: "/goals", label: "Goals", icon: Goal },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/workflows", label: "Workflows", short: "Flows", icon: Workflow },
   { href: "/library", label: "Media", icon: Images },
   { href: "/channels", label: "Channels", icon: Plug },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -25,7 +27,7 @@ const ITEMS = [
   { href: "/brands", label: "Brands & team", icon: Building2 },
 ];
 
-export function Nav({ counts, variant = "sidebar" }: { counts: { queue: number; engage: number }; variant?: "sidebar" | "bar" }) {
+export function Nav({ counts, variant = "sidebar" }: { counts: { queue: number; engage: number; review: number }; variant?: "sidebar" | "bar" }) {
   const pathname = usePathname();
   const bar = variant === "bar";
   return (
