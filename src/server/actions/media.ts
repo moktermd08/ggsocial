@@ -162,7 +162,8 @@ export async function catalogueMediaAction(mediaIds: string[]) {
               ...await masterOwnersFor(user.id, [row.brandId]).then(masterAssets),
             ]
           : await masterAssets([row.ownerId ?? user.id]);
-        const fields = await catalogueWithClaude(row, { brand, library });
+        // A person asked, so it is recorded against the brand's budget but never stopped by it.
+        const fields = await catalogueWithClaude(row, { brand, library, source: "media:library" });
         await saveCatalog(row.id, fields, "claude");
         done.push({ id: row.id, fields });
       } catch (e) {

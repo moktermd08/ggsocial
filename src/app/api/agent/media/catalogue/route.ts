@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { can } from "@/lib/auth";
 import { db, brands as brandsTable, media } from "@/lib/db";
 import { catalogueWithClaude, saveCatalog } from "@/server/media-catalog";
+import { BudgetError, assertBudget } from "@/server/ai-usage";
 import { masterAssets, masterOwnersFor } from "@/server/media-library";
 import { AgentError, pickBrands, withAgent } from "@/server/agent-api";
 
@@ -14,7 +15,8 @@ const Body = z.object({
 
 /**
  * Has Claude look at images nobody has filed yet and file them. Up to six a
- * call; call again while `remaining` is above zero.
+ * call; call again while `remaining` is above zero. A brand's filing counts
+ * against its daily AI budget and stops once that is spent.
  *
  *   POST /api/agent/media/catalogue  { "brand": "acme" }
  */
@@ -37,12 +39,17 @@ export async function POST(req: Request) {
       : await masterAssets([agent.userId]);
     const brandRow = b ? await db.query.brands.findFirst({ where: eq(brandsTable.id, b.id) }) ?? null : null;
 
+    if (brandRow && unfiled.length) {
+      try { await assertBudget(brandRow); }
+      catch (e) { if (e instanceof BudgetError) throw new AgentError(e.message, 429); throw e; }
+    }
+
     const batch = unfiled.slice(0, limit);
     const filed: { id: string; name: string; category: string | null; keywords: string[] }[] = [];
     const failed: { id: string; name: string; error: string }[] = [];
     await Promise.all(batch.map(async (row) => {
       try {
-        const fields = await catalogueWithClaude(row, { brand: brandRow, library });
+        const fields = await catalogueWithClaude(row, { brand: brandRow, library, source: "media:agent" });
         await saveCatalog(row.id, fields, "claude");
         filed.push({ id: row.id, name: row.originalName, category: fields.category, keywords: fields.tags });
       } catch (e) {

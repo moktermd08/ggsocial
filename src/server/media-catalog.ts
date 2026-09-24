@@ -8,6 +8,7 @@ import { db, contentIdeas, media, posts, type brands } from "@/lib/db";
 import { MEDIA_USES, USE_CODES, categoriesIn, cleanCatalog, rankForText, searchMedia, type MediaQuery } from "@/lib/media-catalog";
 import { DraftingError, client, explain } from "@/server/drafting";
 import { readLocalUpload, publicUrl } from "@/server/media";
+import { recordUsage } from "@/server/ai-usage";
 import { brandLibraries, type LibraryItem, type MediaFile } from "@/server/media-library";
 
 /* --------------------------------------------------------- Claude, by eye */
@@ -62,10 +63,14 @@ async function imageSource(row: MediaFile): Promise<BetaImageBlockParam["source"
 /**
  * Asks Claude to look at one image and file it, reusing the shelves the
  * library already has. Returns the cleaned fields; the caller saves them.
+ * A brand file's call goes on that brand's spend ledger under `source`;
+ * a master asset belongs to no one brand, so it has no budget to count against.
  */
 export async function catalogueWithClaude(row: MediaFile, opts: {
   brand?: typeof brands.$inferSelect | null;
   library: Parameters<typeof categoriesIn>[0];
+  /** Who asked, for the spend ledger: "media:library" for a person, "media:agent" for a token. */
+  source: string;
 }) {
   const source = await imageSource(row);
   const shelves = categoriesIn(opts.library)
@@ -88,6 +93,13 @@ export async function catalogueWithClaude(row: MediaFile, opts: {
       system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: [{ type: "image", source }, { type: "text", text: task }] }],
     } satisfies Parameters<Anthropic["beta"]["messages"]["parse"]>[0]);
+    if (opts.brand) {
+      await recordUsage(opts.brand.id, opts.source, {
+        input: res.usage.input_tokens, output: res.usage.output_tokens,
+        cacheRead: res.usage.cache_read_input_tokens ?? 0, cacheWrite: res.usage.cache_creation_input_tokens ?? 0,
+        model: res.model,
+      });
+    }
     if (res.stop_reason === "refusal") throw new DraftingError(`Claude declined to describe ${row.originalName}.`);
     const out = res.parsed_output;
     if (!out) throw new DraftingError(`Claude's answer for ${row.originalName} could not be read.`);
