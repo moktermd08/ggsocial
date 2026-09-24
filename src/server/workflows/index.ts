@@ -16,10 +16,19 @@ import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/work
 
 export type RunStep = typeof workflowRunSteps.$inferSelect;
 
-const IMPLS: Record<WorkflowCode, WorkflowImpl> = {
-  "publish-post": publishPost,
-  "answer-engagement": answerEngagement,
-};
+/**
+ * Each workflow's step handlers. Read when a run needs them, never while
+ * modules load: the handlers reach publishing and Engagement, which reach
+ * back here, and a lookup table built at load time would read them before
+ * they exist.
+ */
+function implFor(code: WorkflowCode): WorkflowImpl {
+  const impls: Record<WorkflowCode, WorkflowImpl> = {
+    "publish-post": publishPost,
+    "answer-engagement": answerEngagement,
+  };
+  return impls[code];
+}
 
 /** How long one worker holds a run. A run still held after this died with its process. */
 const LEASE_MS = 15 * 60_000;
@@ -124,7 +133,7 @@ export async function advance(runId: string, opts: { agentSteps: boolean; now?: 
   try {
     const brand = await db.query.brands.findFirst({ where: eq(brands.id, run.brandId) });
     const def = WORKFLOW_BY_CODE[run.workflowCode];
-    const impl = IMPLS[run.workflowCode];
+    const impl = implFor(run.workflowCode);
     if (!brand || !def || !impl || brand.archivedAt) {
       run = await update(run, { status: "cancelled", summary: "The brand or workflow no longer exists.", finishedAt: now });
       return report;
@@ -341,7 +350,7 @@ export async function decide(input: { stepId: string; decision: Decision; note: 
         status: "running", stepIndex: to, feedback: note, revisions: run.revisions + 1, nextAt: now,
         summary: "Sent back with a note; the agent will redo it.", updatedAt: now,
       }).where(eq(workflowRuns.id, run.id));
-      await IMPLS[run.workflowCode].onSendBack?.(run, input.userId, note);
+      await implFor(run.workflowCode).onSendBack?.(run, input.userId, note);
       return "Sent back. The agent redoes it on its next run, within a few minutes.";
     }
     case "reject": {
@@ -349,7 +358,7 @@ export async function decide(input: { stepId: string; decision: Decision; note: 
       await db.update(workflowRuns).set({
         status: "cancelled", nextAt: null, finishedAt: now, summary: `Stopped by a person${note ? `: ${note}` : "."}`, updatedAt: now,
       }).where(eq(workflowRuns.id, run.id));
-      await IMPLS[run.workflowCode].onReject?.(run, input.userId, note);
+      await implFor(run.workflowCode).onReject?.(run, input.userId, note);
       return "Stopped. Nothing from this run will go out.";
     }
     case "done": {
