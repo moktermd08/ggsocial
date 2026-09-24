@@ -139,11 +139,15 @@ export function StatTile({ label, value, icon, tone = "#4f46e5", href, trend, de
   return href ? <Link href={href} className={`${cls} hover:border-accent/40 hover:bg-surface-2`}>{body}</Link> : <div className={cls}>{body}</div>;
 }
 
-export function PageHeader({ title, subtitle, action, icon }: { title: string; subtitle?: ReactNode; action?: ReactNode; icon?: LucideIcon }) {
+export function PageHeader({ title, subtitle, action, icon, mark }: {
+  title: string; subtitle?: ReactNode; action?: ReactNode; icon?: LucideIcon;
+  /** Stands in for the icon chip — a brand's logo, say. */
+  mark?: ReactNode;
+}) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
-        {icon && <IconChip icon={icon} />}
+        {mark ?? (icon && <IconChip icon={icon} />)}
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-text">{title}</h1>
           {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}

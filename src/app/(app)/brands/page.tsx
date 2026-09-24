@@ -4,7 +4,7 @@ import { requireUser, getMyBrands } from "@/lib/auth";
 import { getBrandChannels } from "@/server/queries";
 import { Card, EmptyState, LinkButton, PageHeader, Badge } from "@/components/ui";
 import { PlatformIcon } from "@/components/platform-icon";
-import { readableOn } from "@/lib/color";
+import { BrandMark } from "@/components/brand-mark";
 
 /** How much of the brand book is filled in — nudges people to finish it. */
 function completeness(b: { tagline: string | null; description: string | null; logoUrl: string | null;
@@ -64,17 +64,7 @@ export default async function BrandsPage() {
                 className="flex flex-col rounded-xl border border-border bg-surface p-4 transition-colors hover:bg-surface-2"
               >
                 <div className="flex items-center gap-2.5">
-                  <span
-                    className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg"
-                    style={b.logoUrl ? { background: "var(--surface-2)" } : { background: b.color, color: readableOn(b.color) }}
-                  >
-                    {b.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={b.logoUrl} alt="" className="size-full object-contain" />
-                    ) : (
-                      <span className="text-xs font-bold">{b.name.slice(0, 2).toUpperCase()}</span>
-                    )}
-                  </span>
+                  <BrandMark brand={b} size={36} className="rounded-lg" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{b.name}</p>
                     <p className="truncate text-[11px] text-muted">{b.tagline ?? b.timezone}</p>

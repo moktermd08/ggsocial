@@ -4,8 +4,8 @@ import { Plus, LogOut } from "lucide-react";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, postTargets, posts } from "@/lib/db";
-import { getEngagementCounts } from "@/server/queries";
-import { BrandSwitcher } from "@/components/brand-switcher";
+import { getBrandChannels, getEngagementCounts } from "@/server/queries";
+import { BrandSwitcher, type BrandOption } from "@/components/brand-switcher";
 import { Nav } from "@/components/nav";
 import { signOutAction } from "@/server/actions/auth";
 import { buttonClass } from "@/components/ui";
@@ -15,7 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
 
-  const [queueRows, engagement] = await Promise.all([
+  const [queueRows, engagement, allChannels] = await Promise.all([
     scope.brandIds.length
       ? db.select({ id: postTargets.id })
           .from(postTargets)
@@ -23,8 +23,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .where(and(inArray(posts.brandId, scope.brandIds), inArray(postTargets.status, ["awaiting_manual", "failed"])))
       : Promise.resolve([]),
     getEngagementCounts(scope.brandIds),
+    getBrandChannels(brands.map((b) => b.id)),
   ]);
   const counts = { queue: queueRows.length, engage: engagement.overdue };
+  // The switcher reads each brand's profile, but only the fields it shows go to the client.
+  const brandOptions: BrandOption[] = brands.map((b) => ({
+    id: b.id, name: b.name, color: b.color, role: b.role,
+    logoUrl: b.logoUrl, logoIconUrl: b.logoIconUrl, tagline: b.tagline, timezone: b.timezone,
+    channelCount: allChannels.filter((c) => c.brandId === b.id).length,
+  }));
   const newHref = scope.isMaster ? "/posts/master/new" : "/posts/new";
 
   return (
@@ -35,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="text-sm font-semibold tracking-tight">ggsocial</span>
         </Link>
 
-        <BrandSwitcher brands={brands} value={scope.value} />
+        <BrandSwitcher brands={brandOptions} value={scope.value} />
 
         <div className="mt-4 flex-1">
           <Nav counts={counts} />
@@ -64,7 +71,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur md:hidden">
           <Link href="/" className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-accent to-chart-2 text-sm font-bold text-accent-fg shadow-sm">gg</Link>
-          <div className="min-w-0 flex-1"><BrandSwitcher brands={brands} value={scope.value} /></div>
+          <div className="min-w-0 flex-1"><BrandSwitcher brands={brandOptions} value={scope.value} /></div>
           <Link href={newHref} className={buttonClass("primary", "sm")}><Plus className="size-4" /></Link>
         </header>
 

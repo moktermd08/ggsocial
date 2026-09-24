@@ -9,6 +9,7 @@ import { Card, CardHeader, EmptyState, LinkButton, PageHeader, Badge, StatTile }
 import { ColumnChart, Ring, SegmentedBar } from "@/components/charts";
 import { PostCard } from "@/components/post-card";
 import { PlatformIcon } from "@/components/platform-icon";
+import { BrandMark } from "@/components/brand-mark";
 import { inZone, relativeTime, truncate, utcDays } from "@/lib/format";
 
 export default async function DashboardPage() {
@@ -67,9 +68,11 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title={scope.activeBrand ? scope.activeBrand.name : "All brands"}
+        mark={scope.activeBrand ? <BrandMark brand={scope.activeBrand} size={40} className="rounded-lg" /> : undefined}
         subtitle={
           scope.activeBrand
-            ? `${channels.length} channel${channels.length === 1 ? "" : "s"} · ${scope.activeBrand.timezone}`
+            ? [scope.activeBrand.tagline, `${channels.length} channel${channels.length === 1 ? "" : "s"}`, scope.activeBrand.timezone]
+                .filter(Boolean).join(" · ")
             : `${brands.length} brands · ${channels.length} channels`
         }
         action={<LinkButton href="/posts/new" variant="primary">New post</LinkButton>}
@@ -219,18 +222,35 @@ export default async function DashboardPage() {
                 </div>
               </div>
             )}
-            <div className="flex flex-wrap gap-1.5 p-3">
-              {channels.length === 0 ? (
-                <p className="px-1 py-3 text-sm text-muted">No channels connected yet.</p>
-              ) : (
-                channels.map((c) => (
-                  <Badge key={c.id} color={c.mode === "live" ? "#15803d" : "#8b8b96"}>
-                    <PlatformIcon platform={c.platform} size={13} variant="glyph" />
-                    {c.handle}
-                  </Badge>
-                ))
-              )}
-            </div>
+            {channels.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted">No channels connected yet.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {brands.filter((b) => scope.brandIds.includes(b.id)).map((b) => {
+                  const mine = channels.filter((c) => c.brandId === b.id);
+                  if (mine.length === 0) return null;
+                  return (
+                    <div key={b.id} className="p-3">
+                      {!scope.activeBrand && (
+                        <Link href={`/brands/${b.id}`} className="mb-2 flex items-center gap-2 hover:underline">
+                          <BrandMark brand={b} size={18} />
+                          <span className="truncate text-xs font-medium">{b.name}</span>
+                          <span className="text-[11px] text-muted">{mine.length}</span>
+                        </Link>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {mine.map((c) => (
+                          <Badge key={c.id} color={c.mode === "live" ? "#15803d" : "#8b8b96"}>
+                            <PlatformIcon platform={c.platform} size={13} variant="glyph" />
+                            {c.handle}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </Card>
         </div>
       </div>
