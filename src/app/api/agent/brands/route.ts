@@ -41,6 +41,25 @@ export async function GET(req: Request) {
         tagline: b.tagline,
         description: b.description,
         industry: b.industry,
+        products: b.products,
+        services: b.services,
+        market: {
+          segments: b.audienceSegments,
+          regions: b.markets,
+          /** Context for positioning; never named in a post unless asked. */
+          competitors: b.competitors,
+        },
+        contact: {
+          email: b.contactEmail,
+          supportEmail: b.supportEmail,
+          phone: b.phone,
+          contactUrl: b.contactUrl,
+          address: b.address,
+          openingHours: b.openingHours,
+        },
+        /** Personal emails are left out: they stay on the brand page. */
+        people: b.people.map((p) => ({ name: p.name, role: p.role, bio: p.bio, profileUrl: p.linkedin || null })),
+        proof: { points: b.proofPoints, testimonials: b.testimonials, faqs: b.faqs },
         voice: {
           brief: b.brief,
           tone: b.voice,
@@ -92,6 +111,11 @@ function writingGuide(b: BrandWithRole) {
     b.brief && `Brief: ${b.brief}`,
     b.voice && `Tone of voice: ${b.voice}`,
     b.audience && `Audience: ${b.audience}`,
+    b.products.length > 0 && `Products: ${b.products.map((p) => p.name).join(", ")}`,
+    b.services.length > 0 && `Services: ${b.services.map((s) => s.name).join(", ")}`,
+    b.audienceSegments.length > 0 && `Customer segments: ${b.audienceSegments.map((s) => s.name).join(", ")}`,
+    b.competitors.length > 0 && `Never name competitors (${b.competitors.join(", ")}) unless asked.`,
+    b.proofPoints.length > 0 && `Claims you can make: ${b.proofPoints.join("; ")}`,
     b.valueProps.length > 0 && `Key messages: ${b.valueProps.join("; ")}`,
     b.bannedWords.length > 0 && `Never use these words: ${b.bannedWords.join(", ")}`,
     `Emoji: ${EMOJI_LABELS[b.emojiPolicy]}.`,

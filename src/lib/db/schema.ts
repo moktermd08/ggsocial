@@ -39,6 +39,14 @@ export const users = pgTable("users", {
 export type BrandColor = { name: string; hex: string };
 /** A link a writer might need to hand: site, docs, press kit, app store… */
 export type BrandLink = { label: string; url: string };
+/** Something the brand sells: a product or a service. */
+export type BrandOffering = { name: string; description: string; url: string };
+/** One group of customers the brand writes for. */
+export type AudienceSegment = { name: string; description: string };
+/** A person the brand puts forward: founder, spokesperson, subject expert. */
+export type BrandPerson = { name: string; role: string; bio: string; email: string; linkedin: string };
+export type Testimonial = { quote: string; source: string };
+export type BrandFaq = { question: string; answer: string };
 
 export const EMOJI_POLICIES = ["free", "sparing", "none"] as const;
 export type EmojiPolicy = (typeof EMOJI_POLICIES)[number];
@@ -97,6 +105,35 @@ export const brands = pgTable("brands", {
   foundedYear: integer("founded_year"),
   hqLocation: text("hq_location"),
   contactEmail: text("contact_email"),
+
+  /* ------------------------------------------------------------- contact */
+  phone: text("phone"),
+  /** Postal or visiting address, as it should be printed. */
+  address: text("address"),
+  supportEmail: text("support_email"),
+  /** Where "get in touch" should send people: a booking page or contact form. */
+  contactUrl: text("contact_url"),
+  openingHours: text("opening_hours"),
+
+  /* ------------------------------------------------------------ offering */
+  products: jsonb("products").$type<BrandOffering[]>().notNull().default([]),
+  services: jsonb("services").$type<BrandOffering[]>().notNull().default([]),
+
+  /* -------------------------------------------------------------- market */
+  /** Named customer groups, in more depth than the one-line voice `audience`. */
+  audienceSegments: jsonb("audience_segments").$type<AudienceSegment[]>().notNull().default([]),
+  /** Regions or countries the brand sells into. */
+  markets: text("markets"),
+  competitors: jsonb("competitors").$type<string[]>().notNull().default([]),
+
+  /* -------------------------------------------------------------- people */
+  people: jsonb("people").$type<BrandPerson[]>().notNull().default([]),
+
+  /* ------------------------------------------------------ proof and FAQs */
+  /** Stats, awards, certifications, notable clients — claims a post can make. */
+  proofPoints: jsonb("proof_points").$type<string[]>().notNull().default([]),
+  testimonials: jsonb("testimonials").$type<Testimonial[]>().notNull().default([]),
+  faqs: jsonb("faqs").$type<BrandFaq[]>().notNull().default([]),
 
   /* ------------------------------------------------------ visual identity */
   /** The primary logo: the full lockup, used wherever one mark is shown. */

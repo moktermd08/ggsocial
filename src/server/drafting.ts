@@ -2,7 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import type { brands, contentIdeas } from "@/lib/db";
+import type { BrandOffering, brands, contentIdeas } from "@/lib/db";
 import { platformOrNull } from "@/lib/platforms";
 import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
 
@@ -99,6 +99,9 @@ What good looks like here:
 
 The idea is written in shorthand and usually names one company as the one doing the work. Retell it from this brand's own position: a person speaks in the first person from experience; a company speaks as the one that does the work. Never make a different brand the hero of the story.`;
 
+const offerings = (rows: BrandOffering[]) =>
+  rows.map((o) => [o.name, o.description].filter(Boolean).join(" — ")).join("; ") || null;
+
 export function brandBook(brand: typeof brands.$inferSelect) {
   // Fixed field order: this block is a cache key, and a reordering would
   // silently miss the cache on every call.
@@ -116,6 +119,14 @@ export function brandBook(brand: typeof brands.$inferSelect) {
     ["Call to action", brand.ctaText],
     ["House hashtags", brand.defaultHashtags.join(" ") || null],
     ["Website", brand.website],
+    ["Products", offerings(brand.products)],
+    ["Services", offerings(brand.services)],
+    ["Customer segments", brand.audienceSegments.map((s) => s.description ? `${s.name} (${s.description})` : s.name).join("; ") || null],
+    ["Markets", brand.markets],
+    ["Competitors (context only, never name them)", brand.competitors.join(", ") || null],
+    ["Key people", brand.people.map((p) => p.role ? `${p.name}, ${p.role}` : p.name).join("; ") || null],
+    ["Proof points (claims the brand can back up)", brand.proofPoints.join("; ") || null],
+    ["Contact page", brand.contactUrl],
   ];
   const filled = lines.filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: ${v!.trim()}`);
   return `Brand book\n\n${filled.join("\n")}`;

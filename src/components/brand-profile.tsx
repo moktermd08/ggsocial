@@ -234,3 +234,69 @@ export function ChipListField({
     </div>
   );
 }
+
+export type RowField = {
+  key: string; label: string; placeholder?: string;
+  type?: "text" | "url" | "email"; multiline?: boolean;
+  /** Spans both columns of the row grid. */
+  wide?: boolean;
+};
+
+/**
+ * A list of records — products, people, FAQs — each a small grid of inputs.
+ * Rows post as parallel `name.field` lists, which `records()` zips back up.
+ */
+export function RowsEditor({
+  name, fields, value, disabled, addLabel, empty,
+}: {
+  name: string; fields: RowField[]; value: Record<string, string>[];
+  disabled?: boolean; addLabel: string; empty: string;
+}) {
+  const [rows, setRows] = useState(() => withIds(value));
+  const blank = () => Object.fromEntries(fields.map((f) => [f.key, ""]));
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && <p className="text-xs text-muted">{empty}</p>}
+      {rows.map(({ key, row }, i) => (
+        <div key={key} className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 p-2.5">
+          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+            {fields.map((f) => {
+              const common = {
+                name: `${name}.${f.key}`,
+                defaultValue: row[f.key] ?? "",
+                disabled,
+                placeholder: f.placeholder,
+                "aria-label": `${f.label} ${i + 1}`,
+              };
+              return (
+                <div key={f.key} className={f.wide || f.multiline ? "sm:col-span-2" : undefined}>
+                  <span className="mb-0.5 block text-[11px] font-medium text-muted">{f.label}</span>
+                  {f.multiline
+                    ? <textarea rows={2} {...common} />
+                    : <input type={f.type ?? "text"} {...common} />}
+                </div>
+              );
+            })}
+          </div>
+          {!disabled && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`Remove ${i + 1}`}
+              onClick={() => setRows((r) => r.filter((x) => x.key !== key))}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {!disabled && (
+        <Button type="button" size="sm" onClick={() => setRows((r) => [...r, { key: `r${nextRowId++}`, row: blank() }])}>
+          <Plus className="size-3.5" /> {addLabel}
+        </Button>
+      )}
+    </div>
+  );
+}

@@ -5,7 +5,7 @@ import { asResult } from "@/lib/action-result";
 import { redirect } from "next/navigation";
 import { db, brands, memberships, activity, users, invites, media, type Role } from "@/lib/db";
 import { requireUser, requireBrandRole } from "@/lib/auth";
-import { emojiPolicy, hashtags, hex, links, list, palette, str, year } from "@/server/brand-form";
+import { emojiPolicy, hashtags, hex, links, list, palette, records, str, year } from "@/server/brand-form";
 import { storeUpload, kindFromMime } from "@/server/media";
 import { getBookDefaults, linkBrandToBook, syncBrandBook } from "@/server/brand-book";
 import { BRAND_IMAGE_SLOTS, isBrandImageSlot, type BrandImageSlot } from "@/lib/brand-images";
@@ -20,8 +20,11 @@ function slugify(name: string) {
  * rendered form (say, the identity card for a viewer) would blank out every
  * column it happens not to include.
  */
-const BRAND_SECTIONS = ["basics", "identity", "visual", "voice", "links", "notes"] as const;
+const BRAND_SECTIONS = [
+  "basics", "identity", "contact", "offering", "market", "people", "proof", "visual", "voice", "links", "notes",
+] as const;
 type BrandSection = (typeof BRAND_SECTIONS)[number];
+const OFFERING_FIELDS = ["name", "description", "url"] as const;
 
 function patchFor(section: BrandSection, fd: FormData) {
   switch (section) {
@@ -39,8 +42,35 @@ function patchFor(section: BrandSection, fd: FormData) {
         industry: str(fd, "industry"),
         foundedYear: year(fd, "foundedYear"),
         hqLocation: str(fd, "hqLocation"),
-        contactEmail: str(fd, "contactEmail"),
         description: str(fd, "description"),
+      };
+    case "contact":
+      return {
+        contactEmail: str(fd, "contactEmail"),
+        supportEmail: str(fd, "supportEmail"),
+        phone: str(fd, "phone"),
+        contactUrl: str(fd, "contactUrl"),
+        address: str(fd, "address"),
+        openingHours: str(fd, "openingHours"),
+      };
+    case "offering":
+      return {
+        products: records(fd, "products", OFFERING_FIELDS).filter((p) => p.name),
+        services: records(fd, "services", OFFERING_FIELDS).filter((p) => p.name),
+      };
+    case "market":
+      return {
+        audienceSegments: records(fd, "segments", ["name", "description"] as const).filter((s) => s.name),
+        markets: str(fd, "markets"),
+        competitors: list(fd, "competitors"),
+      };
+    case "people":
+      return { people: records(fd, "people", ["name", "role", "bio", "email", "linkedin"] as const).filter((p) => p.name) };
+    case "proof":
+      return {
+        proofPoints: list(fd, "proofPoints"),
+        testimonials: records(fd, "testimonials", ["quote", "source"] as const).filter((t) => t.quote),
+        faqs: records(fd, "faqs", ["question", "answer"] as const).filter((f) => f.question),
       };
     case "visual":
       return {

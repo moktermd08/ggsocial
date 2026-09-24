@@ -5,7 +5,7 @@ import { updateBrandAction, archiveBrandAction } from "@/server/actions/brands";
 import { TeamManager } from "@/components/team-manager";
 import { Card, CardHeader, Field, PageHeader, buttonClass, Badge, LinkButton } from "@/components/ui";
 import { PlatformIcon } from "@/components/platform-icon";
-import { BrandImageUploader, ChipListField, LinksEditor, PaletteEditor } from "@/components/brand-profile";
+import { BrandImageUploader, ChipListField, LinksEditor, PaletteEditor, RowsEditor, type RowField } from "@/components/brand-profile";
 import { BRAND_IMAGE_SLOTS, LOGO_SLOTS } from "@/lib/brand-images";
 import { COMMON_TIMEZONES } from "@/lib/format";
 import { readableOn } from "@/lib/color";
@@ -48,6 +48,13 @@ function SectionForm({
 }
 
 const rev = (...values: unknown[]) => JSON.stringify(values);
+
+const OFFERING_FIELDS: RowField[] = [
+  { key: "name", label: "Name", placeholder: "ArmOne pick-and-place" },
+  { key: "url", label: "Page", type: "url", placeholder: "https://acme.com/armone" },
+  { key: "description", label: "What it is and who it's for", multiline: true,
+    placeholder: "A 6-axis arm for loading CNC machines, set up without an integrator." },
+];
 
 export default async function BrandPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -122,7 +129,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           <SectionForm
             id={id}
             section="identity"
-            revision={rev(brand.legalName, brand.industry, brand.foundedYear, brand.hqLocation, brand.contactEmail, brand.description)}
+            revision={rev(brand.legalName, brand.industry, brand.foundedYear, brand.hqLocation, brand.description)}
             title="Company profile"
             subtitle="The background a new writer or freelancer needs on day one."
             editable={editable}
@@ -142,12 +149,164 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
                 <input name="hqLocation" defaultValue={brand.hqLocation ?? ""} disabled={ro} placeholder="Manchester, UK" />
               </Field>
             </div>
-            <Field label="Contact email" hint="Where press or partnership replies should go.">
-              <input name="contactEmail" type="email" defaultValue={brand.contactEmail ?? ""} disabled={ro} placeholder="press@acme.com" />
-            </Field>
             <Field label="What the company does" hint="A paragraph or two. This is the context behind every post.">
               <textarea name="description" rows={5} defaultValue={brand.description ?? ""} disabled={ro}
                 placeholder="Acme builds pick-and-place arms for small workshops…" />
+            </Field>
+          </SectionForm>
+
+          <SectionForm
+            id={id}
+            section="offering"
+            revision={rev(brand.products, brand.services)}
+            title="Products & services"
+            subtitle="What the brand sells, so posts name real things instead of vague benefits."
+            editable={editable}
+          >
+            <Field label="Products">
+              <RowsEditor name="products" fields={OFFERING_FIELDS} value={brand.products} disabled={ro}
+                addLabel="Add product" empty="No products yet." />
+            </Field>
+            <Field label="Services">
+              <RowsEditor name="services" fields={OFFERING_FIELDS} value={brand.services} disabled={ro}
+                addLabel="Add service" empty="No services yet." />
+            </Field>
+          </SectionForm>
+
+          <SectionForm
+            id={id}
+            section="market"
+            revision={rev(brand.audienceSegments, brand.markets, brand.competitors)}
+            title="Target audience"
+            subtitle="Who buys, where, and who else they could buy from."
+            editable={editable}
+          >
+            <Field label="Customer segments" hint="One row per group: who they are, what they need, what makes them buy.">
+              <RowsEditor
+                name="segments"
+                fields={[
+                  { key: "name", label: "Segment", placeholder: "Small workshop owners" },
+                  { key: "description", label: "Who they are and what they need", multiline: true,
+                    placeholder: "5–50 staff, no in-house engineer, losing hours to repetitive loading jobs." },
+                ]}
+                value={brand.audienceSegments}
+                disabled={ro}
+                addLabel="Add segment"
+                empty="No segments yet. The one-line audience under Voice & messaging still applies."
+              />
+            </Field>
+            <Field label="Markets" hint="Regions, countries or cities the brand sells into.">
+              <input name="markets" defaultValue={brand.markets ?? ""} disabled={ro} placeholder="UK and Ireland; EU from 2027" />
+            </Field>
+            <ChipListField
+              label="Competitors"
+              name="competitors"
+              hint="Never named in posts unless the brief says so — this is context for positioning."
+              defaultValue={brand.competitors}
+              disabled={ro}
+              placeholder={"RoboCo\nArmWorks"}
+            />
+          </SectionForm>
+
+          <SectionForm
+            id={id}
+            section="contact"
+            revision={rev(brand.contactEmail, brand.supportEmail, brand.phone, brand.contactUrl, brand.address, brand.openingHours)}
+            title="Contact information"
+            subtitle="The details a post, bio or reply can hand out."
+            editable={editable}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Contact email" hint="Where press or partnership replies should go.">
+                <input name="contactEmail" type="email" defaultValue={brand.contactEmail ?? ""} disabled={ro} placeholder="press@acme.com" />
+              </Field>
+              <Field label="Support email">
+                <input name="supportEmail" type="email" defaultValue={brand.supportEmail ?? ""} disabled={ro} placeholder="help@acme.com" />
+              </Field>
+              <Field label="Phone">
+                <input name="phone" type="tel" defaultValue={brand.phone ?? ""} disabled={ro} placeholder="+44 161 000 0000" />
+              </Field>
+              <Field label="Contact or booking page">
+                <input name="contactUrl" type="url" defaultValue={brand.contactUrl ?? ""} disabled={ro} placeholder="https://acme.com/demo" />
+              </Field>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Address">
+                <textarea name="address" rows={3} defaultValue={brand.address ?? ""} disabled={ro}
+                  placeholder={"Unit 4, Mill Lane\nManchester M1 1AA"} />
+              </Field>
+              <Field label="Opening hours">
+                <textarea name="openingHours" rows={3} defaultValue={brand.openingHours ?? ""} disabled={ro}
+                  placeholder="Mon–Fri 9:00–17:30" />
+              </Field>
+            </div>
+          </SectionForm>
+
+          <SectionForm
+            id={id}
+            section="people"
+            revision={rev(brand.people)}
+            title="Key people"
+            subtitle="Founders, spokespeople and experts posts can quote or tag. Emails stay on this page."
+            editable={editable}
+          >
+            <RowsEditor
+              name="people"
+              fields={[
+                { key: "name", label: "Name", placeholder: "Sam Patel" },
+                { key: "role", label: "Role", placeholder: "Founder & CEO" },
+                { key: "email", label: "Email", type: "email", placeholder: "sam@acme.com" },
+                { key: "linkedin", label: "LinkedIn or profile URL", type: "url", placeholder: "https://linkedin.com/in/…" },
+                { key: "bio", label: "Short bio", multiline: true, placeholder: "Ex-Rolls-Royce engineer who started Acme after…" },
+              ]}
+              value={brand.people}
+              disabled={ro}
+              addLabel="Add person"
+              empty="No one listed yet."
+            />
+          </SectionForm>
+
+          <SectionForm
+            id={id}
+            section="proof"
+            revision={rev(brand.proofPoints, brand.testimonials, brand.faqs)}
+            title="Proof & FAQs"
+            subtitle="Claims the brand can back up, and the questions customers keep asking."
+            editable={editable}
+          >
+            <ChipListField
+              label="Proof points"
+              name="proofPoints"
+              hint="Stats, awards, certifications, notable clients. One per line — only what's true and public."
+              defaultValue={brand.proofPoints}
+              disabled={ro}
+              placeholder={"ISO 9001 certified\n400+ arms installed\nMade Smarter 2025 winner"}
+            />
+            <Field label="Testimonials">
+              <RowsEditor
+                name="testimonials"
+                fields={[
+                  { key: "quote", label: "Quote", multiline: true, placeholder: "We had it running before lunch." },
+                  { key: "source", label: "Who said it", wide: true, placeholder: "Jo Reed, Reed Precision" },
+                ]}
+                value={brand.testimonials}
+                disabled={ro}
+                addLabel="Add testimonial"
+                empty="No testimonials yet."
+              />
+            </Field>
+            <Field label="FAQs">
+              <RowsEditor
+                name="faqs"
+                fields={[
+                  { key: "question", label: "Question", wide: true, placeholder: "Do I need an integrator?" },
+                  { key: "answer", label: "Answer", multiline: true, placeholder: "No — setup takes an afternoon with our guide." },
+                ]}
+                value={brand.faqs}
+                disabled={ro}
+                addLabel="Add FAQ"
+                empty="No FAQs yet."
+              />
             </Field>
           </SectionForm>
 
@@ -373,8 +532,14 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
                 {[
                   ["Website", brand.website],
                   ["Contact", brand.contactEmail],
+                  ["Phone", brand.phone],
                   ["HQ", brand.hqLocation],
                   ["Founded", brand.foundedYear?.toString() ?? null],
+                  ["Offers", [
+                    brand.products.length && `${brand.products.length} product${brand.products.length === 1 ? "" : "s"}`,
+                    brand.services.length && `${brand.services.length} service${brand.services.length === 1 ? "" : "s"}`,
+                  ].filter(Boolean).join(", ") || null],
+                  ["People", brand.people.map((p) => p.name).join(", ") || null],
                   ["Type", [brand.fontHeading, brand.fontBody].filter(Boolean).join(" / ") || null],
                 ].map(([label, value]) =>
                   value ? (

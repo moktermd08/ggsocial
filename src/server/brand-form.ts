@@ -45,6 +45,21 @@ export function rows<T>(fd: FormData, a: string, b: string, build: (a: string, b
   return out;
 }
 
+/**
+ * Repeatable rows with any number of fields, posted as parallel
+ * `prefix.field` lists. Rows with every field blank are dropped.
+ */
+export function records<K extends string>(fd: FormData, prefix: string, fields: readonly K[]): Record<K, string>[] {
+  const cols = fields.map((f) => fd.getAll(`${prefix}.${f}`).map((v) => String(v).trim()));
+  const count = Math.max(0, ...cols.map((c) => c.length));
+  const out: Record<K, string>[] = [];
+  for (let i = 0; i < count; i++) {
+    const row = Object.fromEntries(fields.map((f, j) => [f, cols[j][i] ?? ""])) as Record<K, string>;
+    if (fields.some((f) => row[f])) out.push(row);
+  }
+  return out;
+}
+
 export function palette(fd: FormData): BrandColor[] {
   return rows(fd, "palette.name", "palette.hex", (name, h) => ({
     name: name || "Untitled",
