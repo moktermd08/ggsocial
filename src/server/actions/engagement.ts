@@ -95,7 +95,11 @@ export async function updateInteractionAction(input: {
     if (input.status) patch.status = input.status;
     if (input.priority) patch.priority = input.priority;
     if (input.sentiment !== undefined) patch.sentiment = input.sentiment;
-    if (input.replyBody !== undefined) patch.replyBody = input.replyBody?.trim() || null;
+    if (input.replyBody !== undefined) {
+      patch.replyBody = input.replyBody?.trim() || null;
+      // A person has made the reply their own; it no longer counts as an agent draft.
+      if (patch.replyBody !== row.replyBody) patch.agentCode = null;
+    }
     if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
     if (input.assignToMe) patch.assigneeId = user.id;
     if (input.snoozeUntil !== undefined) {

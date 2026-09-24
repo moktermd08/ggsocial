@@ -26,6 +26,16 @@ with the copy and files ready to paste.
   the rule it follows. Every brand follows the master and can tune any limit; editors and
   agents suggest, approvers decide, and a daily job suggests posting times from what
   performed. Every change is logged with who, why and the numbers behind it.
+- **Agents** — a crew per brand that does the hourly work so people only set guidelines
+  and review. The *content writer* keeps the calendar full from the content plan, books
+  each post into an open slot and sends it for approval, then revises anything a reviewer
+  sends back using their note. The *community manager* drafts replies to new comments,
+  messages, mentions and reviews, sets tone and priority, and flags anything a person
+  must decide. The *performance analyst* reads yesterday's posts every morning and ticks
+  the daily check with its note. Each agent is switched on per brand, reads that brand's
+  guidelines on every run, and never publishes or sends: its work goes through the same
+  approval, engagement queue and checklist review as a person's. Every run is logged with
+  what it made, what to check and what it cost. Needs `ANTHROPIC_API_KEY`.
 - **Publish queue** — anything due on a manual channel, with copy buttons, the media to
   download and platform-specific steps. Tick it off and it is marked published.
 - **Channels** — 109 platforms, each either *manual* (works immediately) or *live*
@@ -88,6 +98,7 @@ npm run scheduler
 | `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_BASE` | Only for `MEDIA_DRIVER=s3`. |
 | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | Optional. Enables importing Canva designs into Media. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media. |
+| `ANTHROPIC_API_KEY` | Optional. Enables drafting with Claude and the brand agents, which run from `/api/cron/agents` every five minutes (the scheduler and `vercel.json` both call it). |
 
 ## Media sources: Canva and Google Photos
 

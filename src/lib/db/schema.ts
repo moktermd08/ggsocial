@@ -584,6 +584,8 @@ export const posts = pgTable("posts", {
   /** Internal working notes. Never published. */
   notes: text("notes"),
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  /** The brand agent that wrote it, when an agent did rather than a person. */
+  agentCode: text("agent_code"),
   approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: now(),
@@ -696,6 +698,8 @@ export const interactions = pgTable("interactions", {
   assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
   /** Written here, then posted on the platform by hand or by the adapter. */
   replyBody: text("reply_body"),
+  /** The brand agent that drafted `replyBody`. Cleared once a person rewrites it. */
+  agentCode: text("agent_code"),
   repliedAt: timestamp("replied_at", { withTimezone: true }),
   replyUrl: text("reply_url"),
 
@@ -1131,6 +1135,54 @@ export const agentTokens = pgTable("agent_tokens", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: now(),
 }, (t) => [uniqueIndex("agent_tokens_hash_idx").on(t.tokenHash), index("agent_tokens_user_idx").on(t.userId)]);
+
+/* ------------------------------------------------------------ brand agents */
+
+import type { AgentCode, AgentRunStatus, AgentRunTrigger, AgentRunItem, AgentUsage } from "../agents/meta";
+
+/**
+ * One agent on one brand's crew: whether it works, the guidelines a person
+ * gave it, and its settings. No row = the agent is off for that brand. The
+ * agents themselves are defined in code (`src/lib/agents/meta.ts`); what they
+ * may do is fixed there, and everything they make waits for a person.
+ */
+export const brandAgents = pgTable("brand_agents", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  agentCode: text("agent_code").$type<AgentCode>().notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  /** What a person wants this agent to do, or never do, for this brand. Read on every run. */
+  guidelines: text("guidelines"),
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("brand_agents_idx").on(t.brandId, t.agentCode)]);
+
+/**
+ * Every time an agent worked a brand: what it made, what it noticed, what it
+ * cost, and whether it failed. The log a person reads to trust the crew.
+ */
+export const agentRuns = pgTable("agent_runs", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  agentCode: text("agent_code").$type<AgentCode>().notNull(),
+  trigger: text("trigger").$type<AgentRunTrigger>().notNull().default("schedule"),
+  status: text("status").$type<AgentRunStatus>().notNull().default("running"),
+  summary: text("summary"),
+  items: jsonb("items").$type<AgentRunItem[]>().notNull().default([]),
+  /** What a person should look at: playbook points a draft still misses, and so on. */
+  issues: jsonb("issues").$type<string[]>().notNull().default([]),
+  error: text("error"),
+  usage: jsonb("usage").$type<AgentUsage | null>(),
+  /** Set when a person pressed "Run now". */
+  triggeredBy: text("triggered_by").references(() => users.id, { onDelete: "set null" }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [
+  index("agent_runs_brand_idx").on(t.brandId, t.startedAt),
+  index("agent_runs_agent_idx").on(t.brandId, t.agentCode, t.startedAt),
+]);
 
 /* ------------------------------------------------------- review & activity */
 

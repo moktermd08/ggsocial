@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Images, Plug, BarChart3, Link2, Building2,
+  LayoutDashboard, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Bot, Images, Plug, BarChart3, Link2, Building2,
 } from "lucide-react";
 
 const ITEMS = [
@@ -17,6 +17,7 @@ const ITEMS = [
   { href: "/activities", label: "Activities", short: "Tasks", icon: ClipboardCheck },
   { href: "/playbook", label: "Playbook", icon: BookCheck },
   { href: "/goals", label: "Goals", icon: Goal },
+  { href: "/agents", label: "Agents", icon: Bot },
   { href: "/library", label: "Media", icon: Images },
   { href: "/channels", label: "Channels", icon: Plug },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },

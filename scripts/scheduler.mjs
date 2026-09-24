@@ -102,7 +102,33 @@ async function playbookTick() {
   }
 }
 
-console.log(`scheduler watching ${url} every 60s (goals, pages and playbook hourly)`);
+/**
+ * Brand agents: each switched-on agent decides whether it is due (community
+ * every 15 minutes, writer hourly, analyst each morning). A tick can run for a
+ * few minutes, so a new one never starts while the last is still going.
+ */
+let agentsBusy = false;
+async function agentsTick() {
+  if (agentsBusy) return;
+  agentsBusy = true;
+  try {
+    const res = await fetch(`${url}/api/cron/agents`, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
+    });
+    if (!res.ok) {
+      console.error(`agents tick got ${res.status} from ${url}`);
+      return;
+    }
+    const json = await res.json();
+    if (json.ran?.length) console.log(new Date().toISOString(), "agents", JSON.stringify(json.ran));
+  } catch (err) {
+    console.error("agents tick failed:", err.message);
+  } finally {
+    agentsBusy = false;
+  }
+}
+
+console.log(`scheduler watching ${url} every 60s (agents every 5 min; goals, pages and playbook hourly)`);
 tick();
 setInterval(tick, 60_000);
 goalsTick();
@@ -111,3 +137,5 @@ pagesTick();
 setInterval(pagesTick, 60 * 60_000);
 playbookTick();
 setInterval(playbookTick, 60 * 60_000);
+agentsTick();
+setInterval(agentsTick, 5 * 60_000);

@@ -14,7 +14,7 @@ import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@
  * the composer applies a draft for review rather than saving over anyone's work.
  */
 
-const MODEL = "claude-opus-5";
+export const MODEL = "claude-opus-5";
 
 /**
  * Medium effort: social copy is short and the brand book does most of the
@@ -58,6 +58,10 @@ export type DraftBrief = {
   playbook?: EffectiveRule[];
   postType?: string | null;
   media?: { kind: string }[];
+  /** Standing instructions a person gave the brand's writer agent. */
+  guidelines?: string | null;
+  /** What a reviewer asked to change, when this is a revision of a sent-back post. */
+  feedback?: string | null;
 };
 
 /** The limits a writer controls. Media and timing are the person's to sort. */
@@ -155,6 +159,12 @@ export function draftRequestText(brief: DraftBrief) {
       brief.title?.trim() ? `Title: ${brief.title.trim()}` : "",
       brief.body?.trim() ? brief.body.trim() : "",
     );
+  }
+  if (brief.guidelines?.trim()) {
+    parts.push("", "Standing guidelines from the brand's team (follow these):", brief.guidelines.trim());
+  }
+  if (brief.feedback?.trim()) {
+    parts.push("", "The reviewer sent the last version back. Their note, which this revision must address:", brief.feedback.trim());
   }
 
   parts.push("", `Write the base post for ${brief.brand.name}, then one version per channel below.`);
@@ -268,14 +278,14 @@ export function draftingConfigured() {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
-function client() {
+export function client() {
   if (!draftingConfigured()) throw new DraftingError(NOT_CONFIGURED);
   // One retry, and a timeout that leaves room for a repair round inside the
   // proxy's 120s window. The SDK's default ten minutes would outlive Apache.
   return new Anthropic({ timeout: 55_000, maxRetries: 1 });
 }
 
-function explain(err: unknown): never {
+export function explain(err: unknown): never {
   if (err instanceof DraftingError) throw err;
   if (err instanceof Anthropic.AuthenticationError) throw new DraftingError("The Anthropic API key was rejected. Check ANTHROPIC_API_KEY.");
   if (err instanceof Anthropic.PermissionDeniedError) throw new DraftingError("This Anthropic key is not allowed to use the model.");
