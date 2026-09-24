@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray, lte, asc } from "drizzle-orm";
 import { db, posts, postTargets, channels, brands, media, attachments, activity, metrics } from "@/lib/db";
 import { getPlatform, NotConnectedError, type MediaItem, type PublishContext } from "@/lib/platforms";
-import { decryptJson } from "@/lib/crypto";
+import { freshCredentials, isRevokedToken, markReconnect } from "@/server/channel-auth";
 import { publicUrl } from "./media";
 import { openPostEngagement } from "@/server/actions/engagement";
 
@@ -35,7 +35,9 @@ async function loadTargetContext(targetId: string) {
     media: items,
     options: (target.options ?? {}) as Record<string, unknown>,
     publicUrl: (m) => publicUrl(m.url),
-    credentials: decryptJson<Record<string, string>>(channel.credentials),
+    // A sign-in that can no longer be refreshed leaves no credentials, so the
+    // adapter reports "not connected" and the post falls back to the queue.
+    credentials: await freshCredentials(channel).catch(() => null),
   };
   return ctx;
 }
@@ -84,7 +86,9 @@ export async function publishTarget(targetId: string, opts: { force?: boolean } 
     const message = err instanceof Error ? err.message : String(err);
     // A missing connection is a setup problem, not a transient failure: fall
     // back to the manual queue so the post still goes out today.
-    const notConnected = err instanceof NotConnectedError;
+    // A token Meta has revoked is a setup problem too: the channel waits to be reconnected.
+    if (isRevokedToken(err)) await markReconnect(ctx.channel, `${platform.name} no longer accepts the sign-in. Connect it again.`);
+    const notConnected = err instanceof NotConnectedError || isRevokedToken(err);
     const attempts = ctx.target.attempts + 1;
     const willRetry = !notConnected && attempts < MAX_ATTEMPTS;
     await db.update(postTargets).set({
@@ -189,7 +193,7 @@ export async function refreshMetrics(brandId: string, sinceDays = 30) {
       const m = await platform.fetchMetrics({
         channel,
         externalPostId: target.externalPostId,
-        credentials: decryptJson<Record<string, string>>(channel.credentials),
+        credentials: await freshCredentials(channel),
       });
       await db.insert(metrics).values({
         targetId: target.id,

@@ -1,4 +1,4 @@
-import { apiFetch, NotConnectedError, type Platform } from "../types";
+import { apiFetch, NotConnectedError, type InboundItem, type Platform } from "../types";
 
 const API = "https://www.googleapis.com/youtube/v3";
 const UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos";
@@ -121,5 +121,42 @@ export const youtube: Platform = {
     const s = ((res.items as { statistics: Record<string, unknown> }[]) ?? [])[0]?.statistics ?? {};
     // Channels that hide their subscriber count omit the field.
     return s.subscriberCount != null && !s.hiddenSubscriberCount ? { followers: Number(s.subscriberCount) } : {};
+  },
+  fetchInbound: async ({ channel, credentials, since }) => {
+    const token = credentials?.accessToken;
+    const id = channel.externalId && /^UC[\w-]{22}$/.test(channel.externalId) ? channel.externalId : null;
+    if (!token || !id) throw new NotConnectedError("YouTube", "missing access token or channel id");
+    // One call covers every video on the channel, newest comment first.
+    const res = await apiFetch(`${API}/commentThreads?${new URLSearchParams({
+      part: "snippet", allThreadsRelatedToChannelId: id, order: "time", maxResults: "50", textFormat: "plainText",
+    })}`, { label: "YouTube comments", headers: { Authorization: `Bearer ${token}` } });
+    type Thread = { id: string; snippet: { videoId?: string; topLevelComment: { id: string; snippet: {
+      textOriginal?: string; textDisplay?: string; authorDisplayName?: string; authorChannelUrl?: string;
+      authorChannelId?: { value: string }; publishedAt: string;
+    } } } };
+    const items: InboundItem[] = [];
+    for (const t of (res.items as Thread[] | undefined) ?? []) {
+      const c = t.snippet.topLevelComment;
+      const at = new Date(c.snippet.publishedAt);
+      if (at <= since) break;
+      const text = c.snippet.textOriginal ?? c.snippet.textDisplay ?? "";
+      if (!text.trim() || c.snippet.authorChannelId?.value === id) continue;
+      items.push({
+        externalId: c.id, kind: "comment", body: text, receivedAt: at, externalPostId: t.snippet.videoId ?? null,
+        authorName: c.snippet.authorDisplayName ?? null, authorUrl: c.snippet.authorChannelUrl ?? null,
+        externalUrl: t.snippet.videoId ? `https://www.youtube.com/watch?v=${t.snippet.videoId}&lc=${c.id}` : null,
+      });
+    }
+    return items;
+  },
+  sendReply: async ({ credentials, replyTo, body }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("YouTube", "missing access token");
+    const res = await apiFetch(`${API}/comments?part=snippet`, {
+      label: "YouTube reply", method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ snippet: { parentId: replyTo, textOriginal: body } }),
+    });
+    return { externalId: String(res.id ?? "") };
   },
 };

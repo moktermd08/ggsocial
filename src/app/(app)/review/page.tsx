@@ -3,7 +3,8 @@ import { eq, inArray } from "drizzle-orm";
 import { AlertTriangle, Hand, Inbox, Workflow } from "lucide-react";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
-import { db, channels, posts, postTargets } from "@/lib/db";
+import { db, channels, interactions, posts, postTargets } from "@/lib/db";
+import { INTERACTION_KIND_LABELS } from "@/lib/db/engagement";
 import { PAUSE_META, WORKFLOW_BY_CODE, stepDef } from "@/lib/workflows/meta";
 import { isVerdict } from "@/lib/workflows/review";
 import { inZone, relativeTime, truncate } from "@/lib/format";
@@ -32,6 +33,12 @@ export default async function ReviewPage() {
       ])
     : [[], []];
   const postById = new Map(postRows.map((p) => [p.id, p]));
+  const itemIds = [...new Set(items.filter((i) => i.run.subjectType === "interaction" && i.run.subjectId).map((i) => i.run.subjectId!))];
+  const itemRows = itemIds.length
+    ? await db.select({ i: interactions, platform: channels.platform }).from(interactions)
+        .leftJoin(channels, eq(channels.id, interactions.channelId)).where(inArray(interactions.id, itemIds))
+    : [];
+  const itemById = new Map(itemRows.map((r) => [r.i.id, r]));
 
   const decide = items.filter((i) => i.step.pause?.kind !== "human");
   const hands = items.filter((i) => i.step.pause?.kind === "human");
@@ -42,6 +49,7 @@ export default async function ReviewPage() {
     const wf = WORKFLOW_BY_CODE[item.run.workflowCode];
     const step = stepDef(item.run.workflowCode, item.step.stepKey);
     const post = item.run.subjectType === "post" && item.run.subjectId ? postById.get(item.run.subjectId) : undefined;
+    const said = item.run.subjectType === "interaction" && item.run.subjectId ? itemById.get(item.run.subjectId) : undefined;
     const platforms = post ? [...new Set(targetRows.filter((t) => t.postId === post.id).map((t) => t.platform))] : [];
     const canDecide = pause.kind === "human" ? can.edit(brand.role) : can.approve(brand.role);
     // An agent's post is approved where its playbook checklist is.
@@ -67,6 +75,21 @@ export default async function ReviewPage() {
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
                 {platforms.map((p) => <PlatformIcon key={p} platform={p} size={16} />)}
                 {post.scheduledAt && <span>for {inZone(post.scheduledAt, brand.timezone)}</span>}
+              </div>
+            </div>
+          )}
+          {said && (
+            <div className="space-y-2 rounded-lg border border-border bg-surface-2/50 p-3 text-xs">
+              <div>
+                <p className="flex items-center gap-1.5 text-muted">
+                  {said.platform && <PlatformIcon platform={said.platform} size={14} />}
+                  {INTERACTION_KIND_LABELS[said.i.kind]} from {said.i.authorName ?? said.i.authorHandle ?? "someone"}
+                </p>
+                <p className="mt-0.5 whitespace-pre-line text-text">{truncate(said.i.body, 400)}</p>
+              </div>
+              <div className="border-t border-border pt-2">
+                <p className="text-muted">Reply</p>
+                <p className="mt-0.5 whitespace-pre-line text-text">{said.i.replyBody ?? "—"}</p>
               </div>
             </div>
           )}

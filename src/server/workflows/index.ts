@@ -11,12 +11,14 @@ import { draftingConfigured } from "@/server/drafting";
 import { BudgetError, assertBudget } from "@/server/ai-usage";
 import { reviewWork, verdictReasons } from "@/server/reviewer";
 import { publishPost } from "@/server/workflows/publish-post";
+import { answerEngagement } from "@/server/workflows/answer-engagement";
 import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 export type RunStep = typeof workflowRunSteps.$inferSelect;
 
 const IMPLS: Record<WorkflowCode, WorkflowImpl> = {
   "publish-post": publishPost,
+  "answer-engagement": answerEngagement,
 };
 
 /** How long one worker holds a run. A run still held after this died with its process. */
@@ -485,4 +487,34 @@ async function review(brand: Brand, run: WorkflowRun, input: NonNullable<Extract
       reasons: [`The reviewer could not read this, so a person checks it. ${why}`, ...screenCopy(input.screen)],
     };
   }
+}
+
+/**
+ * A person dealt with the subject some other way — closed the comment in
+ * Engagement, say. Its open run stops, and anything it was waiting on in the
+ * Review inbox goes with it.
+ */
+export async function closeRunFor(subjectType: string, subjectId: string, summary: string) {
+  const run = await runForSubject(subjectType, subjectId);
+  if (!run) return;
+  const now = new Date();
+  await db.update(workflowRunSteps).set({ decision: "superseded", decidedAt: now })
+    .where(and(eq(workflowRunSteps.runId, run.id), eq(workflowRunSteps.status, "paused"), isNull(workflowRunSteps.decision)));
+  await db.update(workflowRuns).set({ status: "cancelled", nextAt: null, finishedAt: now, summary, updatedAt: now })
+    .where(eq(workflowRuns.id, run.id));
+}
+
+/**
+ * Something a run was waiting on happened elsewhere — a person posted the
+ * reply by hand and marked it replied. An approval still due is given, and a
+ * run waiting on a person looks again now rather than at its next check.
+ */
+export async function nudgeRunFor(subjectType: string, subjectId: string, stepKey: string, userId: string) {
+  await syncSubjectReview({ subjectType, subjectId, stepKey, decision: "approve", note: null, userId });
+  const run = await runForSubject(subjectType, subjectId);
+  if (!run || run.status !== "waiting_human") return;
+  const step = WORKFLOW_BY_CODE[run.workflowCode]?.steps[run.stepIndex];
+  await db.update(workflowRuns).set({ status: "running", nextAt: new Date(), context: { ...run.context, retryStep: step?.key }, updatedAt: new Date() })
+    .where(eq(workflowRuns.id, run.id));
+  await advance(run.id, { agentSteps: false });
 }

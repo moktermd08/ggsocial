@@ -169,9 +169,32 @@ export type Platform = {
   fetchMetrics?: (ctx: { channel: typeof channels.$inferSelect; externalPostId: string; credentials: Record<string, string> | null }) => Promise<MetricsResult>;
   /** Account-level numbers for a live channel, read daily so goals can track them. */
   fetchAccountStats?: (ctx: { channel: typeof channels.$inferSelect; credentials: Record<string, string> | null }) => Promise<AccountStats>;
+  /**
+   * New comments, mentions and messages for a live channel, newest first.
+   * `posts` are the platform ids of what the brand published recently, for
+   * platforms that only list comments per post. Items from the brand's own
+   * account are left out.
+   */
+  fetchInbound?: (ctx: { channel: typeof channels.$inferSelect; credentials: Record<string, string> | null; since: Date; posts: string[] }) => Promise<InboundItem[]>;
+  /** Posts a reply to one inbound item, by the id `fetchInbound` gave it. */
+  sendReply?: (ctx: { channel: typeof channels.$inferSelect; credentials: Record<string, string> | null; replyTo: string; body: string }) => Promise<{ externalId?: string; externalUrl?: string }>;
 };
 
 export type AccountStats = { followers?: number };
+
+/** Something someone said to or about the brand on a platform. */
+export type InboundItem = {
+  externalId: string;
+  kind: "comment" | "mention" | "message" | "review";
+  body: string;
+  authorName?: string | null;
+  authorHandle?: string | null;
+  authorUrl?: string | null;
+  externalUrl?: string | null;
+  receivedAt: Date;
+  /** The brand's post it was left on, when it was. */
+  externalPostId?: string | null;
+};
 
 /** Thrown when a live publish is attempted without usable credentials. */
 export class NotConnectedError extends Error {

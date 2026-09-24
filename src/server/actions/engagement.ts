@@ -8,6 +8,7 @@ import {
   type InteractionSentiment,
 } from "@/lib/db";
 import { requireUser, requireBrandRole, can } from "@/lib/auth";
+import { closeRunFor, nudgeRunFor } from "@/server/workflows";
 
 export type InteractionInput = {
   brandId: string;
@@ -112,6 +113,7 @@ export async function updateInteractionAction(input: {
     }
 
     await db.update(interactions).set(patch).where(eq(interactions.id, row.id));
+    if (patch.status === "done" || patch.status === "ignored") await closeRunFor("interaction", row.id, "Closed by a person in Engagement.");
     revalidatePath("/engage");
   });
 }
@@ -144,6 +146,8 @@ export async function markRepliedAction(input: { interactionId: string; replyBod
         minutes: Math.max(0, Math.round((repliedAt.getTime() - row.receivedAt.getTime()) / 60_000)),
       },
     });
+    // An agent reply waiting in a run: it has gone out, so the run finishes.
+    await nudgeRunFor("interaction", row.id, "reply", user.id);
 
     revalidatePath("/engage");
   });
@@ -217,6 +221,10 @@ export async function bulkUpdateInteractionsAction(ids: string[], status: Intera
       assigneeId: status === "replied" ? user.id : undefined,
       updatedAt: new Date(),
     }).where(inArray(interactions.id, touch));
+    for (const id of touch) {
+      if (status === "replied") await nudgeRunFor("interaction", id, "reply", user.id);
+      else if (status === "done" || status === "ignored") await closeRunFor("interaction", id, "Closed by a person in Engagement.");
+    }
 
     revalidatePath("/engage");
   });

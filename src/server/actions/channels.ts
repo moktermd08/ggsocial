@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { asResult } from "@/lib/action-result";
 import { db, channels, activity } from "@/lib/db";
-import { requireBrandRole } from "@/lib/auth";
+import { requireBrandRole, requireUser } from "@/lib/auth";
+import { connectChannel, dropHeld, heldCandidates } from "@/server/channel-auth";
 import { getPlatform } from "@/lib/platforms";
 import { encryptJson } from "@/lib/crypto";
 import { checkChannelPages, normalisePageUrl, recordPageChecks } from "@/server/page-checks";
@@ -200,6 +201,26 @@ export async function checkChannelPageAction(channelId: string) {
     await requireBrandRole(channel.brandId, "editor");
     if (!channel.pageUrl) throw new Error("Save the page URL first.");
     await checkPage(channelId, channel.brandId);
+    revalidatePath("/", "layout");
+  });
+}
+
+/**
+ * The person picked which of the accounts a sign-in could reach this channel
+ * is — one Facebook Page among several, say.
+ */
+export async function pickChannelAccountAction(connectionId: string, externalId: string) {
+  return asResult(async () => {
+    const user = await requireUser();
+    const held = await heldCandidates(connectionId, user.id);
+    if (!held) throw new Error("That sign-in has expired. Connect the channel again.");
+    const channel = await db.query.channels.findFirst({ where: eq(channels.id, held.channelId) });
+    if (!channel) throw new Error("Channel not found");
+    await requireBrandRole(channel.brandId, "admin");
+    const candidate = held.candidates.find((c) => c.externalId === externalId);
+    if (!candidate) throw new Error("That account is not one this sign-in can reach.");
+    await connectChannel(channel.id, candidate, user.id);
+    await dropHeld(connectionId);
     revalidatePath("/", "layout");
   });
 }

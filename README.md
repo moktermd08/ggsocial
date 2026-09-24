@@ -36,7 +36,8 @@ with the copy and files ready to paste.
   brand and reads that brand's guidelines on every run. Every run is logged with what it
   made, what to check and what it cost. Needs `ANTHROPIC_API_KEY`.
 - **Workflows and the Review inbox** — each kind of work runs as a workflow of steps, done
-  by an agent, a tool or a person. After an agent's step the run stops for a person only
+  by an agent, a tool or a person: so far, *publish a planned post* and *answer a comment or
+  message* (sent through the platform on connected Facebook, Instagram and YouTube channels). After an agent's step the run stops for a person only
   where that step's review is on — and review is on for every step until the brand's owner
   switches it off, with a reason that is kept in the log. A reviewer (Claude Haiku) reads
   everything an agent makes, scores it out of 100 and flags risks; weak but safe work goes
@@ -111,7 +112,8 @@ npm run scheduler
 | `MEDIA_DRIVER` | `local` (default, writes to `.data/uploads`) or `s3`. |
 | `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_BASE` | Only for `MEDIA_DRIVER=s3`. |
 | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | Optional. Enables importing Canva designs into Media. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media, and "Connect with Google" for YouTube channels. |
+| `META_APP_ID`, `META_APP_SECRET` | Optional. Enables "Connect with Facebook" for Facebook Page and Instagram channels. |
 | `ANTHROPIC_API_KEY` | Optional. Enables drafting with Claude and the brand agents, which run from `/api/cron/agents` every five minutes (the scheduler and `vercel.json` both call it). |
 | `CLAUDE_WRITING_MODEL`, `CLAUDE_ANALYSIS_MODEL`, `CLAUDE_REVIEW_MODEL` | Optional. The model that writes posts and replies, the one that writes the analyst's reports, and the reviewer. Writing and analysis default to `claude-sonnet-5`, the reviewer to `claude-haiku-4-5`; set `claude-opus-5` to trade cost for a bigger model. |
 
@@ -144,6 +146,37 @@ Each imported file keeps an "edit in Canva" link.
 Since 2025, Google no longer lets apps browse a whole Photos library. Instead,
 clicking the button opens Google's own picker in a new tab, and only the photos
 and videos picked there are imported.
+
+## Connecting Facebook, Instagram and YouTube
+
+A connected channel publishes by itself, brings its comments into Engagement every ten
+minutes, and sends the replies that come out of the *answer a comment or message*
+workflow. Each Facebook, Instagram and YouTube channel has a **Connect with Facebook** or
+**Connect with Google** button. The sign-in stays alive by itself: Facebook Page tokens do
+not expire, and Google tokens are refreshed before they run out. If a platform stops
+accepting a sign-in, the channel drops back to manual (posts still go out through the
+publish queue) and is marked *needs reconnecting*.
+
+**Meta (Facebook Pages and Instagram)**, once, as the person who admins the Pages:
+
+1. Create an app at developers.facebook.com/apps (type *Business*), and add *Facebook
+   Login for Business*.
+2. Valid OAuth redirect URI: `APP_URL/api/channels/connect/meta/callback`.
+3. Copy the app ID and secret into `META_APP_ID` / `META_APP_SECRET`.
+4. While the app is in development mode it works for anyone with a role on it, which
+   covers your own Pages and Instagram accounts. App Review is only needed to connect
+   accounts of people who have no role on the app.
+5. Instagram accounts must be business or creator accounts linked to a Facebook Page.
+
+**Google (YouTube)**, using the same OAuth client as Google Photos:
+
+1. In Google Cloud, enable the **YouTube Data API v3**.
+2. Add the redirect `APP_URL/api/channels/connect/google/callback` to the OAuth client.
+3. On the consent screen, add the scopes `youtube.force-ssl` and `youtube.upload`, and add
+   yourself as a test user. Until Google verifies the project, uploads are private and
+   only test users can connect.
+
+Other platforms still connect by pasting a token (the **Token** / **Connect** button).
 
 ## Deploying
 

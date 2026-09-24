@@ -247,9 +247,26 @@ export const channels = pgTable("channels", {
   /** Why the last check came out as it did: "HTTP 404", "title says page not found"… */
   pageNote: text("page_note"),
   pageCheckedAt: timestamp("page_checked_at", { withTimezone: true }),
+  /** When comments, mentions and messages were last pulled in from the platform. */
+  inboxCheckedAt: timestamp("inbox_checked_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: now(),
 }, (t) => [index("channels_brand_idx").on(t.brandId)]);
+
+/**
+ * A channel sign-in that came back with more than one account — several
+ * Facebook Pages, say — and is waiting for the person to pick which one this
+ * channel is. The accounts, tokens included, are encrypted; a row older than
+ * fifteen minutes is dead.
+ */
+export const channelConnections = pgTable("channel_connections", {
+  id: id(),
+  channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Encrypted ConnectCandidate[]. */
+  candidates: text("candidates").notNull(),
+  createdAt: now(),
+});
 
 /* -------------------------------------------------------------------- media */
 

@@ -98,9 +98,10 @@ export const AGENTS: AgentDef[] = [
       "Drafts a reply to the playbook's reply, message and review rules",
       "Sets tone (positive, neutral, negative, question) and priority",
       "Raises complaints, prices, refunds, legal and anything admitting fault to high priority for a person",
+      "Hands each reply to the 'Answer a comment or message' workflow, which sends it on Facebook, Instagram and YouTube once it is approved",
     ],
     handsOff: [
-      "Never sends: a person reads the draft, edits it if needed and posts it",
+      "Never skips a review that is on: every reply waits for a person until the brand's owner switches review off for replies, and safety stops still apply after that",
       "Never promises a price, a deadline or a refund",
     ],
     activityCodes: ["D-02", "D-03", "D-10", "D-13", "D-20"],

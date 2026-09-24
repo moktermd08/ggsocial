@@ -15,7 +15,7 @@ import {
 import { periodFor, recentPeriods, todayIn, type Period } from "@/lib/activities/periods";
 import { ensureActivityLibrary, type ActivityTemplate } from "@/server/activities";
 import { platformOrNull } from "@/lib/platforms";
-import { decryptJson } from "@/lib/crypto";
+import { freshCredentials } from "@/server/channel-auth";
 
 export type Goal = typeof goals.$inferSelect;
 export type GoalTemplate = typeof goalTemplates.$inferSelect;
@@ -561,7 +561,7 @@ export async function pullAccountStats(opts: { brandIds?: string[]; onlyMissing?
       }
     }
     try {
-      const stats = await platform.fetchAccountStats({ channel, credentials: decryptJson<Record<string, string>>(channel.credentials) });
+      const stats = await platform.fetchAccountStats({ channel, credentials: await freshCredentials(channel) });
       if (typeof stats.followers === "number" && Number.isFinite(stats.followers)) {
         await saveSnapshots([{ brandId: channel.brandId, channelId: channel.id, metric: "followers", date: today, value: stats.followers }], "api", null);
       }

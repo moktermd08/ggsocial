@@ -12,7 +12,7 @@
  * reviews a step.
  */
 
-export const WORKFLOW_CODES = ["publish-post"] as const;
+export const WORKFLOW_CODES = ["publish-post", "answer-engagement"] as const;
 export type WorkflowCode = (typeof WORKFLOW_CODES)[number];
 
 export type StepPerformer = "agent" | "tool" | "human";
@@ -64,6 +64,24 @@ export const WORKFLOWS: WorkflowDef[] = [
       {
         key: "publish", name: "Publish", performer: "tool", reviewable: false,
         does: "Live channels post by themselves at the slot. Manual channels wait in the publish queue for a person.",
+      },
+    ],
+  },
+  {
+    code: "answer-engagement",
+    name: "Answer a comment or message",
+    summary: "From a new comment, message, mention or review to a sent reply: drafted in the brand's voice, read by the reviewer, and posted on the platform.",
+    startedBy: "Community manager agent, every 15 minutes, for each new item in Engagement",
+    activityCodes: ["D-02", "D-03", "D-10", "D-13", "D-20"],
+    steps: [
+      {
+        key: "reply", name: "Draft the reply", performer: "agent", reviewable: true,
+        does: "Drafts the reply to the brand book and the playbook's reply rules, sets tone and priority, and flags anything a person must decide.",
+        reviewQuestion: "Send this reply, or send it back with a note.",
+      },
+      {
+        key: "send", name: "Send", performer: "tool", reviewable: false,
+        does: "Posts the reply on the platform where its API allows (Facebook, Instagram, YouTube). Elsewhere a person pastes it and marks it replied.",
       },
     ],
   },

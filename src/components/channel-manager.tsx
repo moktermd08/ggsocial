@@ -22,6 +22,8 @@ export type ChannelRow = {
   pageUrl: string | null; pageStatus: "live" | "down" | "unknown" | null; pageNote: string | null; pageCheckedAt: string | null;
   /** False for senders and inboxes, which have no page of their own to visit. */
   hasPublicPage: boolean;
+  /** "Connect with Facebook / Google", where the platform signs in that way. */
+  signIn: { href: string; label: string; configured: boolean; hint: string } | null;
 };
 
 export function ChannelManager({
@@ -63,18 +65,26 @@ export function ChannelManager({
                   <p className="truncate text-sm font-medium">{c.handle}</p>
                   <p className="text-[11px] text-muted">{meta?.name ?? c.platform}{c.displayName ? ` · ${c.displayName}` : ""}</p>
                 </div>
+                {c.status === "expired" && <Badge color="#b91c1c">needs reconnecting</Badge>}
                 <Badge color={c.mode === "live" ? "#15803d" : "#8b8b96"}>
                   {c.mode === "live" ? "auto-publishing" : meta?.manualOnly ? "manual only" : "manual"}
                 </Badge>
                 {canManage && (
                   <div className="flex items-center gap-1">
+                    {c.signIn && (c.signIn.configured ? (
+                      <a href={c.signIn.href} className={buttonClass(c.hasCredentials ? "subtle" : "primary", "sm")} title="Sign in with the platform: no token to copy, and it stays connected">
+                        <Plug className="size-3.5" /> {c.hasCredentials ? "Reconnect" : c.signIn.label}
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-muted" title={c.signIn.hint}>{c.signIn.label}: not set up</span>
+                    ))}
                     {!meta?.manualOnly && (
                       <button
                         onClick={() => setConnecting(connecting === c.id ? null : c.id)}
                         className={buttonClass("subtle", "sm")}
                         title="API credentials"
                       >
-                        <Plug className="size-3.5" /> {c.hasCredentials ? "Re-connect" : "Connect"}
+                        <Plug className="size-3.5" /> {c.signIn ? "Token" : c.hasCredentials ? "Re-connect" : "Connect"}
                       </button>
                     )}
                     {(meta?.optionFields.length ?? 0) > 0 && (

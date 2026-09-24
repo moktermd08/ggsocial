@@ -1,4 +1,4 @@
-import { apiFetch, NotConnectedError, type Platform } from "../types";
+import { apiFetch, NotConnectedError, type InboundItem, type Platform } from "../types";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -153,5 +153,36 @@ export const instagram: Platform = {
       label: "Instagram account stats",
     });
     return res.followers_count != null ? { followers: Number(res.followers_count) } : {};
+  },
+  fetchInbound: async ({ channel, credentials, since, posts }) => {
+    const token = credentials?.accessToken;
+    const igUserId = channel.externalId;
+    if (!token || !igUserId) throw new NotConnectedError("Instagram", "missing access token or Instagram user id");
+    const own = channel.handle.replace(/^@/, "").toLowerCase();
+    const items: InboundItem[] = [];
+    // Instagram lists comments per post, so walk the brand's recent posts.
+    for (const mediaId of posts.slice(0, 25)) {
+      const res = await apiFetch(`${GRAPH}/${mediaId}/comments?${new URLSearchParams({
+        fields: "id,text,username,timestamp,from{id,username}", limit: "50", access_token: token,
+      })}`, { label: "Instagram comments" });
+      for (const c of (res.data as { id: string; text?: string; username?: string; timestamp: string; from?: { id: string; username: string } }[] | undefined) ?? []) {
+        const at = new Date(c.timestamp);
+        const who = c.from?.username ?? c.username ?? null;
+        if (at <= since || !c.text?.trim() || c.from?.id === igUserId || who?.toLowerCase() === own) continue;
+        items.push({
+          externalId: c.id, kind: "comment", body: c.text, receivedAt: at, externalPostId: mediaId,
+          authorHandle: who ? `@${who}` : null, authorUrl: who ? `https://www.instagram.com/${who}/` : null,
+        });
+      }
+    }
+    return items;
+  },
+  sendReply: async ({ credentials, replyTo, body }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Instagram", "missing access token");
+    const res = await apiFetch(`${GRAPH}/${replyTo}/replies`, {
+      label: "Instagram reply", method: "POST", body: new URLSearchParams({ message: body, access_token: token }),
+    });
+    return { externalId: String(res.id ?? "") };
   },
 };

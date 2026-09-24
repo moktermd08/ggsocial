@@ -1,4 +1,4 @@
-import { apiFetch, NotConnectedError, type Platform } from "../types";
+import { apiFetch, NotConnectedError, type InboundItem, type Platform } from "../types";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -123,5 +123,35 @@ export const facebook: Platform = {
     // followers_count is the modern Page metric; fan_count (likes) covers older Pages.
     const n = res.followers_count ?? res.fan_count;
     return n != null ? { followers: Number(n) } : {};
+  },
+  fetchInbound: async ({ channel, credentials, since, posts }) => {
+    const token = credentials?.accessToken;
+    const pageId = channel.externalId;
+    if (!token || !pageId) throw new NotConnectedError("Facebook", "missing Page access token or Page id");
+    const items: InboundItem[] = [];
+    // Facebook lists comments per post, so walk the brand's recent posts.
+    for (const postId of posts.slice(0, 25)) {
+      const res = await apiFetch(`${GRAPH}/${postId}/comments?${new URLSearchParams({
+        fields: "id,message,from{id,name},created_time,permalink_url", filter: "stream", order: "reverse_chronological", limit: "50", access_token: token,
+      })}`, { label: "Facebook comments" });
+      for (const c of (res.data as { id: string; message?: string; from?: { id: string; name: string }; created_time: string; permalink_url?: string }[] | undefined) ?? []) {
+        const at = new Date(c.created_time);
+        if (at <= since) break;
+        if (c.from?.id === pageId || !c.message?.trim()) continue;
+        items.push({
+          externalId: c.id, kind: "comment", body: c.message, receivedAt: at, externalPostId: postId,
+          authorName: c.from?.name ?? null, externalUrl: c.permalink_url ?? null,
+        });
+      }
+    }
+    return items;
+  },
+  sendReply: async ({ credentials, replyTo, body }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Facebook", "missing Page access token");
+    const res = await apiFetch(`${GRAPH}/${replyTo}/comments`, {
+      label: "Facebook reply", method: "POST", body: new URLSearchParams({ message: body, access_token: token }),
+    });
+    return { externalId: String(res.id ?? "") };
   },
 };
