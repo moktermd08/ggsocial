@@ -5,10 +5,12 @@
  * agent may do is fixed here in code, not in settings: an agent writes,
  * sorts and reports, and everything it makes goes through the same approval,
  * engagement queue and checklist a person's work does. A person sets the
- * guidelines and reviews the result; nothing an agent makes publishes by itself.
+ * guidelines and reviews the result, in the workflows each agent's work runs
+ * through — which stop for a person wherever the brand's owner has not switched
+ * review off, and always at a safety stop.
  */
 
-export const AGENT_CODES = ["writer", "community", "analyst"] as const;
+export const AGENT_CODES = ["writer", "community", "analyst", "strategist"] as const;
 export type AgentCode = (typeof AGENT_CODES)[number];
 
 export const AGENT_RUN_STATUSES = ["running", "succeeded", "idle", "failed"] as const;
@@ -66,22 +68,23 @@ export const AGENTS: AgentDef[] = [
     summary: "Picks the next ideas from the content plan, writes each one in the brand's voice for every channel, books it into an open posting slot and sends it for approval.",
     does: [
       "Revises any post of its own that a reviewer sent back, working from the reviewer's note",
-      "Finds the open slots in the next days, using the playbook's posting days, windows and posts per week",
+      "Finds the open slots in the next days: as many posts a week as the brand's goals need, on the playbook's posting days and windows",
       "Takes the next planned or backlog idea this brand has not told yet, in plan order",
       "Writes it for every chosen channel to the brand book and the playbook, then checks its own copy",
+      "Where the post needs an image, attaches the best match from the brand's filed library",
       "Books it into the slot and hands it to the 'Publish a planned post' workflow, which stops for review where the brand has review on",
     ],
     handsOff: [
       "Never skips a review that is on: an approver signs off every post until the brand's owner switches review off for writing, and safety stops still apply after that",
       "Never touches a post a person wrote",
-      "Leaves media to people for now; a post that needs an image waits in the review inbox until one is attached",
+      "Attaches only images someone has filed in Media; when nothing filed fits, the post waits for a person to attach one",
     ],
     activityCodes: ["D-01"],
     everyMinutes: 60,
     cadence: "Hourly",
     settings: [
       { key: "daysAhead", label: "Plan this many days ahead", type: "number", min: 1, max: 30, hint: "Slots further out are left for later runs." },
-      { key: "perWeek", label: "Posts per week", type: "number", min: 1, max: 21, hint: "Blank follows the playbook's feed-post rule, or 5." },
+      { key: "perWeek", label: "Posts per week", type: "number", min: 1, max: 21, hint: "Blank follows what the brand's goals need, then the playbook's feed-post rule, then 5." },
       { key: "perRun", label: "Most posts written per run", type: "number", min: 1, max: 5, hint: "Keeps each run's cost and review pile small." },
       { key: "channelIds", label: "Channels it writes for", type: "channels", hint: "None ticked = every channel on the brand." },
     ],
@@ -133,6 +136,31 @@ export const AGENTS: AgentDef[] = [
     settings: [],
     guidelineHint: "e.g. Saves and shares matter more to us than likes. Ignore anything from the giveaway campaign.",
     color: "#475569",
+  },
+  {
+    code: "strategist",
+    name: "Content strategist",
+    role: "Keeps the content plan full",
+    summary: "Watches how many ideas the brand has left against what its goals need, and when the plan runs short proposes new ones built on the brand book and on what its posts have taught.",
+    does: [
+      "Counts the ideas this brand has not told yet against the coming weeks: as many posts a week as its goals need",
+      "When the plan runs short, proposes the ideas to fill the gap: problem, action, outcome, format and pillar",
+      "Builds on the lessons the performance analyst noted on past posts, and never repeats an idea the plan already has",
+      "Hands them to the 'Plan new ideas' workflow, which adds them to the plan once approved",
+    ],
+    handsOff: [
+      "Never skips a review that is on: proposed ideas wait for a person until the brand's owner switches review off for planning",
+      "Adds ideas for this brand only; the brand's other brands skip them unless someone chooses to tell them",
+    ],
+    activityCodes: ["W-01"],
+    everyMinutes: 12 * 60,
+    cadence: "Twice a day",
+    settings: [
+      { key: "weeksAhead", label: "Keep the plan this many weeks ahead", type: "number", min: 1, max: 8, hint: "Blank = 2 weeks." },
+      { key: "perRun", label: "Most ideas proposed at once", type: "number", min: 1, max: 10, hint: "Keeps each review short. Blank = 6." },
+    ],
+    guidelineHint: "e.g. Half the ideas should be customer stories. Nothing about pricing until the new menu launches.",
+    color: "#a16207",
   },
 ];
 

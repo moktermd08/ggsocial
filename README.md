@@ -27,17 +27,22 @@ with the copy and files ready to paste.
   agents suggest, approvers decide, and a daily job suggests posting times from what
   performed. Every change is logged with who, why and the numbers behind it.
 - **Agents** — a crew per brand that does the hourly work so people only set guidelines
-  and review. The *content writer* keeps the calendar full from the content plan, books
-  each post into an open slot and hands it to the *publish a planned post* workflow, then
-  revises anything a reviewer sends back using their note. The *community manager* drafts
+  and review. The *content strategist* keeps the content plan ahead of the calendar: when the
+  ideas a brand has not told will not cover the next weeks, it proposes new ones from the brand
+  book, its goals and the lessons of past posts. The *content writer* keeps the calendar full
+  from the plan — as many posts a week as the brand's goals need — books each post into an
+  open slot, attaches the best-matching image from the brand's filed library where one is
+  needed, and hands it to the *publish a planned post* workflow, then revises anything a
+  reviewer sends back using their note. The *community manager* drafts
   replies to new comments, messages, mentions and reviews, sets tone and priority, and
   flags anything a person must decide. The *performance analyst* reads yesterday's posts
   every morning and ticks the daily check with its note. Each agent is switched on per
   brand and reads that brand's guidelines on every run. Every run is logged with what it
   made, what to check and what it cost. Needs `ANTHROPIC_API_KEY`.
 - **Workflows and the Review inbox** — each kind of work runs as a workflow of steps, done
-  by an agent, a tool or a person: so far, *publish a planned post* and *answer a comment or
-  message* (sent through the platform on connected Facebook, Instagram and YouTube channels). After an agent's step the run stops for a person only
+  by an agent, a tool or a person: so far, *publish a planned post*, *answer a comment or
+  message* (sent through the platform on connected Facebook, Instagram and YouTube channels)
+  and *plan new ideas*. After an agent's step the run stops for a person only
   where that step's review is on — and review is on for every step until the brand's owner
   switches it off, with a reason that is kept in the log. A reviewer (Claude Haiku) reads
   everything an agent makes, scores it out of 100 and flags risks; weak but safe work goes

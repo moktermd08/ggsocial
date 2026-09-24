@@ -6,6 +6,7 @@ import { DraftingError, NOT_CONFIGURED, draftingConfigured } from "@/server/draf
 import { runWriter } from "@/server/agents/writer";
 import { runCommunity } from "@/server/agents/community";
 import { analystDue, runAnalyst } from "@/server/agents/analyst";
+import { runStrategist } from "@/server/agents/strategist";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
 import { assertBudget, spentToday } from "@/server/ai-usage";
 
@@ -16,10 +17,11 @@ const RUNNERS: Record<AgentCode, (job: AgentJob) => Promise<AgentOutcome>> = {
   writer: runWriter,
   community: runCommunity,
   analyst: runAnalyst,
+  strategist: runStrategist,
 };
 
 /** Replies are on a clock, so the community manager goes first in every tick. */
-const ORDER: AgentCode[] = ["community", "writer", "analyst"];
+const ORDER: AgentCode[] = ["community", "strategist", "writer", "analyst"];
 
 /** A run still "running" after this long died with its process. */
 const STALE_MS = 15 * 60_000;

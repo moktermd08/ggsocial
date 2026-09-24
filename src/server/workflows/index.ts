@@ -12,6 +12,7 @@ import { BudgetError, assertBudget } from "@/server/ai-usage";
 import { reviewWork, verdictReasons } from "@/server/reviewer";
 import { publishPost } from "@/server/workflows/publish-post";
 import { answerEngagement } from "@/server/workflows/answer-engagement";
+import { planIdeas } from "@/server/workflows/plan-ideas";
 import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 export type RunStep = typeof workflowRunSteps.$inferSelect;
@@ -26,6 +27,7 @@ function implFor(code: WorkflowCode): WorkflowImpl {
   const impls: Record<WorkflowCode, WorkflowImpl> = {
     "publish-post": publishPost,
     "answer-engagement": answerEngagement,
+    "plan-ideas": planIdeas,
   };
   return impls[code];
 }
@@ -149,11 +151,11 @@ export async function advance(runId: string, opts: { agentSteps: boolean; now?: 
         break;
       }
       const step = def.steps[run.stepIndex];
-      if (step.performer === "agent" && !opts.agentSteps) {
+      if (step.performer === "agent" && !step.fast && !opts.agentSteps) {
         run = await update(run, { status: "running", nextAt: now });
         break;
       }
-      if (step.performer === "agent") {
+      if (step.performer === "agent" && !step.fast) {
         // The daily budget is a safety stop: an agent never calls Claude past it.
         try {
           await assertBudget(brand, now);
@@ -366,8 +368,9 @@ export async function decide(input: { stepId: string; decision: Decision; note: 
       await db.update(workflowRuns).set({ status: "running", nextAt: now, context: { ...run.context, retryStep: row.stepKey }, updatedAt: now })
         .where(eq(workflowRuns.id, run.id));
       const report = await advance(run.id, { agentSteps: false, now });
-      const still = report && (await openPause(run.id, row.stepKey));
-      if (still) throw new Error(`Not done yet: ${report!.run.summary ?? still.summary}`);
+      // Done means this task was closed — the step may well stop again for something new, like a review.
+      const task = report && (await db.query.workflowRunSteps.findFirst({ where: eq(workflowRunSteps.id, row.id) }));
+      if (task && !task.decision) throw new Error(`Not done yet: ${report!.run.summary ?? task.summary}`);
       return describe(report, "Marked done.");
     }
   }

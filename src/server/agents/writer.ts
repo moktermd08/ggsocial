@@ -1,6 +1,6 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray } from "drizzle-orm";
-import { db, comments, contentIdeas, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
+import { db, comments, contentIdeas, goals, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
 import type { EffectiveRule } from "@/lib/playbook/check";
 import { openSlots } from "@/lib/agents/slots";
 import { getBrandPlaybook } from "@/server/playbook";
@@ -61,6 +61,17 @@ async function adoptOldPosts(brandId: string) {
   return adopted;
 }
 
+/**
+ * Feed posts a week the brand's active goals ask for: the largest of their
+ * plans, since one post serves every goal at once. null = no goal asks.
+ */
+export async function goalPostsPerWeek(brandId: string) {
+  const active = await db.select({ plan: goals.plan }).from(goals)
+    .where(and(eq(goals.brandId, brandId), eq(goals.status, "active")));
+  const asks = active.map((g) => g.plan?.units?.["D-01"] ?? 0).filter((n) => n > 0);
+  return asks.length ? Math.ceil(Math.max(...asks)) : null;
+}
+
 export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const { brand, config } = job;
   const s = config.settings ?? {};
@@ -104,7 +115,9 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const playbook = await getBrandPlaybook(brand.id);
   const postRule: EffectiveRule | undefined = playbook.find((r) => r.code === "post" && r.enabled);
   const daysAhead = num(s.daysAhead, 7, 1, 30);
-  const perWeek = num(s.perWeek, postRule?.limits.perWeek ?? 5, 1, 21);
+  // A person's number wins; then what the brand's goals need; then the playbook.
+  const goalWeek = await goalPostsPerWeek(brand.id);
+  const perWeek = num(s.perWeek, goalWeek ?? postRule?.limits.perWeek ?? 5, 1, 21);
   const now = new Date();
   const taken = await db.select({ at: posts.scheduledAt }).from(posts).where(and(
     eq(posts.brandId, brand.id),

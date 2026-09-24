@@ -12,7 +12,7 @@
  * reviews a step.
  */
 
-export const WORKFLOW_CODES = ["publish-post", "answer-engagement"] as const;
+export const WORKFLOW_CODES = ["publish-post", "answer-engagement", "plan-ideas"] as const;
 export type WorkflowCode = (typeof WORKFLOW_CODES)[number];
 
 export type StepPerformer = "agent" | "tool" | "human";
@@ -27,6 +27,11 @@ export type StepDef = {
   reviewable: boolean;
   /** What the reviewer is deciding, when the step stops for review. */
   reviewQuestion?: string;
+  /**
+   * An agent step that makes no model call — picking a filed image, say — so
+   * it runs inside a web request and costs nothing against the AI budget.
+   */
+  fast?: boolean;
 };
 
 export type WorkflowDef = {
@@ -54,8 +59,9 @@ export const WORKFLOWS: WorkflowDef[] = [
         reviewQuestion: "Approve this post, or send it back with a note.",
       },
       {
-        key: "media", name: "Add media", performer: "human", reviewable: false,
-        does: "Where the idea or a channel needs an image or video, a person attaches it. Skipped when the post needs none.",
+        key: "media", name: "Add media", performer: "agent", reviewable: true, fast: true,
+        does: "Where the idea or a channel needs an image or video, the agent attaches the best match from the brand's filed library. Skipped when the post needs none; a person attaches one when nothing in the library fits.",
+        reviewQuestion: "Approve this image for the post, or send it back to pick another.",
       },
       {
         key: "schedule", name: "Schedule", performer: "tool", reviewable: false,
@@ -82,6 +88,24 @@ export const WORKFLOWS: WorkflowDef[] = [
       {
         key: "send", name: "Send", performer: "tool", reviewable: false,
         does: "Posts the reply on the platform where its API allows (Facebook, Instagram, YouTube). Elsewhere a person pastes it and marks it replied.",
+      },
+    ],
+  },
+  {
+    code: "plan-ideas",
+    name: "Plan new ideas",
+    summary: "Keeps the content plan ahead of the calendar: when it will not cover the coming weeks, new ideas are proposed from the brand book, its goals and what has worked, then added to the plan.",
+    startedBy: "Content strategist agent, when the plan runs short",
+    activityCodes: ["W-01"],
+    steps: [
+      {
+        key: "propose", name: "Propose ideas", performer: "agent", reviewable: true,
+        does: "Writes new ideas — problem, action, outcome, format and pillar — for what the brand's goals need, building on the lessons from its best and worst posts and never repeating an idea it already has.",
+        reviewQuestion: "Add these ideas to the content plan, or send them back with a note.",
+      },
+      {
+        key: "add", name: "Add to the plan", performer: "tool", reviewable: false,
+        does: "Adds the ideas to the end of the plan as planned, for this brand only. The content writer takes them in order.",
       },
     ],
   },

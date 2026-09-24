@@ -4,12 +4,14 @@ import {
   db, activity, attachments, brandAgents, channels, comments, contentIdeas, posts, postTargets,
 } from "@/lib/db";
 import { defaultOptions, platformOrNull } from "@/lib/platforms";
-import { toLocalInput } from "@/lib/format";
+import { toLocalInput, truncate } from "@/lib/format";
 import { findPlaceholders } from "@/lib/templates";
 import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
 import { draftPost, type Draft, type DraftChannel } from "@/server/drafting";
 import { publishTarget } from "@/server/publish";
+import { searchBrandLibrary } from "@/server/media-catalog";
+import { rankForText } from "@/lib/media-catalog";
 import type { StepContext, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 /**
@@ -198,12 +200,26 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     usage = result.usage;
   }
 
+  // Where the post needs an image, the best filed one goes on now, so whoever
+  // approves the post sees it whole. The media step only fills a gap left here.
+  const context: Record<string, unknown> = {};
+  const saved = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
+  if (saved) {
+    const need = await mediaNeed(saved);
+    const [has] = await db.select({ id: attachments.id }).from(attachments).where(eq(attachments.postId, postId)).limit(1);
+    if (need.needed && !has) {
+      const tried = Array.isArray(run.context.mediaTried) ? (run.context.mediaTried as string[]) : [];
+      const best = await attachBestMedia(saved, need, tried);
+      if (best) Object.assign(context, { mediaPicked: best.id, mediaTried: [...tried, best.id] });
+    }
+  }
   const checked = await inspect(postId);
   const when = existing?.scheduledAt ?? (run.context.slot ? new Date(String(run.context.slot)) : null);
   return {
     outcome: "done",
     summary: `${existing ? "Revised" : "Wrote"} "${title}"${when ? ` for ${toLocalInput(when, brand.timezone).replace("T", " ")}` : ""}.`,
     subject: { type: "post", id: postId },
+    context,
     output: { postId, title },
     usage,
     reasons: checked.reasons,
@@ -212,30 +228,82 @@ async function draft(ctx: StepContext): Promise<StepResult> {
   };
 }
 
+/** Whether a post needs an image or video, and which platforms say so. */
+async function mediaNeed(post: typeof posts.$inferSelect) {
+  const idea = post.ideaId ? await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, post.ideaId) }) : null;
+  const targets = await db.select({ platform: channels.platform }).from(postTargets)
+    .innerJoin(channels, eq(channels.id, postTargets.channelId))
+    .where(and(eq(postTargets.postId, post.id), ne(postTargets.status, "skipped")));
+  const needy = [...new Set(targets.map((t) => platformOrNull(t.platform)).filter((p) => p?.constraints.requiresMedia))].map((p) => p!);
+  return {
+    idea, needy,
+    needed: Boolean(idea?.needsMedia) || needy.length > 0,
+    videoOnly: needy.some((p) => !p.constraints.allowedMedia.includes("image")),
+  };
+}
+
+/**
+ * Attaches the filed library image that best fits a post, by the post's own
+ * words, format and shape — no model call. Files already turned down are
+ * skipped. null = nothing filed fits.
+ */
+async function attachBestMedia(post: typeof posts.$inferSelect, need: Awaited<ReturnType<typeof mediaNeed>>, tried: string[]) {
+  const { library } = await searchBrandLibrary("", post.brandId, {});
+  const idea = need.idea;
+  const text = [post.title, post.body, post.campaign, idea && [idea.title, idea.pillar, idea.problem, idea.action, idea.outcome, ...idea.hashtags].filter(Boolean).join(" ")]
+    .filter(Boolean).join("\n");
+  const best = rankForText(library.filter((m) => m.catalogedAt && !tried.includes(m.id)), text, {
+    format: post.postType, kind: need.videoOnly ? "video" : undefined,
+  })[0];
+  if (!best) return null;
+  await db.insert(attachments).values({ postId: post.id, mediaId: best.item.id, position: 0 });
+  return {
+    id: best.item.id, matched: best.matched, score: best.score,
+    summary: `Attached "${truncate(best.item.altText || best.item.originalName, 60)}" — it matches ${best.matched.slice(0, 5).join(", ")}.`,
+  };
+}
+
 async function media(ctx: StepContext): Promise<StepResult> {
-  const post = await loadPost(ctx.run);
+  const { run } = ctx;
+  const post = await loadPost(run);
   if (!post) return { outcome: "cancel", summary: "The post was deleted." };
   // Approved and booked on its own page: the approver judged it ready as it is.
   if (!["draft", "in_review", "changes_requested", "approved"].includes(post.status)) {
     return { outcome: "skip", summary: "Already scheduled by its approver." };
   }
-  const [attached] = await db.select({ id: attachments.id }).from(attachments).where(eq(attachments.postId, post.id)).limit(1);
-  const idea = post.ideaId ? await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, post.ideaId), columns: { needsMedia: true } }) : null;
-  const targets = await db.select({ platform: channels.platform }).from(postTargets)
-    .innerJoin(channels, eq(channels.id, postTargets.channelId))
-    .where(and(eq(postTargets.postId, post.id), ne(postTargets.status, "skipped")));
-  const needy = [...new Set(targets.map((t) => platformOrNull(t.platform)).filter((p) => p?.constraints.requiresMedia).map((p) => p!.name))];
-  const needed = Boolean(idea?.needsMedia) || needy.length > 0;
+  const need = await mediaNeed(post);
+  if (!need.needed) return { outcome: "skip", summary: "This post needs no media." };
 
-  if (!needed) return { outcome: "skip", summary: "This post needs no media." };
-  if (attached) return { outcome: "done", summary: "Media is attached.", byHuman: true };
-  const why = needy.length ? `${needy.join(", ")} need${needy.length === 1 ? "s" : ""} an image or video` : "The idea calls for an image or video";
+  const picked = typeof run.context.mediaPicked === "string" ? run.context.mediaPicked : null;
+  const tried = Array.isArray(run.context.mediaTried) ? (run.context.mediaTried as string[]) : [];
+  const attached = await db.select({ mediaId: attachments.mediaId }).from(attachments).where(eq(attachments.postId, post.id));
+
+  if (ctx.feedback && picked) {
+    // Sent back ("pick another"): take the agent's choice off before choosing again.
+    await db.delete(attachments).where(and(eq(attachments.postId, post.id), eq(attachments.mediaId, picked)));
+  } else if (attached.length) {
+    // Already there — a person's file, or the one the writer picked and the post's approver saw.
+    return { outcome: "done", summary: "Media is attached.", byHuman: true };
+  }
+
+  const best = await attachBestMedia(post, need, tried);
+  if (!best) {
+    const why = need.needy.length
+      ? `${need.needy.map((p) => p.name).join(", ")} need${need.needy.length === 1 ? "s" : ""} ${need.videoOnly ? "a video" : "an image or video"}`
+      : "The idea calls for an image or video";
+    return {
+      outcome: "human",
+      summary: `${why}, and nothing filed in the library fits${tried.length ? " that has not been turned down" : ""}.`,
+      question: `Attach an image or video to "${post.title || "this post"}", or file more in Media so the agent can pick one.`,
+      href: `/posts/${post.id}`,
+      recheckAt: new Date(ctx.now.getTime() + 15 * MINUTE),
+    };
+  }
   return {
-    outcome: "human",
-    summary: `${why}, and none is attached yet.`,
-    question: `Attach an image or video to "${post.title || "this post"}".`,
+    outcome: "done", summary: best.summary,
+    output: { mediaId: best.id, matched: best.matched, score: best.score },
+    context: { mediaPicked: best.id, mediaTried: [...tried, best.id] },
     href: `/posts/${post.id}`,
-    recheckAt: new Date(ctx.now.getTime() + 15 * MINUTE),
   };
 }
 
@@ -321,6 +389,8 @@ export const publishPost: WorkflowImpl = {
 
   async onSendBack(run, userId, note) {
     if (run.subjectType !== "post" || !run.subjectId) return;
+    // Only the writing step changes the copy; a sent-back image leaves the post as it is.
+    if (run.stepIndex !== 0) return;
     await db.update(posts).set({ status: "changes_requested", updatedAt: new Date() }).where(eq(posts.id, run.subjectId));
     await db.insert(comments).values({ postId: run.subjectId, userId, body: note, kind: "changes_requested" });
   },

@@ -7,6 +7,7 @@ import { db, channels, interactions, posts, postTargets } from "@/lib/db";
 import { INTERACTION_KIND_LABELS } from "@/lib/db/engagement";
 import { PAUSE_META, WORKFLOW_BY_CODE, stepDef } from "@/lib/workflows/meta";
 import { isVerdict } from "@/lib/workflows/review";
+import type { ProposedIdea } from "@/server/workflows/plan-ideas";
 import { inZone, relativeTime, truncate } from "@/lib/format";
 import { getOpenPauses } from "@/server/workflows";
 import { Badge, Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui";
@@ -56,6 +57,7 @@ export default async function ReviewPage() {
     const reviewOnPage = Boolean(post) && pause.after && item.step.stepKey === "draft";
     const meta = PAUSE_META[pause.kind];
     const verdict = item.step.output?.review;
+    const proposed = Array.isArray(item.step.output?.ideas) ? (item.step.output.ideas as ProposedIdea[]) : null;
 
     return (
       <li key={item.step.id} className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -92,6 +94,17 @@ export default async function ReviewPage() {
                 <p className="mt-0.5 whitespace-pre-line text-text">{said.i.replyBody ?? "—"}</p>
               </div>
             </div>
+          )}
+          {proposed && (
+            <ol className="space-y-2 rounded-lg border border-border bg-surface-2/50 p-3 text-xs">
+              {proposed.map((idea, n) => (
+                <li key={n}>
+                  <p className="font-medium text-text">{n + 1}. {idea.title} <span className="font-normal text-muted">· {idea.postType} · {idea.pillar}</span></p>
+                  <p className="text-muted">{idea.problem} → {idea.action} → {idea.outcome}</p>
+                  <p className="text-[11px] text-muted">Why: {idea.why}</p>
+                </li>
+              ))}
+            </ol>
           )}
           {isVerdict(verdict) && (
             <div className="text-xs">

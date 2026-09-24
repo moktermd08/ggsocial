@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { and, inArray, isNull } from "drizzle-orm";
-import { AlertTriangle, BarChart3, Bot, ClipboardCheck, MessagesSquare, PenSquare } from "lucide-react";
+import { AlertTriangle, BarChart3, Bot, ClipboardCheck, Lightbulb, MessagesSquare, PenSquare } from "lucide-react";
 import { requireUser, getMyBrands, can, type BrandWithRole } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, channels } from "@/lib/db";
@@ -12,7 +12,7 @@ import { getCrew, getReviewCounts, getRuns, type AgentRun, type BrandAgent } fro
 import { Badge, Card, CardHeader, EmptyState, IconChip, LinkButton, PageHeader, StatTile } from "@/components/ui";
 import { AgentControls, type CrewChannel } from "@/components/agent-crew";
 
-const ICONS: Record<AgentCode, typeof Bot> = { writer: PenSquare, community: MessagesSquare, analyst: BarChart3 };
+const ICONS: Record<AgentCode, typeof Bot> = { writer: PenSquare, community: MessagesSquare, analyst: BarChart3, strategist: Lightbulb };
 
 export default async function AgentsPage() {
   const user = await requireUser();
