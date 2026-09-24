@@ -3,8 +3,9 @@ import { eq } from "drizzle-orm";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { db, integrations, INTEGRATION_PROVIDERS } from "@/lib/db";
-import { brandLibraries, brandVersions, masterAssets, masterOwnersFor, type LibraryItem } from "@/server/media-library";
+import { brandLibraries, brandVersions, masterAssets, masterOwnersFor, type LibraryItem, type MediaFile } from "@/server/media-library";
 import { MediaLibrary } from "@/components/media-library";
+import { withInheritedCatalog } from "@/server/media-catalog";
 import { SourceConnections, type SourceStatus } from "@/components/media-sources";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { isConfigured, PROVIDERS } from "@/server/integrations/oauth";
@@ -38,12 +39,21 @@ export default async function LibraryPage({ searchParams }: {
       envHint: `${cfg.clientIdEnv} and ${cfg.clientSecretEnv}`,
     };
   });
+  /** How a file is filed, as the library card and its editor read it. */
+  const catalog = (m: MediaFile) => ({
+    width: m.width, height: m.height, altText: m.altText, tags: m.tags,
+    category: m.category, subcategory: m.subcategory, uses: m.uses, usageNotes: m.usageNotes,
+    catalogedAt: m.catalogedAt?.toISOString() ?? null, catalogedBy: m.catalogedBy,
+  });
+
   async function masterItems() {
     const versions = await brandVersions(allIds, masters.map((m) => m.id));
     return masters.map((m) => ({
       id: m.id, url: m.url, kind: m.kind, originalName: m.originalName,
       size: m.size, createdAt: m.createdAt.toISOString(), source: m.source, sourceUrl: m.sourceUrl,
       canDelete: m.ownerId === user.id,
+      canCatalog: m.ownerId === user.id,
+      ...catalog(m),
       versions: brands.filter((b) => versions.get(b.id)?.has(m.id)).map((b) => ({ brandName: b.name, brandColor: b.color })),
     }));
   }
@@ -88,11 +98,13 @@ export default async function LibraryPage({ searchParams }: {
               brandName={b.name}
               canEdit={can.edit(b.role)}
               sources={sources}
-              items={(libraries.get(b.id) ?? []).map((m) => ({
+              items={(libraries.get(b.id) ?? []).map(withInheritedCatalog).map((m) => ({
                 id: m.id, url: m.url, kind: m.kind, originalName: m.originalName,
                 size: m.size, createdAt: m.createdAt.toISOString(),
                 source: m.source, sourceUrl: m.sourceUrl,
                 isMaster: m.isMaster, versionOf: m.versionOf?.originalName ?? null,
+                canCatalog: m.isMaster ? m.ownerId === user.id : can.edit(b.role),
+                ...catalog(m),
               }))}
             />
           ))}

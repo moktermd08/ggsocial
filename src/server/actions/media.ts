@@ -2,10 +2,13 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { asResult } from "@/lib/action-result";
-import { db, media, masterPosts, posts } from "@/lib/db";
+import { db, brands, media, masterPosts, posts } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import { storeUpload, kindFromMime } from "@/server/media";
 import { syncCopy } from "@/server/masters";
+import { cleanCatalog } from "@/lib/media-catalog";
+import { catalogueWithClaude, saveCatalog } from "@/server/media-catalog";
+import { masterAssets, masterOwnersFor } from "@/server/media-library";
 
 const MAX_BYTES = 200 * 1024 * 1024;
 
@@ -120,15 +123,55 @@ async function requireMediaEdit(row: typeof media.$inferSelect) {
   return { user };
 }
 
-export async function updateMediaAction(mediaId: string, formData: FormData) {
-  const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
-  if (!row) throw new Error("Media not found");
-  await requireMediaEdit(row);
-  await db.update(media).set({
-    altText: String(formData.get("altText") ?? "") || null,
-    tags: String(formData.get("tags") ?? "").split(",").map((t) => t.trim()).filter(Boolean),
-  }).where(eq(media.id, mediaId));
-  revalidatePath("/library");
+/** Files a library item by hand: what it shows, its shelf, keywords and where it suits. */
+export async function saveMediaCatalogAction(mediaId: string, input: {
+  altText?: string | null; category?: string | null; subcategory?: string | null;
+  tags?: string[]; uses?: string[]; usageNotes?: string | null;
+}) {
+  return asResult(async () => {
+    const row = await db.query.media.findFirst({ where: eq(media.id, mediaId) });
+    if (!row) throw new Error("That file is gone.");
+    const { user } = await requireMediaEdit(row);
+    const fields = cleanCatalog(input);
+    await saveCatalog(mediaId, fields, user.id);
+    revalidatePath("/library");
+    return { fields };
+  });
+}
+
+/** How many images one call files. Keeps a click well inside the proxy's timeout. */
+const CATALOGUE_BATCH = 6;
+
+/**
+ * Has Claude look at each image and file it. The library page calls this in
+ * batches until nothing is left, so a big import is catalogued in one click.
+ */
+export async function catalogueMediaAction(mediaIds: string[]) {
+  return asResult(async () => {
+    const ids = [...new Set(mediaIds)].slice(0, CATALOGUE_BATCH);
+    const rows = ids.length ? await db.select().from(media).where(inArray(media.id, ids)) : [];
+    const done: { id: string; fields: ReturnType<typeof cleanCatalog> }[] = [];
+    const failed: { id: string; name: string; error: string }[] = [];
+    await Promise.all(rows.map(async (row) => {
+      try {
+        const { user } = await requireMediaEdit(row);
+        const brand = row.brandId ? await db.query.brands.findFirst({ where: eq(brands.id, row.brandId) }) ?? null : null;
+        const library = row.brandId
+          ? [
+              ...await db.select().from(media).where(eq(media.brandId, row.brandId)),
+              ...await masterOwnersFor(user.id, [row.brandId]).then(masterAssets),
+            ]
+          : await masterAssets([row.ownerId ?? user.id]);
+        const fields = await catalogueWithClaude(row, { brand, library });
+        await saveCatalog(row.id, fields, "claude");
+        done.push({ id: row.id, fields });
+      } catch (e) {
+        failed.push({ id: row.id, name: row.originalName, error: e instanceof Error ? e.message : "Could not catalogue it." });
+      }
+    }));
+    if (done.length) revalidatePath("/library");
+    return { done, failed };
+  });
 }
 
 export async function deleteMediaAction(mediaId: string) {

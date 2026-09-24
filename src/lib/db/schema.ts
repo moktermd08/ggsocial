@@ -267,8 +267,20 @@ export const media = pgTable("media", {
   width: integer("width"),
   height: integer("height"),
   durationMs: integer("duration_ms"),
+  /** What the file shows, in a sentence — alt text, and what search reads first. */
   altText: text("alt_text"),
+  /** Keywords people and agents search by. */
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  /** The catalogue: a shelf and a spot on it, e.g. "Product" / "Close-ups". */
+  category: text("category"),
+  subcategory: text("subcategory"),
+  /** Where it works — the MEDIA_USES codes: feed post, story, banner, ad… */
+  uses: jsonb("uses").$type<string[]>().notNull().default([]),
+  /** When not to use it, or anything a builder should know first. */
+  usageNotes: text("usage_notes"),
+  /** When it was last catalogued, and by whom: a user id, or "claude". */
+  catalogedAt: timestamp("cataloged_at", { withTimezone: true }),
+  catalogedBy: text("cataloged_by"),
   /** Where the file came from. null = uploaded from disk. */
   source: text("source").$type<IntegrationProvider>(),
   /** Link back to the original, e.g. the Canva editor for a design. */

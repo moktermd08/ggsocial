@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, ImageIcon, Loader2, Plus, Sparkles, Trash2, Upload, X, Zap } from "lucide-react";
+import { AlertCircle, Check, ImageIcon, Loader2, Plus, Search, Sparkles, Trash2, Upload, X, Zap } from "lucide-react";
 import { PlatformIcon } from "./platform-icon";
 import { Card, CardHeader, Field, buttonClass } from "./ui";
 import { tintedBorder, tintedInk, tintedSurface } from "@/lib/color";
@@ -15,6 +15,7 @@ import { LabelRow, MasterTag } from "./master-panels";
 import { uploadMediaAction } from "@/server/actions/media";
 import { generateDraftAction } from "@/server/actions/drafting";
 import { withDims } from "@/lib/media-dims";
+import { rankForText, searchMedia } from "@/lib/media-catalog";
 import { checkTargets, type EffectiveRule } from "@/lib/playbook/check";
 import { PlaybookCard } from "./playbook-card";
 
@@ -29,6 +30,9 @@ export type ComposerMedia = {
   width?: number | null; height?: number | null; durationMs?: number | null;
   /** A master asset, shared by every brand. */
   isMaster?: boolean;
+  /** How it is filed in the library, so the picker can search it. */
+  altText?: string | null; tags?: string[]; category?: string | null; subcategory?: string | null;
+  uses?: string[]; usageNotes?: string | null; catalogedAt?: string | null;
 };
 export type ComposerBrand = {
   id: string; name: string; color: string; timezone: string;
@@ -96,6 +100,7 @@ export function Composer({
   const [campaign, setCampaign] = useState(post?.campaign ?? initialCampaign ?? "");
   const [postType, setPostType] = useState<string | null>(post?.postType ?? null);
   const [mediaIds, setMediaIds] = useState<string[]>(post?.mediaIds ?? []);
+  const [mediaQuery, setMediaQuery] = useState("");
   const [when, setWhen] = useState(
     post?.scheduledAt
       ? toLocalInput(post.scheduledAt, brand?.timezone ?? "UTC")
@@ -115,6 +120,15 @@ export function Composer({
     () => mediaIds.map((id) => library.find((m) => m.id === id)).filter(Boolean) as ComposerMedia[],
     [mediaIds, library],
   );
+  // Filed library files whose keywords fit what is being written rise to the front.
+  const postMatches = useMemo(() => new Set(
+    rankForText(library.filter((m) => m.catalogedAt), `${title}\n${body}`, { format: postType }).slice(0, 8).map((r) => r.item.id),
+  ), [library, title, body, postType]);
+  const pickable = useMemo(() => {
+    const rest = library.filter((m) => !mediaIds.includes(m.id));
+    if (mediaQuery.trim()) return searchMedia(rest, { q: mediaQuery });
+    return [...rest.filter((m) => postMatches.has(m.id)), ...rest.filter((m) => !postMatches.has(m.id))];
+  }, [library, mediaIds, mediaQuery, postMatches]);
   // The brand default image is a file in its library; offer it until it is attached.
   const defaultImage = brand?.defaultImageUrl ? library.find((m) => m.url === brand.defaultImageUrl) : undefined;
   const canUseDefault = !!defaultImage && !mediaIds.includes(defaultImage.id);
@@ -468,20 +482,29 @@ export function Composer({
               </div>
             )}
 
-            <p className="mb-2 text-xs text-muted">Library</p>
+            <div className="mb-2 flex items-center gap-2">
+              <p className="text-xs text-muted">{mediaQuery.trim() ? "Library · best match first" : postMatches.size ? "Library · matches for this post first" : "Library"}</p>
+              <label className="relative ml-auto w-56 max-w-full">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+                <input value={mediaQuery} onChange={(e) => setMediaQuery(e.target.value)} placeholder="Search keywords, categories…" className="w-full py-1 pl-7 text-xs" aria-label="Search the media library" />
+              </label>
+            </div>
             <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto">
-              {library.filter((m) => !mediaIds.includes(m.id)).map((m) => (
+              {pickable.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => setMediaIds((prev) => [...prev, m.id])}
                   className="group relative size-16 overflow-hidden rounded-lg border border-border"
-                  title={m.originalName}
+                  title={[m.altText ?? m.originalName, m.category && [m.category, m.subcategory].filter(Boolean).join(" › "), m.usageNotes && `Note: ${m.usageNotes}`].filter(Boolean).join("\n")}
                 >
                   {m.kind === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={m.url} alt="" className="size-full object-cover" />
                   ) : (
                     <span className="grid size-full place-items-center bg-surface-2 p-1 text-[10px]">{m.kind}</span>
+                  )}
+                  {postMatches.has(m.id) && !mediaQuery.trim() && (
+                    <span className="absolute bottom-0.5 left-0.5 rounded bg-accent px-1 text-[9px] font-medium text-white" title="Its keywords match this post">Match</span>
                   )}
                   {m.isMaster && (
                     <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[9px] font-medium text-white" title="Master asset">Master</span>
@@ -492,6 +515,7 @@ export function Composer({
                 </button>
               ))}
               {library.length === 0 && <p className="py-4 text-sm text-muted">Nothing in this brand&apos;s library yet.</p>}
+              {library.length > 0 && pickable.length === 0 && mediaQuery.trim() && <p className="py-4 text-sm text-muted">Nothing in the library matches that.</p>}
             </div>
           </div>
         </Card>

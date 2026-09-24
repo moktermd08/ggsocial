@@ -5,6 +5,7 @@ import { Bot, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { Button, Card, CardHeader, Field } from "./ui";
 import { relativeTime } from "@/lib/format";
 import { AGENT_SUGGESTIONS } from "@/lib/activities/meta";
+import { MEDIA_USES } from "@/lib/media-catalog";
 import { createAgentTokenAction, revokeAgentTokenAction } from "@/server/actions/activities";
 import type { ActionResult } from "@/lib/action-result";
 
@@ -82,7 +83,17 @@ Playbook — the master instructions for every format (post, reel, story, carous
    It waits for the daily review unless "apply": true and your token's owner is an approver or admin.
 11. Daily review (activity D-27): GET ${root}/playbook/adjustments?status=proposed, then decide the ones you can judge:
    POST ${root}/playbook/adjustments/decisions  {"id": "…", "decision": "approved" | "rejected", "note": "why"}
-   Never decide your own suggestion; leave anything you are unsure of for a person.`;
+   Never decide your own suggestion; leave anything you are unsure of for a person.
+
+Media library — every brand's images and videos, filed by category, subcategory, keywords and where each suits (${MEDIA_USES.map((u) => u.code).join(", ")}):
+12. Before you build or post anything visual, look for a picture the brand already has:
+   GET ${root}/media?brand=<slug>&q=coffee+morning&use=story&orientation=portrait
+   Also: category, subcategory, kind (image, video), limit. Best match first; read each file's "description" and "notes" (when not to use it) before picking it, and use its "url".
+   GET ${root}/media?postId=… gives the best files for a saved post, with the words they matched.
+13. Files nobody has filed yet cannot be found by words. List them with ?unfiled=1, then either
+   POST ${root}/media/catalogue  {"brand": "<slug>" | "master"}   Claude files up to six; repeat while "remaining" > 0
+   or file one yourself:
+   PATCH ${root}/media/{id}  {"description": "…", "category": "Product", "subcategory": "Close-up", "keywords": ["…"], "uses": ["feed", "story"], "notes": "…"}`;
 
   function run(work: () => Promise<ActionResult>) {
     setError(null);

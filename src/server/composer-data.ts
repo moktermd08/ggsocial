@@ -3,6 +3,7 @@ import { getBrandChannels } from "./queries";
 import { campaignNamesByBrand } from "./campaigns";
 import { templateOptionsByBrand } from "./templates";
 import { brandLibraries } from "./media-library";
+import { withInheritedCatalog } from "./media-catalog";
 import { getBrandPlaybooks } from "./playbook";
 import { platformMeta } from "@/lib/platforms/meta";
 import type { BrandWithRole } from "@/lib/auth";
@@ -25,9 +26,11 @@ export async function getComposerData(brands: BrandWithRole[], userId: string) {
   const libraries = await brandLibraries(userId, ids);
   const mediaByBrand: Record<string, ComposerMedia[]> = {};
   for (const [brandId, items] of libraries) {
-    mediaByBrand[brandId] = items.map((m) => ({
+    mediaByBrand[brandId] = items.map(withInheritedCatalog).map((m) => ({
       id: m.id, url: m.url, kind: m.kind, originalName: m.originalName, isMaster: m.isMaster,
       width: m.width, height: m.height, durationMs: m.durationMs,
+      altText: m.altText, tags: m.tags, category: m.category, subcategory: m.subcategory,
+      uses: m.uses, usageNotes: m.usageNotes, catalogedAt: m.catalogedAt?.toISOString() ?? null,
     }));
   }
 
