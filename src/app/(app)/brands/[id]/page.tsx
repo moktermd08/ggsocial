@@ -10,7 +10,8 @@ import { BRAND_IMAGE_SLOTS, LOGO_SLOTS } from "@/lib/brand-images";
 import { COMMON_TIMEZONES } from "@/lib/format";
 import { readableOn } from "@/lib/color";
 import { EMOJI_POLICIES } from "@/lib/db";
-import { Layers } from "lucide-react";
+import { ClipboardCheck, Copy, Layers } from "lucide-react";
+import { checkBrandDetails, profileCopy } from "@/lib/brand-details";
 import { getBookDefaults, getBookDefaultsById, bookState } from "@/server/brand-book";
 import { linkBrandBookAction, resolveBookFieldAction, unlinkBrandBookAction } from "@/server/actions/brand-book";
 import { BOOK_FIELDS, BOOK_FIELD_LABELS, EMOJI_LABELS, bookValues, readableBookValue, type BookField } from "@/lib/brand-book";
@@ -80,6 +81,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const L = (text: string, f: BookField) => <LabelRow text={text} tag={t(f)} />;
   const editable = can.manageBrand(brand.role);
   const ro = !editable;
+  const detailIssues = checkBrandDetails(brand, channels);
+  const copyRows = profileCopy(brand, channels);
 
   return (
     <>
@@ -492,6 +495,52 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
               </form>
             </Card>
           ) : null}
+          <Card>
+            <CardHeader
+              icon={ClipboardCheck}
+              title="Brand details check"
+              subtitle="Every profile copies this page, so it has to be exact."
+              action={<LinkButton href={`/playbook?v=rules&b=${id}`} size="sm">Guideline</LinkButton>}
+            />
+            {detailIssues.length === 0 ? (
+              <p className="p-4 text-sm text-muted">
+                Nothing the app can spot. The owner still confirms every detail is true: see the Brand details rule in the playbook.
+              </p>
+            ) : (
+              <ul className="max-h-96 divide-y divide-border overflow-y-auto">
+                {detailIssues.map((issue, i) => (
+                  <li key={i} className="px-4 py-2.5 text-xs">
+                    <a href={`#${issue.section}`} className="flex items-center gap-1.5 font-medium hover:underline">
+                      <Badge color={issue.level === "fix" ? "#b91c1c" : "#b45309"}>{issue.level === "fix" ? "Fix" : "Missing"}</Badge>
+                      {issue.field}
+                    </a>
+                    <p className="mt-1 text-muted">{issue.message}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          {copyRows.length > 0 && (
+            <Card>
+              <CardHeader
+                icon={Copy}
+                title="Copy for every profile"
+                subtitle="Paste these exact values when registering or updating any platform. Never retype them."
+              />
+              <dl className="space-y-2.5 p-4 text-xs">
+                {copyRows.map((r) => (
+                  <div key={r.label}>
+                    <dt className="text-muted">{r.label}</dt>
+                    <dd className="mt-0.5 select-all whitespace-pre-wrap break-words rounded-md bg-surface-2 px-2 py-1 font-mono text-[11px]">
+                      {r.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          )}
+
           <Card>
             <CardHeader title="At a glance" />
             <div className="space-y-3 p-4">

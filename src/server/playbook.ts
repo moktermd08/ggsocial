@@ -33,7 +33,7 @@ let seeding: Promise<void> | null = null;
  */
 export function ensurePlaybookLibrary() {
   seeding ??= db.insert(playbookRules)
-    .values(PLAYBOOK_LIBRARY.map((r, i) => ({ ...r, sortOrder: (i + 1) * 10 })))
+    .values(PLAYBOOK_LIBRARY.map((r, i) => ({ ...r, sortOrder: r.sortOrder ?? (i + 1) * 10 })))
     .onConflictDoNothing({ target: playbookRules.code })
     .then(linkNewActivities)
     .catch((e) => {

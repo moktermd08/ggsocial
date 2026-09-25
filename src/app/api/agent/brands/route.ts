@@ -1,6 +1,7 @@
 import { and, inArray, isNull } from "drizzle-orm";
 import { db, channels } from "@/lib/db";
 import { EMOJI_LABELS } from "@/lib/brand-book";
+import { checkBrandDetails, profileCopy } from "@/lib/brand-details";
 import { platformOrNull } from "@/lib/platforms";
 import type { BrandWithRole } from "@/lib/auth";
 import { pickBrands, withAgent } from "@/server/agent-api";
@@ -17,6 +18,9 @@ const abs = (url: string | null) => (url ? publicUrl(url) : null);
  *   GET /api/agent/brands?brand=all
  *
  * `writingGuide` is the same rules as one block of text, ready to follow.
+ * `profileCopy` is the exact wording every profile and registration uses, and
+ * `detailsCheck` lists what the brand page still gets wrong (see the playbook
+ * rules "brand-details" and "registration").
  * Internal brand notes are never returned.
  */
 export async function GET(req: Request) {
@@ -97,6 +101,10 @@ export async function GET(req: Request) {
             aspectRatio: p?.constraints.aspectRatioHint ?? null,
           };
         }),
+        /** The exact values to paste into any profile or registration form. Never retype or reword them. */
+        profileCopy: profileCopy(b, channelRows.filter((c) => c.brandId === b.id)),
+        /** What is missing or inconsistent on the brand page. Register nowhere new until it is empty. */
+        detailsCheck: checkBrandDetails(b, channelRows.filter((c) => c.brandId === b.id)),
         writingGuide: writingGuide(b),
       })),
     };
