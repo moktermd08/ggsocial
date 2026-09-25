@@ -105,6 +105,15 @@ export const CHECK_AUDIENCE_META: Record<CheckAudience, string> = {
 /** A point that has to be judged rather than measured, confirmed before approval. */
 export type ChecklistItem = { id: string; text: string; for: CheckAudience };
 
+/**
+ * The work done well, for people and agents to match: a finished post, reply
+ * or bio word for word, or for a visual, the layout or shot list. `url` points
+ * at a reference online or in Media; `why` says what to copy from it. Master
+ * examples show the standard; a brand's own show its voice and look, and come
+ * first. Facts always come from the brand page, never from an example.
+ */
+export type RuleExample = { id: string; title: string; text: string; url: string; why: string };
+
 /* ------------------------------------------------------------ adjustments */
 
 /**
@@ -112,7 +121,7 @@ export type ChecklistItem = { id: string; text: string; for: CheckAudience };
  * how strictly it is enforced, and the checklist (add a point, or replace the
  * lot when a person edits it by hand).
  */
-export type AdjustField = LimitKey | "enabled" | "enforce" | "checklist.add" | "checklist" | "instructions";
+export type AdjustField = LimitKey | "enabled" | "enforce" | "checklist.add" | "checklist" | "instructions" | "examples";
 
 export const ADJUST_STATUSES = ["proposed", "applied", "rejected", "superseded"] as const;
 export type AdjustStatus = (typeof ADJUST_STATUSES)[number];
@@ -138,12 +147,13 @@ export function adjustFieldLabel(field: string) {
   if (field === "checklist.add") return "New checklist point";
   if (field === "checklist") return "Checklist";
   if (field === "instructions") return "Instructions";
+  if (field === "examples") return "Examples";
   return LIMIT_LABELS[field as LimitKey] ?? field;
 }
 
 export function isAdjustField(field: string): field is AdjustField {
   return (LIMIT_KEYS as string[]).includes(field)
-    || ["enabled", "enforce", "checklist.add", "checklist", "instructions"].includes(field);
+    || ["enabled", "enforce", "checklist.add", "checklist", "instructions", "examples"].includes(field);
 }
 
 /** A short random id for a checklist point, client-safe. */

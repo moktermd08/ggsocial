@@ -968,7 +968,7 @@ export const activityChecks = pgTable("activity_checks", {
 /* ---------------------------------------------------------------- playbook */
 
 import type {
-  RuleKind, EnforceLevel, RuleLimits, ChecklistItem, AdjustStatus, AdjustSource,
+  RuleKind, EnforceLevel, RuleLimits, ChecklistItem, RuleExample, AdjustStatus, AdjustSource,
 } from "../playbook/meta";
 
 /**
@@ -990,6 +990,8 @@ export const playbookRules = pgTable("playbook_rules", {
   enforce: text("enforce").$type<EnforceLevel>().notNull().default("block"),
   limits: jsonb("limits").$type<RuleLimits>().notNull().default({}),
   checklist: jsonb("checklist").$type<ChecklistItem[]>().notNull().default([]),
+  /** Examples of the work done well, for people and agents to match. */
+  examples: jsonb("examples").$type<RuleExample[]>().notNull().default([]),
   sortOrder: integer("sort_order").notNull().default(0),
   isCustom: boolean("is_custom").notNull().default(false),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -1017,6 +1019,8 @@ export const brandPlaybookRules = pgTable("brand_playbook_rules", {
   hiddenChecklist: jsonb("hidden_checklist").$type<string[]>().notNull().default([]),
   /** This brand's own instructions, shown after the master's. */
   notes: text("notes"),
+  /** This brand's own examples, shown before the master's. */
+  examples: jsonb("examples").$type<RuleExample[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("brand_playbook_rules_idx").on(t.brandId, t.ruleId)]);
 

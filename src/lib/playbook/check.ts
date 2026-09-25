@@ -5,7 +5,7 @@
  * drafting and the agent API all run exactly the same checks.
  */
 import {
-  LIMIT_KEYS, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleKind, type RuleLimits,
+  LIMIT_KEYS, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleExample, type RuleKind, type RuleLimits,
 } from "./meta";
 
 /** One rule as a brand works to it: the master with this brand's adjustments applied. */
@@ -24,6 +24,8 @@ export type EffectiveRule = {
   enforce: EnforceLevel;
   limits: RuleLimits;
   checklist: ChecklistItem[];
+  /** This brand's own examples (`own`), then the master's. */
+  examples: (RuleExample & { own: boolean })[];
   /** Which limits this brand has changed from the master. */
   customised: LimitKey[];
 };
@@ -31,6 +33,7 @@ export type EffectiveRule = {
 export type MasterRuleInput = {
   id: string; code: string; kind: RuleKind; name: string; description: string; instructions: string;
   platforms: string[]; activityCodes: string[]; enforce: EnforceLevel; limits: RuleLimits; checklist: ChecklistItem[];
+  examples: RuleExample[];
 };
 
 export type BrandOverrideInput = {
@@ -40,6 +43,7 @@ export type BrandOverrideInput = {
   extraChecklist: ChecklistItem[];
   hiddenChecklist: string[];
   notes: string | null;
+  examples: RuleExample[];
 };
 
 export function effectiveRule(master: MasterRuleInput, override?: BrandOverrideInput | null): EffectiveRule {
@@ -63,6 +67,7 @@ export function effectiveRule(master: MasterRuleInput, override?: BrandOverrideI
     enforce: override?.enforce ?? master.enforce,
     limits,
     checklist: [...master.checklist.filter((i) => !hidden.has(i.id)), ...(override?.extraChecklist ?? [])],
+    examples: [...(override?.examples ?? []).map((e) => ({ ...e, own: true })), ...master.examples.map((e) => ({ ...e, own: false }))],
     customised,
   };
 }

@@ -178,6 +178,23 @@ export function brandBook(brand: typeof brands.$inferSelect) {
   ].join("\n");
 }
 
+/**
+ * A rule's examples as prompt text: the standard to match, the brand's own
+ * first. At most three, so a long list does not drown the brief.
+ */
+export function exampleText(examples: EffectiveRule["examples"]) {
+  if (!examples.length) return "";
+  return [
+    "  Examples to match in structure and standard. Never copy a fact, name or number from them: facts come from the brand book.",
+    ...examples.slice(0, 3).map((e) => [
+      `  - ${e.title || "Example"}${e.own ? " (this brand's own)" : ""}:`,
+      e.text ? `    ${e.text.replace(/\n/g, "\n    ")}` : "",
+      e.url ? `    Reference: ${e.url}` : "",
+      e.why ? `    Why it works: ${e.why}` : "",
+    ].filter(Boolean).join("\n")),
+  ].join("\n");
+}
+
 /** The user turn for a brief. Exported so the prompt can be inspected without a call. */
 export function draftRequestText(brief: DraftBrief) {
   const { idea, channels } = brief;
@@ -244,6 +261,7 @@ export function draftRequestText(brief: DraftBrief) {
         r.brandNotes ? `  For this brand: ${r.brandNotes}` : "",
         limits.length ? `  Limits: ${limits.join("; ")}` : "",
         points.length ? `  Check before returning: ${points.join("; ")}` : "",
+        exampleText(r.examples),
       ].filter(Boolean).join("\n"));
     }
   }

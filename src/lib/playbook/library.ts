@@ -1,4 +1,5 @@
-import type { ChecklistItem, EnforceLevel, RuleKind, RuleLimits } from "./meta";
+import type { ChecklistItem, EnforceLevel, RuleExample, RuleKind, RuleLimits } from "./meta";
+import { libraryExamples } from "./examples";
 import { assetSourceLines } from "@/lib/visual-sources";
 
 /**
@@ -29,6 +30,8 @@ export type LibraryRule = {
   enforce: EnforceLevel;
   limits: RuleLimits;
   checklist: ChecklistItem[];
+  /** Work done well, to match. Filled from `./examples` by code. */
+  examples?: RuleExample[];
   /** Where a rule added later sits among ones already seeded. Defaults to its place in this list. */
   sortOrder?: number;
 };
@@ -574,5 +577,7 @@ PLAYBOOK_LIBRARY.push(
     ]),
   },
 );
+
+for (const r of PLAYBOOK_LIBRARY) r.examples ??= libraryExamples(r.code);
 
 export const PLAYBOOK_CODES = new Set(PLAYBOOK_LIBRARY.map((r) => r.code));

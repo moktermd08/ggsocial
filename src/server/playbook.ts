@@ -7,7 +7,7 @@ import {
 import { PLAYBOOK_LIBRARY } from "@/lib/playbook/library";
 import {
   LIMIT_KEYS, isAdjustField, newItemId, CHECK_AUDIENCES, ENFORCE_LEVELS,
-  type AdjustField, type AdjustSource, type AdjustStatus, type ChecklistItem, type LimitKey, type RuleLimits,
+  type AdjustField, type AdjustSource, type AdjustStatus, type ChecklistItem, type LimitKey, type RuleExample, type RuleLimits,
 } from "@/lib/playbook/meta";
 import {
   checkTargets, coerceLimit, decodeValue, effectiveRule, encodeValue, localClock, resolveFormat,
@@ -36,6 +36,7 @@ export function ensurePlaybookLibrary() {
     .values(PLAYBOOK_LIBRARY.map((r, i) => ({ ...r, sortOrder: r.sortOrder ?? (i + 1) * 10 })))
     .onConflictDoNothing({ target: playbookRules.code })
     .then(linkNewActivities)
+    .then(addLibraryExamples)
     .catch((e) => {
       seeding = null;
       throw e;
@@ -56,6 +57,25 @@ async function linkNewActivities() {
   }
 }
 
+/**
+ * Gives a built-in rule the library's examples when it has none and nobody
+ * has ever edited its examples, so rules seeded before examples existed get
+ * them once. A person who clears them keeps them cleared.
+ */
+async function addLibraryExamples() {
+  const rows = await db.select({ id: playbookRules.id, code: playbookRules.code, examples: playbookRules.examples })
+    .from(playbookRules).where(eq(playbookRules.isCustom, false));
+  const empty = rows.filter((r) => r.examples.length === 0 && PLAYBOOK_LIBRARY.find((l) => l.code === r.code)?.examples?.length);
+  if (!empty.length) return;
+  const edited = new Set((await db.select({ ruleId: playbookAdjustments.ruleId }).from(playbookAdjustments)
+    .where(and(eq(playbookAdjustments.field, "examples"), isNull(playbookAdjustments.brandId)))).map((a) => a.ruleId));
+  for (const row of empty) {
+    if (edited.has(row.id)) continue;
+    const lib = PLAYBOOK_LIBRARY.find((l) => l.code === row.code)!;
+    await db.update(playbookRules).set({ examples: lib.examples }).where(eq(playbookRules.id, row.id));
+  }
+}
+
 export async function getPlaybookRules(opts: { includeArchived?: boolean } = {}) {
   await ensurePlaybookLibrary();
   return db.select().from(playbookRules)
@@ -67,13 +87,14 @@ export function masterInput(r: PlaybookRule): MasterRuleInput {
   return {
     id: r.id, code: r.code, kind: r.kind, name: r.name, description: r.description, instructions: r.instructions,
     platforms: r.platforms, activityCodes: r.activityCodes, enforce: r.enforce, limits: r.limits, checklist: r.checklist,
+    examples: r.examples,
   };
 }
 
 function overrideInput(o: BrandPlaybookRule | undefined): BrandOverrideInput | null {
   return o ? {
     enabled: o.enabled, enforce: o.enforce, limits: o.limits, extraChecklist: o.extraChecklist,
-    hiddenChecklist: o.hiddenChecklist, notes: o.notes,
+    hiddenChecklist: o.hiddenChecklist, notes: o.notes, examples: o.examples,
   } : null;
 }
 
@@ -113,6 +134,16 @@ function cleanItem(raw: unknown): ChecklistItem {
   return { id: typeof r.id === "string" && r.id ? r.id : newItemId(), text, for: audience };
 }
 
+function cleanExample(raw: unknown): RuleExample {
+  const r = (raw ?? {}) as Partial<Record<keyof RuleExample, unknown>>;
+  const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const ex = { id: s(r.id) || newItemId(), title: s(r.title), text: s(r.text), url: s(r.url), why: s(r.why) };
+  if (!ex.text && !ex.url) throw new Error("An example needs the example itself or a link to one.");
+  if (ex.text.length > 4000) throw new Error("Keep an example under 4,000 characters.");
+  if (ex.url && !/^https?:\/\//.test(ex.url)) throw new Error("An example's link must start with https://.");
+  return ex;
+}
+
 /**
  * A brand limit going back to the master's value. Distinct from null, which
  * means "no limit here" — a brand can drop a limit the master sets. Callers
@@ -141,6 +172,11 @@ export function coerceField(field: AdjustField, raw: unknown): unknown {
     if (s.length > 8000) throw new Error("Keep instructions under 8,000 characters.");
     return s || null;
   }
+  if (field === "examples") {
+    if (!Array.isArray(raw)) throw new Error("Examples must be a list.");
+    if (raw.length > 12) throw new Error("Keep it to 12 examples at most: the best ones.");
+    return raw.map(cleanExample);
+  }
   throw new Error(`Unknown field "${field}".`);
 }
 
@@ -151,6 +187,7 @@ async function currentValue(rule: PlaybookRule, brandId: string | null, field: A
     if (field === "enforce") return encodeValue(rule.enforce);
     if (field === "checklist" || field === "checklist.add") return encodeValue(rule.checklist);
     if (field === "instructions") return encodeValue(rule.instructions || null);
+    if (field === "examples") return encodeValue(rule.examples);
     return null;
   }
   const o = await db.query.brandPlaybookRules.findFirst({
@@ -162,6 +199,7 @@ async function currentValue(rule: PlaybookRule, brandId: string | null, field: A
   if (field === "enforce") return encodeValue(eff.enforce);
   if (field === "checklist" || field === "checklist.add") return encodeValue(eff.checklist);
   if (field === "instructions") return encodeValue(o?.notes ?? null);
+  if (field === "examples") return encodeValue(o?.examples ?? []);
   return null;
 }
 
@@ -178,6 +216,7 @@ async function writeField(rule: PlaybookRule, brandId: string | null, field: Adj
     else if (field === "checklist.add") set.checklist = [...rule.checklist, value as ChecklistItem];
     else if (field === "checklist") set.checklist = value as ChecklistItem[];
     else if (field === "instructions") set.instructions = (value as string | null) ?? "";
+    else if (field === "examples") set.examples = value as RuleExample[];
     else throw new Error("The master rule cannot be switched off per field — archive it instead.");
     await db.update(playbookRules).set(set).where(eq(playbookRules.id, rule.id));
     return;
@@ -193,6 +232,7 @@ async function writeField(rule: PlaybookRule, brandId: string | null, field: Adj
     extraChecklist: existing?.extraChecklist ?? [],
     hiddenChecklist: existing?.hiddenChecklist ?? [],
     notes: existing?.notes ?? null,
+    examples: existing?.examples ?? [],
   };
   if ((LIMIT_KEYS as string[]).includes(field)) {
     const key = field as LimitKey;
@@ -213,9 +253,10 @@ async function writeField(rule: PlaybookRule, brandId: string | null, field: Adj
     row.hiddenChecklist = rule.checklist.filter((i) => !kept.has(i.id)).map((i) => i.id);
     row.extraChecklist = items.filter((i) => !kept.has(i.id)).map((i) => (master.has(i.id) ? { ...i, id: newItemId() } : i));
   } else if (field === "instructions") row.notes = value as string | null;
+  else if (field === "examples") row.examples = value as RuleExample[];
 
   const empty = row.enabled === null && row.enforce === null && Object.keys(row.limits).length === 0
-    && row.extraChecklist.length === 0 && row.hiddenChecklist.length === 0 && !row.notes;
+    && row.extraChecklist.length === 0 && row.hiddenChecklist.length === 0 && !row.notes && row.examples.length === 0;
   if (existing && empty) await db.delete(brandPlaybookRules).where(eq(brandPlaybookRules.id, existing.id));
   else if (existing) await db.update(brandPlaybookRules).set({ ...row, updatedAt: new Date() }).where(eq(brandPlaybookRules.id, existing.id));
   else if (!empty) await db.insert(brandPlaybookRules).values({ brandId, ruleId: rule.id, ...row });
@@ -241,7 +282,7 @@ export type AdjustInput = {
  * older open suggestion for the same field is closed as superseded.
  */
 export async function adjustRule(input: AdjustInput) {
-  if (!isAdjustField(input.field)) throw new Error(`Unknown field "${input.field}". Use a limit (e.g. hashtagsMax, windows), enabled, enforce, checklist.add, checklist or instructions.`);
+  if (!isAdjustField(input.field)) throw new Error(`Unknown field "${input.field}". Use a limit (e.g. hashtagsMax, windows), enabled, enforce, checklist.add, checklist, instructions or examples.`);
   const field = input.field;
   if (!input.brandId && field === "enabled") throw new Error("Switch a rule off per brand, or archive the master rule.");
   const value = coerceField(field, input.value);

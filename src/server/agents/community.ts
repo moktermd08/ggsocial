@@ -8,6 +8,7 @@ import { truncate } from "@/lib/format";
 import type { AgentUsage } from "@/lib/agents/meta";
 import { getBrandPlaybook } from "@/server/playbook";
 import { askClaude, addUsage } from "@/server/agents/claude";
+import { exampleText } from "@/server/drafting";
 import { advance, startRun } from "@/server/workflows";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
 
@@ -76,7 +77,10 @@ export async function draftReplies(brand: Brand, rows: Row[], opts: { guidelines
 
   const task = [
     rules.length ? "House rules for this work:" : "",
-    ...rules.map((r) => `- ${r.name}: ${r.instructions}${r.brandNotes ? ` For this brand: ${r.brandNotes}` : ""}`),
+    ...rules.map((r) => [
+      `- ${r.name}: ${r.instructions}${r.brandNotes ? ` For this brand: ${r.brandNotes}` : ""}`,
+      exampleText(r.examples),
+    ].filter(Boolean).join("\n")),
     opts.guidelines?.trim() ? `\nStanding guidelines from the brand's team (follow these):\n${opts.guidelines.trim()}` : "",
     `\nThe brand aims to answer within ${brand.replySlaMinutes} minutes.`,
     opts.feedback ? `\nA person reviewed the earlier draft of this reply and asked for this change — make it:\n${opts.feedback}` : "",

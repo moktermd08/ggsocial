@@ -10,7 +10,7 @@ import type { ActionResult } from "@/lib/action-result";
 import {
   ADJUST_SOURCE_META, ADJUST_STATUS_META, CHECK_AUDIENCES, CHECK_AUDIENCE_META, ENFORCE_LEVELS, ENFORCE_META,
   LIMIT_FIELDS, LIMIT_GROUPS, RULE_KINDS, RULE_KIND_META, adjustFieldLabel, newItemId,
-  type AdjustSource, type AdjustStatus, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleKind, type RuleLimits,
+  type AdjustSource, type AdjustStatus, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleExample, type RuleKind, type RuleLimits,
 } from "@/lib/playbook/meta";
 import { describeRule, readableValue, type EffectiveRule } from "@/lib/playbook/check";
 import {
@@ -21,6 +21,7 @@ import { relativeTime } from "@/lib/format";
 export type MasterRuleView = {
   id: string; code: string; kind: RuleKind; name: string; description: string; instructions: string;
   platforms: string[]; activityCodes: string[]; enforce: EnforceLevel; limits: RuleLimits; checklist: ChecklistItem[];
+  examples: RuleExample[];
   isCustom: boolean; archived: boolean;
 };
 export type PlaybookBrand = { id: string; name: string; color: string; canPropose: boolean; canApply: boolean };
@@ -134,7 +135,10 @@ export function PlaybookRules({
 function RuleCard({ rule, eff, onEdit, onArchive, busy }: {
   rule: MasterRuleView; eff: EffectiveRule | null; onEdit?: () => void; onArchive?: () => void; busy: boolean;
 }) {
-  const shown = eff ?? { ...rule, customised: [] as LimitKey[], enabled: true, brandNotes: null };
+  const shown = eff ?? {
+    ...rule, customised: [] as LimitKey[], enabled: true, brandNotes: null,
+    examples: rule.examples.map((e) => ({ ...e, own: false })),
+  };
   const lines = describeRule(shown);
   const off = eff && !eff.enabled;
   return (
@@ -188,6 +192,12 @@ function RuleCard({ rule, eff, onEdit, onArchive, busy }: {
               </li>
             ))}
           </ul>
+        </details>
+      )}
+      {shown.examples.length > 0 && (
+        <details className="mt-2 text-xs">
+          <summary className="cursor-pointer text-muted">{shown.examples.length} example{shown.examples.length === 1 ? "" : "s"} to match</summary>
+          <ExampleList examples={shown.examples} />
         </details>
       )}
       {(rule.instructions || shown.brandNotes) && (
@@ -293,6 +303,52 @@ function ChecklistEditor({ items, onChange }: { items: ChecklistItem[]; onChange
   );
 }
 
+/** An example is worth keeping once it has the example itself or a link to one. */
+const filledExamples = (items: RuleExample[]) => items.filter((e) => e.text.trim() || e.url.trim());
+
+function ExamplesEditor({ items, onChange }: { items: RuleExample[]; onChange: (items: RuleExample[]) => void }) {
+  const set = (i: number, patch: Partial<RuleExample>) => onChange(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="space-y-2">
+      {items.map((ex, i) => (
+        <div key={ex.id} className="space-y-1.5 rounded-lg border border-border p-2.5">
+          <div className="flex items-center gap-1.5">
+            <input value={ex.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="What it is: a LinkedIn post that led with a number" className="flex-1" />
+            <Button size="sm" variant="ghost" aria-label="Remove example" onClick={() => onChange(items.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
+          </div>
+          <textarea rows={4} value={ex.text} onChange={(e) => set(i, { text: e.target.value })}
+            placeholder="The example itself, word for word. For an image or video: the layout or shot list." />
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            <input value={ex.url} onChange={(e) => set(i, { url: e.target.value })} placeholder="Link to a reference (optional): https://…" />
+            <input value={ex.why} onChange={(e) => set(i, { why: e.target.value })} placeholder="Why it works: what to copy from it" />
+          </div>
+        </div>
+      ))}
+      <Button size="sm" variant="ghost" onClick={() => onChange([...items, { id: newItemId(), title: "", text: "", url: "", why: "" }])}>
+        <Plus className="size-3.5" /> Add an example
+      </Button>
+    </div>
+  );
+}
+
+function ExampleList({ examples }: { examples: (RuleExample & { own?: boolean })[] }) {
+  return (
+    <ul className="mt-1.5 space-y-2">
+      {examples.map((ex) => (
+        <li key={ex.id} className="rounded-lg border border-border p-2.5">
+          <p className="flex flex-wrap items-center gap-1.5 font-medium">
+            {ex.title || "Example"}
+            {ex.own && <Badge color="#7c3aed">This brand</Badge>}
+          </p>
+          {ex.text && <p className="mt-1 whitespace-pre-wrap rounded bg-surface-2 px-2 py-1.5 leading-relaxed">{ex.text}</p>}
+          {ex.why && <p className="mt-1 text-muted"><span className="font-medium text-text">Why it works:</span> {ex.why}</p>}
+          {ex.url && <a href={ex.url} target="_blank" rel="noreferrer" className="mt-1 inline-block break-all text-accent hover:underline">{ex.url}</a>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ----------------------------------------------------------- master form */
 
 function MasterRuleForm({ rule, platformOptions, onClose }: { rule?: MasterRuleView; platformOptions: { id: string; name: string }[]; onClose: () => void }) {
@@ -309,6 +365,7 @@ function MasterRuleForm({ rule, platformOptions, onClose }: { rule?: MasterRuleV
     Object.fromEntries(LIMIT_FIELDS.map((f) => [f.key, str(rule?.limits[f.key])])),
   );
   const [checklist, setChecklist] = useState<ChecklistItem[]>(rule?.checklist ?? []);
+  const [examples, setExamples] = useState<RuleExample[]>(rule?.examples ?? []);
   const [reason, setReason] = useState("");
 
   const unknown = platforms.split(",").map((p) => p.trim()).filter((p) => p && !platformOptions.some((o) => o.id === p));
@@ -349,6 +406,11 @@ function MasterRuleForm({ rule, platformOptions, onClose }: { rule?: MasterRuleV
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Points to confirm</p>
         <ChecklistEditor items={checklist} onChange={setChecklist} />
       </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Examples to match</p>
+        <p className="mb-1.5 text-xs text-muted">The best work of this kind. Agents copy its structure and standard; facts always come from the brand page.</p>
+        <ExamplesEditor items={examples} onChange={setExamples} />
+      </div>
       <Field label="Why (for the change log)"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reels over 60s were losing viewers" /></Field>
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       <div className="flex justify-end gap-2">
@@ -356,7 +418,7 @@ function MasterRuleForm({ rule, platformOptions, onClose }: { rule?: MasterRuleV
         <Button size="sm" variant="primary" disabled={pending || !name.trim()} onClick={() => run(() => saveRuleAction({
           id: rule?.id, code, kind, name, description, instructions,
           platforms: platforms.split(","), activityCodes: activityCodes.split(","), enforce,
-          limits, checklist: checklist.filter((c) => c.text.trim()), reason,
+          limits, checklist: checklist.filter((c) => c.text.trim()), examples: filledExamples(examples), reason,
         }), onClose)}>
           Save for every brand
         </Button>
@@ -376,6 +438,11 @@ function BrandRuleForm({ rule, eff, brand, onClose }: { rule: MasterRuleView; ef
   const [enforce, setEnforce] = useState<EnforceLevel>(eff.enforce);
   const [notes, setNotes] = useState(eff.brandNotes ?? "");
   const [checklist, setChecklist] = useState<ChecklistItem[]>(eff.checklist);
+  const ownExamples = useMemo(
+    () => eff.examples.filter((e) => e.own).map(({ id, title, text, url, why }) => ({ id, title, text, url, why })),
+    [eff],
+  );
+  const [examples, setExamples] = useState<RuleExample[]>(ownExamples);
   const [reason, setReason] = useState("");
 
   /** Only what actually moved goes to the server, one logged adjustment per field. */
@@ -393,8 +460,10 @@ function BrandRuleForm({ rule, eff, brand, onClose }: { rule: MasterRuleView; ef
     if (notes.trim() !== (eff.brandNotes ?? "")) out.push({ field: "instructions", value: notes });
     const clean = checklist.filter((c) => c.text.trim());
     if (JSON.stringify(clean) !== JSON.stringify(eff.checklist)) out.push({ field: "checklist", value: clean });
+    const own = filledExamples(examples);
+    if (JSON.stringify(own) !== JSON.stringify(ownExamples)) out.push({ field: "examples", value: own });
     return out;
-  }, [limits, resets, enabled, enforce, notes, checklist, eff, initial]);
+  }, [limits, resets, enabled, enforce, notes, checklist, examples, ownExamples, eff, initial]);
 
   function save() {
     if (!changes.length) { onClose(); return; }
@@ -434,6 +503,13 @@ function BrandRuleForm({ rule, eff, brand, onClose }: { rule: MasterRuleView; ef
       <Field label={`${brand.name}'s own instructions`} hint="Shown after the master's.">
         <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{brand.name}&apos;s own examples</p>
+        <p className="mb-1.5 text-xs text-muted">
+          Its best real work of this kind, shown and followed before the master&apos;s {eff.examples.length - ownExamples.length} example{eff.examples.length - ownExamples.length === 1 ? "" : "s"}.
+        </p>
+        <ExamplesEditor items={examples} onChange={setExamples} />
+      </div>
       <Field label="Why" hint={brand.canApply ? "Kept in the change log." : "Required — your change goes to the daily review."}>
         <input value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
