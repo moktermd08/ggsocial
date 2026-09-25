@@ -141,7 +141,8 @@ export async function searchBrandLibrary(userId: string, brandId: string, query:
 /**
  * The library files that best fit a saved post — its words, its idea and its
  * format — for an agent or a workflow step to attach or offer. Only files
- * someone has catalogued can be told apart, so unfiled ones never rank.
+ * someone has catalogued can be told apart, so unfiled ones never rank; and
+ * images must be Canva designs, as the playbook's brand-visuals rule says.
  */
 export async function suggestMediaForPost(postId: string, opts: { userId?: string; limit?: number } = {}) {
   const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
@@ -152,6 +153,6 @@ export async function suggestMediaForPost(postId: string, opts: { userId?: strin
     post.title, post.body, post.campaign,
     idea && [idea.title, idea.pillar, idea.problem, idea.action, idea.outcome, ...idea.hashtags].filter(Boolean).join(" "),
   ].filter(Boolean).join("\n");
-  const ranked = rankForText(library.filter((m) => m.catalogedAt), text, { format: post.postType });
+  const ranked = rankForText(library.filter((m) => (m.source === "canva" || m.kind === "video") && m.catalogedAt), text, { format: post.postType });
   return { post, candidates: ranked.slice(0, opts.limit ?? 5) };
 }

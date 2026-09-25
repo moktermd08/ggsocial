@@ -12,6 +12,7 @@ import { readableOn } from "@/lib/color";
 import { EMOJI_POLICIES } from "@/lib/db";
 import { ClipboardCheck, Copy, Layers } from "lucide-react";
 import { checkBrandDetails, profileCopy } from "@/lib/brand-details";
+import { ASSET_SOURCES } from "@/lib/visual-sources";
 import { getBookDefaults, getBookDefaultsById, bookState } from "@/server/brand-book";
 import { linkBrandBookAction, resolveBookFieldAction, unlinkBrandBookAction } from "@/server/actions/brand-book";
 import { BOOK_FIELDS, BOOK_FIELD_LABELS, EMOJI_LABELS, bookValues, readableBookValue, type BookField } from "@/lib/brand-book";
@@ -376,6 +377,20 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
               <textarea name="imageStyle" rows={3} defaultValue={brand.imageStyle ?? ""} disabled={ro}
                 placeholder="Real workshops, natural light, no stock handshakes." />
             </Field>
+            <div className="rounded-lg border border-border bg-surface-2 p-3 text-xs">
+              <p className="font-medium">Every visual is designed in Canva from this kit</p>
+              <p className="mt-0.5 text-muted">
+                Import the export into Media and file it: agents only attach Canva designs. Raw material comes from these sources, restyled to the palette:
+              </p>
+              <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                {ASSET_SOURCES.map((s) => (
+                  <li key={s.url}>
+                    <a href={s.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">{s.name}</a>
+                    <span className="text-muted">: {s.for}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </SectionForm>
 
           <SectionForm

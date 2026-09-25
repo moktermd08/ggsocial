@@ -2,6 +2,7 @@ import { and, inArray, isNull } from "drizzle-orm";
 import { db, channels } from "@/lib/db";
 import { EMOJI_LABELS } from "@/lib/brand-book";
 import { checkBrandDetails, profileCopy } from "@/lib/brand-details";
+import { ASSET_SOURCES } from "@/lib/visual-sources";
 import { platformOrNull } from "@/lib/platforms";
 import type { BrandWithRole } from "@/lib/auth";
 import { pickBrands, withAgent } from "@/server/agent-api";
@@ -77,6 +78,19 @@ export async function GET(req: Request) {
           imageStyle: b.imageStyle,
           links: b.links,
         },
+        /**
+         * What every visual must look like. Images are designed in Canva from
+         * these, with raw material taken only from `assetSources`.
+         */
+        visuals: {
+          palette: b.palette,
+          fontHeading: b.fontHeading,
+          fontBody: b.fontBody,
+          logoUsage: b.logoUsage,
+          imageStyle: b.imageStyle,
+          makeIn: "canva",
+          assetSources: ASSET_SOURCES,
+        },
         /** Absolute URLs; null where the brand has not uploaded one. */
         images: {
           logo: abs(b.logoUrl),
@@ -131,6 +145,10 @@ function writingGuide(b: BrandWithRole) {
     b.ctaText && `Default call to action: ${b.ctaText}`,
     b.boilerplate && `Boilerplate: ${b.boilerplate}`,
     b.imageStyle && `Image style: ${b.imageStyle}`,
+    b.palette.length > 0 && `Palette: ${b.palette.map((c) => `${c.name} ${c.hex}`).join(", ")}`,
+    (b.fontHeading || b.fontBody) && `Typefaces: ${[b.fontHeading && `headings ${b.fontHeading}`, b.fontBody && `body ${b.fontBody}`].filter(Boolean).join(", ")}`,
+    b.logoUsage && `Logo usage: ${b.logoUsage}`,
+    `Everything you write or make for ${b.name} follows this guide, including replies, comments and messages. Design every image in Canva from the brand's logo, palette and typefaces, taking raw material only from the approved asset sources: ${ASSET_SOURCES.map((s) => s.name).join(", ")}.`,
     b.links.length > 0 && `Links: ${b.links.map((l) => `${l.label} ${l.url}`).join(", ")}`,
   ];
   return lines.filter(Boolean).join("\n");

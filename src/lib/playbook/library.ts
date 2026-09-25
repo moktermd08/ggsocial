@@ -1,4 +1,5 @@
 import type { ChecklistItem, EnforceLevel, RuleKind, RuleLimits } from "./meta";
+import { assetSourceLines } from "@/lib/visual-sources";
 
 /**
  * The master playbook: one rule per kind of content or work, each with the
@@ -381,6 +382,38 @@ PLAYBOOK_LIBRARY.push(
       "Ownership verified, and verification applied for where it's available",
     ]),
     sortOrder: 157,
+  },
+  {
+    code: "brand-visuals", kind: "profile", name: "Brand visuals & images",
+    description: "Every image, graphic, carousel, thumbnail, cover and video frame the brand puts out, and the brand standard behind everything it writes.",
+    instructions: [
+      "Everything the brand puts out follows the brand page: posts, reels, stories, carousels, articles, newsletters, ads, and every reply, comment and DM. That means its voice, words to avoid and emoji policy, and its visual identity: logo, palette, typefaces, logo usage and image style. Nothing goes out in another brand's colours or a template's defaults.",
+      "",
+      "Make every visual in Canva",
+      "• Every graphic, carousel, thumbnail, cover and image post is designed in Canva from the brand's own kit. Use its logo files, its named palette colours by hex code, and the heading and body typefaces from the brand page.",
+      "• Keep the designs in the brand's Canva folder. Import the finished export into Media and file it with alt text, tags and uses. The agents only attach Canva designs from the library, so a file uploaded from anywhere else is never picked for a post.",
+      "• Size it for the format's rule: 4:5 or 1:1 for feed posts, 9:16 for reels and stories, 16:9 for video thumbnails. Export graphics as PNG and photos as JPG.",
+      "• Follow the logo usage. Use the right mark on the right background and keep its clear space. Never stretch it, recolour it or put it on a busy area.",
+      "",
+      "Where to get assets",
+      "Stock material goes into a Canva design and is restyled to the brand palette. It is never posted raw.",
+      ...assetSourceLines(),
+      "",
+      "Check each asset's licence before using it, and credit it where the licence asks. Other companies' logos only name a tool or partner factually. Never present stock people as the brand's customers or team.",
+    ].join("\n"),
+    platforms: [],
+    activityCodes: [],
+    enforce: "warn",
+    limits: {},
+    checklist: points("brand-visuals", [
+      "Copy follows the brand book: voice, words to avoid, emoji policy, call to action",
+      "Designed in Canva from the brand's logo, palette colours and typefaces",
+      "Logo used as the logo usage says: right mark, clear space, not stretched or recoloured",
+      "Looks like the brand's image style; nothing in another brand's colours or template defaults",
+      "Stock or illustration comes from an approved source, restyled, with its licence checked",
+      "Sized for the format and filed in Media with alt text",
+    ]),
+    sortOrder: 158,
   },
   {
     code: "profile-info", kind: "profile", name: "Profile information",

@@ -4,6 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import type { BrandOffering, brands, contentIdeas } from "@/lib/db";
 import { platformOrNull } from "@/lib/platforms";
+import { profileCopy } from "@/lib/brand-details";
 import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
 import { recordUsage } from "@/server/ai-usage";
 
@@ -130,23 +131,24 @@ The idea is written in shorthand and usually names one company as the one doing 
 const offerings = (rows: BrandOffering[]) =>
   rows.map((o) => [o.name, o.description].filter(Boolean).join(" — ")).join("; ") || null;
 
+/**
+ * Everything a writer or agent knows about a brand, all from its brand page.
+ * The key facts come first and are to be used word for word: the brand page
+ * is the one source of truth (the playbook's brand-details rule), so nothing
+ * about the brand is ever invented, reworded or taken from anywhere else.
+ */
 export function brandBook(brand: typeof brands.$inferSelect) {
   // Fixed field order: this block is a cache key, and a reordering would
   // silently miss the cache on every call.
+  const facts = profileCopy(brand, []).map((r) => `${r.label}: ${r.value}`);
   const lines: [string, string | null | undefined][] = [
-    ["Brand", brand.name],
-    ["Positioning", brand.tagline],
-    ["What it does", brand.description],
-    ["Industry", brand.industry],
     ["Audience", brand.audience],
     ["Voice", brand.voice],
     ["Rules and notes", brand.brief],
     ["Value propositions", brand.valueProps.join("; ") || null],
     ["Banned words", brand.bannedWords.join(", ") || null],
     ["Emoji policy", { free: "emoji are fine", sparing: "at most one or two emoji", none: "never use emoji" }[brand.emojiPolicy]],
-    ["Call to action", brand.ctaText],
     ["House hashtags", brand.defaultHashtags.join(" ") || null],
-    ["Website", brand.website],
     ["Products", offerings(brand.products)],
     ["Services", offerings(brand.services)],
     ["Customer segments", brand.audienceSegments.map((s) => s.description ? `${s.name} (${s.description})` : s.name).join("; ") || null],
@@ -154,10 +156,26 @@ export function brandBook(brand: typeof brands.$inferSelect) {
     ["Competitors (context only, never name them)", brand.competitors.join(", ") || null],
     ["Key people", brand.people.map((p) => p.role ? `${p.name}, ${p.role}` : p.name).join("; ") || null],
     ["Proof points (claims the brand can back up)", brand.proofPoints.join("; ") || null],
-    ["Contact page", brand.contactUrl],
+    ["Testimonials (quote only word for word)", brand.testimonials.map((t) => `"${t.quote}" (${t.source})`).join("; ") || null],
+    ["FAQs", brand.faqs.map((f) => `Q: ${f.question} A: ${f.answer}`).join(" | ") || null],
+    ["Links", brand.links.map((l) => `${l.label} ${l.url}`).join(", ") || null],
+    ["Boilerplate", brand.boilerplate],
+    ["Palette", brand.palette.map((c) => `${c.name} ${c.hex}`).join(", ") || null],
+    ["Typefaces", [brand.fontHeading && `headings ${brand.fontHeading}`, brand.fontBody && `body ${brand.fontBody}`].filter(Boolean).join(", ") || null],
+    ["Logo usage", brand.logoUsage],
+    ["Image style", brand.imageStyle],
   ];
   const filled = lines.filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: ${v!.trim()}`);
-  return `Brand book\n\n${filled.join("\n")}`;
+  return [
+    "Brand book",
+    "",
+    `Everything written or made for ${brand.name} follows this brand book: posts, replies, comments, messages and anything visual. Every image is designed in Canva from the brand's own logo, palette and typefaces. Never use colours, fonts or a style from outside it.`,
+    "",
+    "Key facts, from the brand page. Use them word for word: the exact name, website, email, phone, address, hours and call to action. Never reword, shorten or guess one, and never state a fact about the brand that is not in this brand book. If something asked for is not here, say it is not available rather than inventing it.",
+    facts.join("\n"),
+    "",
+    filled.join("\n"),
+  ].join("\n");
 }
 
 /** The user turn for a brief. Exported so the prompt can be inspected without a call. */
