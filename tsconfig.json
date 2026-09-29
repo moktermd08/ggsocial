@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@gg/ui": ["./src/gg-ui/index.ts"]
     }
   },
   "include": [

@@ -252,11 +252,27 @@ src/
   app/(app)/          dashboard, calendar, posts, queue, library, channels, analytics, brands
   app/api/cron/       the scheduler endpoint
   components/         composer, calendar grid, queue cards, channel manager
+  gg-ui/              the GG UI kit, copied from GGLeads — do not edit here (see below)
   lib/db/             drizzle schema + client
   lib/platforms/      the platform contract, one adapter per network, validation
   lib/auth/           sessions, password hashing, role checks
   server/             queries, publish engine, server actions
 ```
+
+### The GG UI kit
+
+`src/gg-ui` is `@gg/ui`, the kit GGLeads and ggsocial share so the two apps read as one family:
+the sidebar frame, page headers, stat tiles, badges, empty states, charts and the colour tokens.
+It is a copy, stamped in `src/gg-ui/SOURCE.md` with the GGLeads commit it came from, because the
+server's deploy keys each read one repository. Change it in GGLeads (`packages/ui`), then copy it
+across from the GGLeads checkout:
+
+    node scripts/sync-ui.mjs ../ggsocial          # copy
+    node scripts/sync-ui.mjs ../ggsocial --check  # fails if the copy was edited or is behind
+
+`src/components/ui.tsx` keeps ggsocial's own prop names and hands the page vocabulary to the kit;
+Card, Button and Field are still Tailwind here. Import `gg-ui/styles.css` only, never `base.css`,
+which would fight Tailwind's preflight.
 
 ## Roles
 

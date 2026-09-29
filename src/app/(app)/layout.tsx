@@ -7,7 +7,7 @@ import { db, postTargets, posts } from "@/lib/db";
 import { getEngagementCounts } from "@/server/queries";
 import { countOpenPauses } from "@/server/workflows";
 import { BrandSwitcher } from "@/components/brand-switcher";
-import { Nav } from "@/components/nav";
+import { GGSideNav, Nav } from "@/components/nav";
 import { signOutAction } from "@/server/actions/auth";
 import { buttonClass } from "@/components/ui";
 
@@ -31,37 +31,33 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-dvh">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-4 md:flex">
-        <Link href="/" className="mb-4 flex items-center gap-2 px-1">
-          <span className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-accent to-chart-2 text-sm font-bold text-accent-fg shadow-sm">gg</span>
-          <span className="text-sm font-semibold tracking-tight">ggsocial</span>
-        </Link>
-
-        <BrandSwitcher brands={brands} value={scope.value} />
-
-        <div className="mt-4 flex-1">
-          <Nav counts={counts} />
-        </div>
-
-        <Link href={newHref} className={`${buttonClass("primary")} mb-3 w-full`}>
-          <Plus className="size-4" /> {scope.isMaster ? "New master post" : "New post"}
-        </Link>
-
-        <div className="flex items-center gap-2 border-t border-border pt-3">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-semibold">
-            {user.name.slice(0, 2).toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium">{user.name}</p>
-            <p className="truncate text-[11px] text-muted">{user.email}</p>
-          </div>
-          <form action={signOutAction}>
-            <button className="rounded-md p-1.5 text-muted hover:bg-surface-2" title="Sign out">
-              <LogOut className="size-4" />
-            </button>
-          </form>
-        </div>
-      </aside>
+      <div className="hidden shrink-0 md:block">
+        <GGSideNav
+          counts={counts}
+          top={<div className="mb-2 px-1"><BrandSwitcher brands={brands} value={scope.value} /></div>}
+          footer={
+            <>
+              <Link href={newHref} className={`${buttonClass("primary")} mb-3 w-full`}>
+                <Plus className="size-4" /> {scope.isMaster ? "New master post" : "New post"}
+              </Link>
+              <div className="flex items-center gap-2 border-t border-border pt-3">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-semibold text-text">
+                  {user.name.slice(0, 2).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-text">{user.name}</p>
+                  <p className="truncate text-[11px] text-muted">{user.email}</p>
+                </div>
+                <form action={signOutAction}>
+                  <button className="rounded-md p-1.5 text-muted hover:bg-surface-2" title="Sign out">
+                    <LogOut className="size-4" />
+                  </button>
+                </form>
+              </div>
+            </>
+          }
+        />
+      </div>
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur md:hidden">
