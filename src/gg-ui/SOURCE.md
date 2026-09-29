@@ -5,7 +5,7 @@ Change the kit there and copy it here with:
 
     node scripts/sync-ui.mjs ../ggsocial
 
-- from: ggleads `f0b725d`
+- from: ggleads `553c0d1`
 - hash: `200fd07af03fb35a`
 
 `node scripts/sync-ui.mjs ../ggsocial --check` (run in ggleads) fails if this copy was edited
