@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+// The GG kit first, so this app's own tokens and Tailwind utilities win over it.
+import "../gg-ui/styles.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
