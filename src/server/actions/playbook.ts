@@ -6,7 +6,7 @@ import { db, playbookAdjustments, playbookRules } from "@/lib/db";
 import { requireUser, type SessionUser } from "@/lib/auth";
 import {
   ENFORCE_LEVELS, LIMIT_KEYS, RULE_KINDS,
-  type ChecklistItem, type EnforceLevel, type LimitKey, type RuleKind,
+  type ChecklistItem, type EnforceLevel, type LimitKey, type RuleExample, type RuleKind,
 } from "@/lib/playbook/meta";
 import { roleOn } from "@/server/activities";
 import {
@@ -38,15 +38,16 @@ export type RuleInput = {
   enforce: EnforceLevel;
   limits: Partial<Record<LimitKey, unknown>>;
   checklist: ChecklistItem[];
+  examples: RuleExample[];
   /** Why, for the change log. */
   reason?: string;
 };
 
 /**
  * Saves a master rule. Identity fields (name, platforms…) are written
- * directly; every limit, the checklist, the instructions and the strictness go
- * through the change log one field at a time, so the history shows exactly
- * what moved.
+ * directly; every limit, the checklist, the examples, the instructions and the
+ * strictness go through the change log one field at a time, so the history
+ * shows exactly what moved.
  */
 export async function saveRuleAction(input: RuleInput) {
   return asResult(async () => {
@@ -87,7 +88,7 @@ export async function saveRuleAction(input: RuleInput) {
       if (blank && rule.limits[k] === undefined) continue;
       changes.push([k, blank ? null : next]);
     }
-    changes.push(["enforce", input.enforce], ["instructions", input.instructions], ["checklist", input.checklist]);
+    changes.push(["enforce", input.enforce], ["instructions", input.instructions], ["checklist", input.checklist], ["examples", input.examples]);
 
     for (const [field, value] of changes) {
       // Re-read each time: every write moves the row on.

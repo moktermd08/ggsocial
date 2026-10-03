@@ -1,6 +1,8 @@
 import { and, inArray, isNull } from "drizzle-orm";
 import { db, channels } from "@/lib/db";
 import { EMOJI_LABELS } from "@/lib/brand-book";
+import { checkBrandDetails, profileCopy } from "@/lib/brand-details";
+import { ASSET_SOURCES } from "@/lib/visual-sources";
 import { platformOrNull } from "@/lib/platforms";
 import type { BrandWithRole } from "@/lib/auth";
 import { pickBrands, withAgent } from "@/server/agent-api";
@@ -17,6 +19,9 @@ const abs = (url: string | null) => (url ? publicUrl(url) : null);
  *   GET /api/agent/brands?brand=all
  *
  * `writingGuide` is the same rules as one block of text, ready to follow.
+ * `profileCopy` is the exact wording every profile and registration uses, and
+ * `detailsCheck` lists what the brand page still gets wrong (see the playbook
+ * rules "brand-details" and "registration").
  * Internal brand notes are never returned.
  */
 export async function GET(req: Request) {
@@ -73,6 +78,19 @@ export async function GET(req: Request) {
           imageStyle: b.imageStyle,
           links: b.links,
         },
+        /**
+         * What every visual must look like. Images are designed in Canva from
+         * these, with raw material taken only from `assetSources`.
+         */
+        visuals: {
+          palette: b.palette,
+          fontHeading: b.fontHeading,
+          fontBody: b.fontBody,
+          logoUsage: b.logoUsage,
+          imageStyle: b.imageStyle,
+          makeIn: "canva",
+          assetSources: ASSET_SOURCES,
+        },
         /** Absolute URLs; null where the brand has not uploaded one. */
         images: {
           logo: abs(b.logoUrl),
@@ -97,6 +115,10 @@ export async function GET(req: Request) {
             aspectRatio: p?.constraints.aspectRatioHint ?? null,
           };
         }),
+        /** The exact values to paste into any profile or registration form. Never retype or reword them. */
+        profileCopy: profileCopy(b, channelRows.filter((c) => c.brandId === b.id)),
+        /** What is missing or inconsistent on the brand page. Register nowhere new until it is empty. */
+        detailsCheck: checkBrandDetails(b, channelRows.filter((c) => c.brandId === b.id)),
         writingGuide: writingGuide(b),
       })),
     };
@@ -123,6 +145,10 @@ function writingGuide(b: BrandWithRole) {
     b.ctaText && `Default call to action: ${b.ctaText}`,
     b.boilerplate && `Boilerplate: ${b.boilerplate}`,
     b.imageStyle && `Image style: ${b.imageStyle}`,
+    b.palette.length > 0 && `Palette: ${b.palette.map((c) => `${c.name} ${c.hex}`).join(", ")}`,
+    (b.fontHeading || b.fontBody) && `Typefaces: ${[b.fontHeading && `headings ${b.fontHeading}`, b.fontBody && `body ${b.fontBody}`].filter(Boolean).join(", ")}`,
+    b.logoUsage && `Logo usage: ${b.logoUsage}`,
+    `Everything you write or make for ${b.name} follows this guide, including replies, comments and messages. Design every image in Canva from the brand's logo, palette and typefaces, taking raw material only from the approved asset sources: ${ASSET_SOURCES.map((s) => s.name).join(", ")}.`,
     b.links.length > 0 && `Links: ${b.links.map((l) => `${l.label} ${l.url}`).join(", ")}`,
   ];
   return lines.filter(Boolean).join("\n");

@@ -36,9 +36,15 @@ with the copy and files ready to paste.
   reviewer sends back using their note. The *community manager* drafts
   replies to new comments, messages, mentions and reviews, sets tone and priority, and
   flags anything a person must decide. The *performance analyst* reads yesterday's posts
-  every morning and ticks the daily check with its note. Each agent is switched on per
-  brand and reads that brand's guidelines on every run. Every run is logged with what it
-  made, what to check and what it cost. Needs `ANTHROPIC_API_KEY`.
+  every morning, and writes the weekly review (with its top and bottom posts) and the monthly
+  report, each ticked on the checklist with its note. Each agent is switched on per brand
+  and reads that brand's guidelines on every run. Every run is logged with what it made,
+  what to check and what it cost. Needs `ANTHROPIC_API_KEY`.
+- **The checklist fills itself in** — every hour the activity checklist catches up with the
+  work that actually happened: posts, stories and videos published, comments, messages and
+  reviews answered, the inbox read, next week booked, connected channels healthy. Counts come
+  from the facts, so goals learn what each activity is worth from real work. A check a person
+  recorded is never overwritten.
 - **Workflows and the Review inbox** — each kind of work runs as a workflow of steps, done
   by an agent, a tool or a person: so far, *publish a planned post*, *answer a comment or
   message* (sent through the platform on connected Facebook, Instagram and YouTube channels)

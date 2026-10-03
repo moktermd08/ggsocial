@@ -38,6 +38,10 @@ export async function GET(req: Request) {
           changedForThisBrand: r.customised,
           checklist: r.checklist.filter((i) => i.for !== "human").map((i) => ({ id: i.id, text: i.text })),
           instructions: [r.instructions, r.brandNotes].filter(Boolean).join("\n\n"),
+          /** The standard to match, this brand's own first. Copy the structure, never the facts. */
+          examples: r.examples.map((e) => ({
+            title: e.title, example: e.text, reference: e.url || null, whyItWorks: e.why, thisBrandsOwn: e.own,
+          })),
         })),
       })),
       masterSuggestions: open.filter((o) => !o.adjustment.brandId).length,

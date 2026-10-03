@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { BookCheck, History, Inbox, ScrollText } from "lucide-react";
+import { BookCheck, History, Images, Inbox, ScrollText } from "lucide-react";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { PLATFORM_LIST } from "@/lib/platforms";
-import { PageHeader } from "@/components/ui";
+import { Card, CardHeader, PageHeader } from "@/components/ui";
+import { ASSET_SOURCES } from "@/lib/visual-sources";
 import { PlaybookRules, PlaybookReview, type AdjustmentView } from "@/components/playbook";
 import {
   brandAdjustRights, canEditMaster, getBrandPlaybooks, getPlaybookRules, listAdjustments,
@@ -94,18 +95,36 @@ export default async function PlaybookPage({ searchParams }: { searchParams: Pro
       </nav>
 
       {view === "rules" ? (
-        <PlaybookRules
-          rules={rules.map((r) => ({
-            id: r.id, code: r.code, kind: r.kind, name: r.name, description: r.description, instructions: r.instructions,
-            platforms: r.platforms, activityCodes: r.activityCodes, enforce: r.enforce, limits: r.limits, checklist: r.checklist,
-            isCustom: r.isCustom, archived: Boolean(r.archivedAt),
-          }))}
-          brands={pbBrands}
-          effective={Object.fromEntries(playbooks)}
-          brandId={brandId}
-          canEditMaster={master}
-          platformOptions={PLATFORM_LIST.map((p) => ({ id: p.id, name: p.name })).sort((a, c) => a.name.localeCompare(c.name))}
-        />
+        <>
+          <Card className="mb-5">
+            <CardHeader
+              icon={Images}
+              title="Where visuals come from"
+              subtitle="Every image is designed in Canva from the brand kit. Raw material comes only from these sources, restyled to the brand palette, with the licence checked. See Brand visuals & images below."
+            />
+            <ul className="grid gap-x-4 gap-y-2 p-4 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              {ASSET_SOURCES.map((s) => (
+                <li key={s.url} className="min-w-0">
+                  <a href={s.url} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">{s.name}</a>
+                  <span className="block truncate text-muted" title={s.url}>{s.url.replace(/^https:\/\/(www\.)?/, "")}</span>
+                  <span className="block text-muted">{s.for}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+          <PlaybookRules
+            rules={rules.map((r) => ({
+              id: r.id, code: r.code, kind: r.kind, name: r.name, description: r.description, instructions: r.instructions,
+              platforms: r.platforms, activityCodes: r.activityCodes, enforce: r.enforce, limits: r.limits, checklist: r.checklist,
+              examples: r.examples, isCustom: r.isCustom, archived: Boolean(r.archivedAt),
+            }))}
+            brands={pbBrands}
+            effective={Object.fromEntries(playbooks)}
+            brandId={brandId}
+            canEditMaster={master}
+            platformOptions={PLATFORM_LIST.map((p) => ({ id: p.id, name: p.name })).sort((a, c) => a.name.localeCompare(c.name))}
+          />
+        </>
       ) : (
         <PlaybookReview adjustments={views} brands={inScope} mode={view === "review" ? "open" : "history"} />
       )}

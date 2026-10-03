@@ -244,15 +244,17 @@ async function mediaNeed(post: typeof posts.$inferSelect) {
 
 /**
  * Attaches the filed library image that best fits a post, by the post's own
- * words, format and shape — no model call. Files already turned down are
- * skipped. null = nothing filed fits.
+ * words, format and shape — no model call. Images must be Canva designs: the
+ * playbook's brand-visuals rule has every visual made in Canva from the brand
+ * kit (Canva exports no video, so videos come from anywhere). Files already
+ * turned down are skipped. null = nothing filed fits.
  */
 async function attachBestMedia(post: typeof posts.$inferSelect, need: Awaited<ReturnType<typeof mediaNeed>>, tried: string[]) {
   const { library } = await searchBrandLibrary("", post.brandId, {});
   const idea = need.idea;
   const text = [post.title, post.body, post.campaign, idea && [idea.title, idea.pillar, idea.problem, idea.action, idea.outcome, ...idea.hashtags].filter(Boolean).join(" ")]
     .filter(Boolean).join("\n");
-  const best = rankForText(library.filter((m) => m.catalogedAt && !tried.includes(m.id)), text, {
+  const best = rankForText(library.filter((m) => (m.source === "canva" || m.kind === "video") && m.catalogedAt && !tried.includes(m.id)), text, {
     format: post.postType, kind: need.videoOnly ? "video" : undefined,
   })[0];
   if (!best) return null;
@@ -293,8 +295,8 @@ async function media(ctx: StepContext): Promise<StepResult> {
       : "The idea calls for an image or video";
     return {
       outcome: "human",
-      summary: `${why}, and nothing filed in the library fits${tried.length ? " that has not been turned down" : ""}.`,
-      question: `Attach an image or video to "${post.title || "this post"}", or file more in Media so the agent can pick one.`,
+      summary: `${why}, and no Canva design filed in the library fits${tried.length ? " that has not been turned down" : ""}.`,
+      question: `Design an image for "${post.title || "this post"}" in Canva from the brand kit, import it into Media and file it, or attach one yourself.`,
       href: `/posts/${post.id}`,
       recheckAt: new Date(ctx.now.getTime() + 15 * MINUTE),
     };
