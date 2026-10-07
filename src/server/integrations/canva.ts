@@ -12,10 +12,19 @@ export type CanvaDesign = {
   updatedAt: string | null;
 };
 
-export const CANVA_FORMATS = ["png", "jpg", "pdf"] as const;
+export const CANVA_FORMATS = ["png", "jpg", "pdf", "mp4", "gif"] as const;
 export type CanvaFormat = (typeof CANVA_FORMATS)[number];
 
-const MIME: Record<CanvaFormat, string> = { png: "image/png", jpg: "image/jpeg", pdf: "application/pdf" };
+/** Canva asks for a quality on every video export: vertical for reels, shorts and stories. */
+export const CANVA_VIDEO_QUALITIES = [
+  "vertical_480p", "vertical_720p", "vertical_1080p", "vertical_4k",
+  "horizontal_480p", "horizontal_720p", "horizontal_1080p", "horizontal_4k",
+] as const;
+export type CanvaVideoQuality = (typeof CANVA_VIDEO_QUALITIES)[number];
+
+const MIME: Record<CanvaFormat, string> = {
+  png: "image/png", jpg: "image/jpeg", pdf: "application/pdf", mp4: "video/mp4", gif: "image/gif",
+};
 
 async function call<T>(token: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
@@ -118,13 +127,14 @@ type ExportJob = { id: string; status: "in_progress" | "success" | "failed"; url
  * Renders a design and returns one downloaded file per page (PDF is always a
  * single file). Canva exports are async jobs; this polls until done.
  */
-export async function exportDesign(token: string, designId: string, format: CanvaFormat) {
+export async function exportDesign(token: string, designId: string, format: CanvaFormat, quality: CanvaVideoQuality = "vertical_1080p") {
   let { job } = await call<{ job: ExportJob }>(token, "/exports", {
     method: "POST",
-    body: JSON.stringify({ design_id: designId, format: { type: format } }),
+    body: JSON.stringify({ design_id: designId, format: format === "mp4" ? { type: "mp4", quality } : { type: format } }),
   });
 
-  const deadline = Date.now() + 90_000;
+  // Video takes far longer to render than a picture.
+  const deadline = Date.now() + (format === "mp4" || format === "gif" ? 5 * 60_000 : 90_000);
   while (job.status === "in_progress") {
     if (Date.now() > deadline) throw new Error("Canva is still rendering this design. Try again in a minute.");
     await new Promise((r) => setTimeout(r, 1500));

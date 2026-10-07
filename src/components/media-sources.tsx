@@ -217,6 +217,8 @@ function CanvaPicker({ brandId, onClose }: { brandId: string; onClose: () => voi
             <option value="png">PNG</option>
             <option value="jpg">JPG</option>
             <option value="pdf">PDF</option>
+            <option value="mp4">MP4 video (vertical)</option>
+            <option value="gif">GIF</option>
           </select>
           <button onClick={onClose} disabled={!!busy} className="grid size-7 place-items-center rounded-md text-muted hover:bg-surface-2" aria-label="Close">
             <X className="size-4" />

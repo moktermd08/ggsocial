@@ -96,7 +96,9 @@ Media library — every brand's images and videos, filed by category, subcategor
    PATCH ${root}/media/{id}  {"description": "…", "category": "Product", "subcategory": "Close-up", "keywords": ["…"], "uses": ["feed", "story"], "notes": "…"}
 
 Hand work over for review — the last step for anything you make. You can create and send, never approve, schedule or publish:
-14. Upload a finished file (a video exported from Canva, an image) to the brand's library:
+14. Get the finished file into the brand's library. For a Canva design, let the server fetch it, so the file never passes through you (a video can take a few minutes):
+   POST ${root}/media/canva  {"brand": "<slug>", "design": "<Canva design id or link>", "format": "mp4", "quality": "vertical_1080p"}   (GET ${root}/media/canva?q=… finds designs; formats mp4, gif, png, jpg, pdf)
+   For any other file, upload it:
    curl -X POST ${root}/media/upload -H "X-Agent-Token: ggs_…" -F brand=<slug> -F file=@short.mp4 -F width=1080 -F height=1920 -F durationSeconds=42 -F description="…" -F keywords="a,b" -F uses="story,feed"
    It returns an "id". Send width, height and durationSeconds so the playbook can check the file.
 15. Create the post and send it to the Review inbox:

@@ -7,6 +7,7 @@ import { requireBrandRole, requireUser } from "@/lib/auth";
 import { storeBuffer } from "@/server/media";
 import { getAccessToken } from "@/server/integrations/oauth";
 import * as canva from "@/server/integrations/canva";
+import { importCanvaDesign } from "@/server/integrations/canva-import";
 import * as photos from "@/server/integrations/google-photos";
 
 export async function disconnectIntegrationAction(provider: IntegrationProvider) {
@@ -75,35 +76,12 @@ export async function setCanvaBrandFolderAction(brandId: string, input: string |
 }
 
 /** Renders a Canva design and adds every page to the brand's library. */
-export async function importCanvaDesignAction(brandId: string, designId: string, format: canva.CanvaFormat) {
+export async function importCanvaDesignAction(brandId: string, designId: string, format: canva.CanvaFormat, quality?: canva.CanvaVideoQuality) {
   return asResult(async () => {
     const { user } = await requireBrandRole(brandId, "editor");
-    if (!canva.CANVA_FORMATS.includes(format)) throw new Error("Unsupported format.");
-    const token = await getAccessToken(user.id, "canva");
-
-    const design = await canva.getDesign(token, designId);
-    const files = await canva.exportDesign(token, designId, format);
-    const base = design.title.replace(/[^\w\- ]+/g, "").trim().slice(0, 80) || "canva-design";
-
-    const saved: string[] = [];
-    for (const [i, f] of files.entries()) {
-      const name = files.length > 1 ? `${base} (${i + 1}).${format}` : `${base}.${format}`;
-      const stored = await storeBuffer(f.buffer, name, f.mimeType);
-      const [row] = await db.insert(media).values({
-        brandId,
-        kind: stored.kind,
-        url: stored.url,
-        originalName: name,
-        mimeType: f.mimeType,
-        size: stored.size,
-        source: "canva",
-        sourceUrl: design.editUrl,
-        uploadedBy: user.id,
-      }).returning({ id: media.id });
-      saved.push(row.id);
-    }
+    const saved = await importCanvaDesign({ userId: user.id, brandId, designId, format, quality });
     revalidatePath("/", "layout");
-    return { ids: saved };
+    return { ids: saved.map((s) => s.id) };
   });
 }
 
