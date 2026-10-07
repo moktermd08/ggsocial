@@ -93,7 +93,16 @@ Media library — every brand's images and videos, filed by category, subcategor
 13. Files nobody has filed yet cannot be found by words. List them with ?unfiled=1, then either
    POST ${root}/media/catalogue  {"brand": "<slug>" | "master"}   Claude files up to six; repeat while "remaining" > 0
    or file one yourself:
-   PATCH ${root}/media/{id}  {"description": "…", "category": "Product", "subcategory": "Close-up", "keywords": ["…"], "uses": ["feed", "story"], "notes": "…"}`;
+   PATCH ${root}/media/{id}  {"description": "…", "category": "Product", "subcategory": "Close-up", "keywords": ["…"], "uses": ["feed", "story"], "notes": "…"}
+
+Hand work over for review — the last step for anything you make. You can create and send, never approve, schedule or publish:
+14. Upload a finished file (a video exported from Canva, an image) to the brand's library:
+   curl -X POST ${root}/media/upload -H "X-Agent-Token: ggs_…" -F brand=<slug> -F file=@short.mp4 -F width=1080 -F height=1920 -F durationSeconds=42 -F description="…" -F keywords="a,b" -F uses="story,feed"
+   It returns an "id". Send width, height and durationSeconds so the playbook can check the file.
+15. Create the post and send it to the Review inbox:
+   POST ${root}/posts  {"brand": "<slug>", "title": "…", "body": "caption with hashtags", "channels": ["<handle>"], "mediaIds": ["<id from step 14>"], "format": "short", "firstComment": "…", "scheduledAt": "2026-10-08T12:30:00+01:00"}
+   The platform limits and the brand's playbook are checked first. Any "error" in "issues" means it is saved as a draft and not sent: fix it and create it again. "scheduledAt" is only the time you suggest; a person approves and schedules. Then record the activity with the new post's url as "proofUrl".
+16. If steps 14 or 15 fail (no network, an error you cannot fix) and you have Claude in Chrome, do the same in the browser at the app address, signed in as the person: Media → upload the file; New post → pick the brand and channels, attach the file, paste the caption, then choose Submit for review. Stop there. Never click approve, schedule, publish now, or anything that sends a message or posts to a platform; and do not sign in, change settings or touch another site's account. If the browser is not signed in or something needs a decision, stop and tell the person what is left.`;
 
   function run(work: () => Promise<ActionResult>) {
     setError(null);
