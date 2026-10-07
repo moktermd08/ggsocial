@@ -1,0 +1,338 @@
+{
+  "source": "linkedin-analysis-2026-10-07",
+  "note": "Mo's last 63 LinkedIn posts vs Pascal Bornet, Ruben Hassid and Andrew Ng, plus 100 AI posts with 1,000+ reactions. Correlations, not controlled tests: the Daily review re-tests at week 4 and 6.",
+  "brandSlug": "mhossain",
+  "changes": [
+    {
+      "op": "text-append",
+      "scope": "master",
+      "rule": "brand-visuals",
+      "text": "No AI-generated images on LinkedIn. Real screenshots, architecture diagrams and the brand owner's own photos come first; library illustrations second.",
+      "reason": "mhossain image posts median 130 impressions vs 297 for text-only (63 posts). Most recent images were AI-generated."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "hashtagsMin": {
+          "to": 0,
+          "from": [
+            3
+          ]
+        },
+        "hashtagsMax": {
+          "to": 2,
+          "from": [
+            3
+          ]
+        }
+      },
+      "reason": "0 hashtags gives median 403 impressions; 3+ gives 200 (mhossain, 63 posts). Ruben Hassid and Andrew Ng median 0."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "mediaMin": {
+          "to": 0,
+          "from": [
+            1
+          ]
+        }
+      },
+      "reason": "Text-only 297 vs image 130 median impressions (mhossain). If media is present it is a real image only."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "bodyMinChars": {
+          "to": 300,
+          "from": [
+            80
+          ]
+        },
+        "bodyMaxChars": {
+          "to": 1600,
+          "from": []
+        }
+      },
+      "reason": "Top creators' median 156-258 words; mhossain 121. Proof posts 900-1,600 characters, single-observation posts 300-600."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "windows": {
+          "to": "07:00-09:00, 12:00-13:00",
+          "from": [
+            "08:00-10:00, 12:00-13:00, 18:00-20:00"
+          ]
+        },
+        "days": {
+          "to": "tue-thu",
+          "from": [
+            "mon-fri"
+          ]
+        }
+      },
+      "reason": "Post Tue-Thu, 07:00-09:00 or 12:00-13:00, from the 7 Oct 2026 LinkedIn analysis (timing stays advice)."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "perWeek": {
+          "to": 3,
+          "from": [
+            5
+          ]
+        }
+      },
+      "reason": "mhossain history shows month-long gaps; consistency outranks volume. 3 a week, fixed days."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "specificHook": {
+          "to": true,
+          "from": []
+        },
+        "noQuestionEnding": {
+          "to": true,
+          "from": []
+        },
+        "artefactRequired": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Hook specificity, statement ending and a saveable artefact: mhossain 62% of posts end in a question, 6% have a number in line 1, 11% carry an artefact (63 posts)."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "bannedPhrases": {
+          "to": "game-changer, unlock, in today's fast-paced world, thoughts?",
+          "from": []
+        }
+      },
+      "reason": "Banned phrases from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "post",
+      "set": {
+        "blockedTerms": {
+          "to": {
+            "env": "GGSOCIAL_BLOCKED_TERMS_MHOSSAIN"
+          },
+          "from": []
+        }
+      },
+      "reason": "Disclosure risk: nothing may name, hint at or imply Mo's employer, its sector or type of organisation. A must; the list is kept out of the repo."
+    },
+    {
+      "op": "points-replace",
+      "scope": "mhossain",
+      "rule": "post",
+      "expectCount": 7,
+      "points": [
+        "First line contains a number, a named system or a specific fact; no generic opener (\"AI is everywhere…\")",
+        "Within two sentences the post rejects the obvious reading and names the real one",
+        "Contains a saveable artefact: checklist, steps, framework or map",
+        "Ends on a statement, not a question",
+        "At most 2 hashtags",
+        "Any image is real (screenshot, diagram, own photo); no AI-generated imagery",
+        "Nothing names, hints at or implies Mo's employer, its sector or type of organisation",
+        "Draws on material only Mo has (build log, experiments, costs, failures). If any reader could have written it, rewrite"
+      ],
+      "reason": "Replaces the generic seven with the eight points the 7 Oct 2026 LinkedIn analysis found separate Mo's best posts from the rest."
+    },
+    {
+      "op": "examples-add",
+      "scope": "mhossain",
+      "rule": "post",
+      "examples": [
+        {
+          "title": "Best post, 10,430 impressions",
+          "text": "Everyone left the meeting saying, 'We're aligned.' Then the CEO heard A. The CTO heard B. Ops heard C.",
+          "why": "One concrete scene, no closing question."
+        },
+        {
+          "title": "Andrew Ng, 7,167 reactions",
+          "text": "The most important skills for using AI coding agents effectively. Presenting the AI Engineering Skills Map.",
+          "why": "A reusable artefact."
+        }
+      ],
+      "reason": "Examples to match from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "text-append",
+      "scope": "mhossain",
+      "rule": "post",
+      "text": "How to do it: pick one item from the build log (an experiment, a failure, a cost or a teardown). Open with the number or system. Make the distinction in two sentences. Give one artefact the reader can reuse. Close on a contrast. Real image or no image. Schedule Tue-Thu 07:00-09:00.",
+      "reason": "How-to distilled from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "carousel",
+      "set": {
+        "hashtagsMin": {
+          "to": null,
+          "from": [
+            3
+          ]
+        },
+        "hashtagsMax": {
+          "to": 2,
+          "from": [
+            3
+          ]
+        }
+      },
+      "reason": "At most 2 hashtags (still a must). mhossain: 0 reposts across 63 posts."
+    },
+    {
+      "op": "limits",
+      "scope": "mhossain",
+      "rule": "carousel",
+      "set": {
+        "perWeek": {
+          "to": 1,
+          "from": []
+        }
+      },
+      "reason": "At least 1 a week: the repost format. Ruben (80% of posts contain a list/framework) median 40 reposts; Andrew Ng (38%) median 264."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "carousel",
+      "points": [
+        "Each slide carries one step of a framework or checklist, usable without the caption",
+        "Cover slide states a number or outcome (\"7 layers every failure traces to\")",
+        "Last slide repeats the whole framework on one page, so it is worth saving"
+      ],
+      "reason": "Frameworks get reposted: mhossain 0 reposts across 63 posts; Ruben median 40, Andrew Ng median 264."
+    },
+    {
+      "op": "points-append",
+      "scope": "mhossain",
+      "rule": "short",
+      "points": [
+        "One idea, stated in the first five seconds, with a concrete example"
+      ],
+      "reason": "Video is the top format for Pascal Bornet (15/38) and Andrew Ng (20/60); mhossain has 2."
+    },
+    {
+      "op": "points-append",
+      "scope": "mhossain",
+      "rule": "video",
+      "points": [
+        "One idea, stated in the first five seconds, with a concrete example"
+      ],
+      "reason": "Video is the top format for Pascal Bornet (15/38) and Andrew Ng (20/60); mhossain has 2."
+    },
+    {
+      "op": "points-replace",
+      "scope": "master",
+      "rule": "prospect-comment",
+      "points": [
+        "40-60 words",
+        "Exactly one small emoji, after the opening clause, never in the first three words",
+        "Adds a distinction, number or consequence the post missed; never restates it",
+        "Ends on a statement",
+        "Target is in-lane, from a large account, under 3 hours old, with few comments"
+      ],
+      "reason": "Comment format from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "prospect-comment",
+      "set": {
+        "bodyMinWords": {
+          "to": 40,
+          "from": []
+        },
+        "bodyMaxWords": {
+          "to": 60,
+          "from": []
+        },
+        "emojiMin": {
+          "to": 1,
+          "from": []
+        },
+        "emojiMax": {
+          "to": 1,
+          "from": []
+        },
+        "noQuestionEnding": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Comment checks from the 7 Oct 2026 LinkedIn analysis: 40-60 words, exactly one emoji, ends on a statement."
+    },
+    {
+      "op": "text-append",
+      "scope": "master",
+      "rule": "prospect-comment",
+      "text": "Capture the target post's own URL before drafting (the feed re-sorts). Harvard Business Review and Harvard Business School page posts first, always. Then 3-4 large in-lane posts in the hour after each own post goes live. Skip personal-news and off-topic viral posts.",
+      "reason": "Comment format from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "examples-add",
+      "scope": "master",
+      "rule": "prospect-comment",
+      "examples": [
+        {
+          "title": "Dashboard comment",
+          "text": "The chart is rarely where clarity fails 📊. It fails one step earlier, when nobody agreed which number the decision depends on. I have seen well-designed dashboards with eleven metrics and no owner for any of them. A clear chart of the wrong measure just gets the wrong answer agreed faster.",
+          "why": "One emoji after the opening clause, adds a consequence, ends on a statement."
+        }
+      ],
+      "reason": "Example to match from the 7 Oct 2026 LinkedIn analysis."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "reply",
+      "points": [
+        "Reply to every comment, within an hour where possible",
+        "Address the person by name",
+        "Add one more turn of the argument, not just thanks",
+        "\"Agreed\" or \"Exactly\" only where genuinely agreed"
+      ],
+      "reason": "The 10k post spread after early comments from people with large networks; active threads in the first 24h extend reach."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "reporting",
+      "points": [
+        "Flag any week where 2+ targets are missed and propose a rule change in the Change log"
+      ],
+      "reason": "Weekly report metrics from the 7 Oct 2026 LinkedIn analysis (reach rate, reposts per post, artefact rate, question-ending rate, specific-hook rate, hashtag overuse, cadence gaps)."
+    }
+  ],
+  "needsBuild": [
+    "§2a cadence 'fixed days' and the LinkedIn-only scope: the playbook adjusts per brand, not per channel, so these limits cover every channel of the brand",
+    "§4 LinkedIn native video experiment tag exp-video-2026Q4 (1 a week for 6 weeks)",
+    "§6 SLA: an Engagement task for every new comment on own posts, due in 60 minutes",
+    "§7 weekly-report and Analytics metrics, and the Daily review re-test at week 4 and 6"
+  ],
+  "built": "Automated checks (hook, question ending, artefact, banned phrases, disclosure, comment word/emoji/question checks, AI-image flag on LinkedIn) are limits on the rule; 'agent drafts, person sends' is fixed in code (src/lib/workflows/handoff.ts)."
+}

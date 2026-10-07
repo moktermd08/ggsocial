@@ -5,6 +5,7 @@ import { INTERACTION_KIND_LABELS } from "@/lib/db/engagement";
 import { getPlatform, platformOrNull } from "@/lib/platforms";
 import { freshCredentials, isRevokedToken, markReconnect, ReconnectError } from "@/server/channel-auth";
 import { communityGuidelines, draftReplies, loadRows, saveDraftedReply } from "@/server/agents/community";
+import { personSends, PERSON_SENDS_REASON, RULE_FOR_INTERACTION } from "@/lib/workflows/handoff";
 import type { StepContext, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 /**
@@ -88,6 +89,8 @@ async function send(ctx: StepContext): Promise<StepResult> {
   });
 
   if (!channel || !platform) return byHand("This item has no channel to reply through.");
+  // Agent drafts, person sends: never posted by the workflow, whatever the review setting or API access.
+  if (personSends(channel.platform, RULE_FOR_INTERACTION[item.kind] ?? "")) return byHand(PERSON_SENDS_REASON);
   if (channel.mode !== "live" || !platform.sendReply || !item.externalId) {
     return byHand(`${platform.name} ${channel.mode !== "live" ? "is not connected" : "has no API for replies"}, so a person posts it.`);
   }

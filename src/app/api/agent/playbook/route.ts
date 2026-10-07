@@ -1,3 +1,4 @@
+import { PERSON_SENDS } from "@/lib/workflows/handoff";
 import { describeRule } from "@/lib/playbook/check";
 import { getBrandPlaybooks, listAdjustments } from "@/server/playbook";
 import { pickBrands, withAgent } from "@/server/agent-api";
@@ -35,9 +36,16 @@ export async function GET(req: Request) {
           strictness: r.enforce,
           summary: describeRule(r),
           limits: r.limits,
+          /** Platforms where you draft and queue it and a person sends it. Never post these yourself. */
+          personSendsOn: PERSON_SENDS.rules.includes(r.code) ? PERSON_SENDS.platforms : [],
           changedForThisBrand: r.customised,
           checklist: r.checklist.filter((i) => i.for !== "human").map((i) => ({ id: i.id, text: i.text })),
+          /** Points only a person confirms. Not for you to act on; listed so a rewrite of the checklist keeps them. */
+          humanOnlyChecklist: r.checklist.filter((i) => i.for === "human").map((i) => ({ id: i.id, text: i.text })),
           instructions: [r.instructions, r.brandNotes].filter(Boolean).join("\n\n"),
+          /** The same two parts apart, so an update can add to one without rewriting the other. */
+          masterInstructions: r.instructions,
+          brandNotes: r.brandNotes,
           /** The standard to match, this brand's own first. Copy the structure, never the facts. */
           examples: r.examples.map((e) => ({
             title: e.title, example: e.text, reference: e.url || null, whyItWorks: e.why, thisBrandsOwn: e.own,

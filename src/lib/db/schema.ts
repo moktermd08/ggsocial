@@ -293,6 +293,8 @@ export const media = pgTable("media", {
   width: integer("width"),
   height: integer("height"),
   durationMs: integer("duration_ms"),
+  /** Its content credentials (C2PA / IPTC) mark it AI-generated. null = no credentials to read. */
+  aiGenerated: boolean("ai_generated"),
   /** What the file shows, in a sentence — alt text, and what search reads first. */
   altText: text("alt_text"),
   /** Keywords people and agents search by. */

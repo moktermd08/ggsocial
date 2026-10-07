@@ -90,7 +90,8 @@ export type DraftBrief = {
 };
 
 /** The limits a writer controls. Media and timing are the person's to sort. */
-const COPY_KEYS = new Set(["titleRequired", "titleMaxWords", "hashtagsMin", "hashtagsMax", "bodyMinChars", "bodyMaxChars"]);
+const COPY_KEYS = new Set(["titleRequired", "titleMaxWords", "hashtagsMin", "hashtagsMax", "bodyMinChars", "bodyMaxChars",
+  "bodyMinWords", "bodyMaxWords", "emojiMin", "emojiMax", "specificHook", "noQuestionEnding", "artefactRequired", "bannedPhrases", "blockedTerms"]);
 
 /** The playbook rule each channel falls under, by channel id. */
 function rulesFor(brief: DraftBrief) {
@@ -254,7 +255,7 @@ export function draftRequestText(brief: DraftBrief) {
   if (inPlay.length) {
     parts.push("", "Playbook — the brand's house rules for these formats. Where they set a title length or a hashtag count, that wins over any general advice: hashtags go at the end of each channel's copy, and the title field is the post's public title.");
     for (const r of inPlay) {
-      const limits = describeRule(r).filter((l) => /^(Title|Hashtags|Copy):/.test(l));
+      const limits = describeRule(r).filter((l) => /^(Title|Hashtags|Copy|Words|Emoji|First line|Ending|Include|Never write|Disclosure):/.test(l));
       const points = r.checklist.filter((i) => i.for !== "human").map((i) => i.text);
       parts.push([
         `- ${r.name}: ${r.instructions}`,

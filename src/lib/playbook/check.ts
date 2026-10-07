@@ -4,6 +4,7 @@
  * composer checks as you type and the server, the review panel, Claude
  * drafting and the agent API all run exactly the same checks.
  */
+import { PERSON_SENDS, PERSON_SENDS_LABEL } from "@/lib/workflows/handoff";
 import {
   LIMIT_KEYS, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleExample, type RuleKind, type RuleLimits,
 } from "./meta";
@@ -129,7 +130,11 @@ export function resolveFormat<R extends { code: string; name: string; kind: Rule
 
 export type PlaybookIssue = { level: "error" | "warn"; rule: string; key: LimitKey | "size"; message: string };
 
-export type CheckMedia = { kind: string; originalName: string; width?: number | null; height?: number | null; durationMs?: number | null };
+export type CheckMedia = {
+  kind: string; originalName: string; width?: number | null; height?: number | null; durationMs?: number | null;
+  /** Content credentials mark it AI-generated; null or missing = unknown. */
+  aiGenerated?: boolean | null;
+};
 
 export type CheckInput = {
   title: string;
@@ -139,6 +144,8 @@ export type CheckInput = {
   /** ISO instant. Timing is only checked once there is one. */
   scheduledAt?: string | null;
   timezone: string;
+  /** The channel's platform, for the checks that only apply on one. */
+  platform?: string;
 };
 
 const HASHTAG = /(^|[^\p{L}\p{N}_&])#([\p{L}\p{N}_]+)/gu;
@@ -152,6 +159,43 @@ export function hashtagsIn(text: string) {
 
 export function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** Copy without the hashtags a post ends on. */
+function withoutTrailingHashtags(text: string) {
+  return text.replace(/(?:\s+#[\p{L}\p{N}_]+)+\s*$/u, "").trim();
+}
+
+/** A digit, an acronym or a capitalised name partway through the first line. Sentence starts do not count. */
+export function hookIsSpecific(body: string) {
+  const line = (body.split("\n").map((l) => l.trim()).find(Boolean) ?? "").replace(/#[\p{L}\p{N}_]+/gu, "");
+  if (/\d/.test(line)) return true;
+  const words = line.split(/\s+/).filter(Boolean);
+  return words.some((w, i) => {
+    if (i === 0) return false;
+    const bare = w.replace(/^[^\p{L}\p{N}]+/u, "");
+    if (!bare || /^I(['’]\w+)?$/.test(bare) || /^(The|A|An|And|But|So|Then|We|It|This|That|Everyone|Nobody)\b/.test(bare)) return false;
+    if (/[.!?:]["'”’)]*$/.test(words[i - 1]) || /^["'“‘(]/.test(words[i - 1])) return false;
+    return /^\p{Lu}/u.test(bare);
+  });
+}
+
+/** Something to save: a list line, or an attached document. */
+export function hasArtefact(body: string, media: { kind: string; originalName?: string }[]) {
+  return /^\s*(?:\d+[.)]|[-•→*])\s+\S/m.test(body)
+    || media.some((m) => m.kind === "document" || /\.pdf$/i.test(m.originalName ?? ""));
+}
+
+export function emojiCount(text: string) {
+  return (text.match(/\p{Extended_Pictographic}/gu) ?? []).length;
+}
+
+const listOf = (text: string | undefined) => (text ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\const DAY_NAMES =");
+
+/** The listed terms the copy contains, whole words or phrases, any case. */
+export function termsIn(text: string, list: string | undefined) {
+  return listOf(list).filter((t) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(t)}($|[^\\p{L}\\p{N}])`, "iu").test(text));
 }
 
 const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -242,7 +286,34 @@ export function checkContent(rule: Pick<EffectiveRule, "code" | "name" | "enforc
   if (L.bodyMinChars !== undefined && len < L.bodyMinChars) add("bodyMinChars", `copy is ${len} characters — at least ${L.bodyMinChars}.`);
   if (L.bodyMaxChars !== undefined && len > L.bodyMaxChars) add("bodyMaxChars", `copy is ${len} characters — ${L.bodyMaxChars} at most.`);
 
+  const words2 = wordCount(input.body);
+  if (L.bodyMinWords !== undefined && words2 < L.bodyMinWords) add("bodyMinWords", `copy is ${plural(words2, "word")} — at least ${L.bodyMinWords}.`);
+  if (L.bodyMaxWords !== undefined && words2 > L.bodyMaxWords) add("bodyMaxWords", `copy is ${plural(words2, "word")} — ${L.bodyMaxWords} at most.`);
+
+  const emoji = emojiCount(input.body);
+  if (L.emojiMin !== undefined && emoji < L.emojiMin) add("emojiMin", `${plural(emoji, "emoji")} — needs at least ${L.emojiMin}.`);
+  if (L.emojiMax !== undefined && emoji > L.emojiMax) add("emojiMax", `${plural(emoji, "emoji")} — ${L.emojiMax} at most.`);
+
+  if (L.specificHook && input.body.trim() && !hookIsSpecific(input.body)) {
+    add("specificHook", "hook is generic — add a number, system or fact to the first line.");
+  }
+  if (L.noQuestionEnding && withoutTrailingHashtags(input.body).endsWith("?")) {
+    add("noQuestionEnding", "ends on a question — end on a statement.");
+  }
+  if (L.artefactRequired && input.body.trim() && !hasArtefact(input.body, input.media)) {
+    add("artefactRequired", "no saveable artefact (list, steps, framework) — add one or attach a document.");
+  }
+  const banned = termsIn(input.body, L.bannedPhrases);
+  if (banned.length) add("bannedPhrases", `banned phrase: ${banned.map((b) => `"${b}"`).join(", ")}.`);
+  // Gives something away that must stay private: stops scheduling whatever the rule's strictness, and says only that, not what it matched.
+  if (termsIn(`${input.title}\n${input.body}\n${input.firstComment ?? ""}`, L.blockedTerms).length) {
+    add("blockedTerms", "disclosure risk — the copy matches the brand's blocked terms.", "error");
+  }
+
   const media = input.media;
+  if (input.platform === "linkedin" && media.some((m) => m.aiGenerated)) {
+    add("size", "an image carries content credentials marking it AI-generated — use a real screenshot, diagram or photo on LinkedIn.", "warn");
+  }
   if (L.mediaKind === "none" && media.length) add("mediaKind", "takes no media.");
   if ((L.mediaKind === "image" || L.mediaKind === "video") && media.some((m) => m.kind !== L.mediaKind)) {
     add("mediaKind", `${L.mediaKind} files only.`);
@@ -319,6 +390,7 @@ export function checkTargets(rules: EffectiveRule[], post: {
         media: post.media,
         scheduledAt: post.scheduledAt,
         timezone: post.timezone,
+        platform: t.platform,
       }),
       checklist: rule.checklist,
     };
@@ -339,7 +411,7 @@ function sizeText(L: RuleLimits) {
  * composer, what reviewers see, and what Claude and agents are handed — so
  * everyone works from the same words.
  */
-export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce">): string[] {
+export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce"> & { code?: string }): string[] {
   const L = rule.limits;
   const lines: string[] = [];
   if (L.titleRequired || L.titleMaxWords !== undefined) {
@@ -352,6 +424,18 @@ export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce">): s
   if (L.bodyMinChars !== undefined || L.bodyMaxChars !== undefined) {
     lines.push(`Copy: ${[L.bodyMinChars !== undefined ? `at least ${L.bodyMinChars}` : "", L.bodyMaxChars !== undefined ? `at most ${L.bodyMaxChars}` : ""].filter(Boolean).join(", ")} characters`);
   }
+  if (L.bodyMinWords !== undefined || L.bodyMaxWords !== undefined) {
+    lines.push(`Words: ${[L.bodyMinWords !== undefined ? `at least ${L.bodyMinWords}` : "", L.bodyMaxWords !== undefined ? `at most ${L.bodyMaxWords}` : ""].filter(Boolean).join(", ")}`);
+  }
+  if (L.emojiMin !== undefined || L.emojiMax !== undefined) {
+    const a = L.emojiMin, b = L.emojiMax;
+    lines.push(`Emoji: ${a !== undefined && a === b ? `exactly ${a}` : b === 0 ? "none" : [a !== undefined ? `at least ${a}` : "", b !== undefined ? `at most ${b}` : ""].filter(Boolean).join(", ")}`);
+  }
+  if (L.specificHook) lines.push("First line: a number, a named system or a specific fact");
+  if (L.noQuestionEnding) lines.push("Ending: a statement, never a question");
+  if (L.artefactRequired) lines.push("Include something saveable: a list, steps, a framework or an attached document");
+  if (L.bannedPhrases) lines.push(`Never write: ${listOf(L.bannedPhrases).join(", ")}`);
+  if (L.blockedTerms) lines.push("Disclosure: never name, hint at or imply anything the blocked terms cover (a must; the terms are not repeated here)");
   const media: string[] = [];
   if (L.mediaKind && L.mediaKind !== "any") media.push(L.mediaKind === "none" ? "no media" : `${L.mediaKind} only`);
   if (L.mediaMin !== undefined || L.mediaMax !== undefined) {
@@ -369,9 +453,12 @@ export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce">): s
   if (L.days) timing.push(L.days);
   if (timing.length) lines.push(`Post at: ${timing.join(" · ")} (brand time)`);
   if (L.perWeek !== undefined) lines.push(`Cadence: ${L.perWeek} a week`);
+  if (rule.code && PERSON_SENDS.rules.includes(rule.code)) lines.push(`On ${PERSON_SENDS.platforms.join(", ")}: ${PERSON_SENDS_LABEL.toLowerCase()} — draft and queue it, never post it yourself.`);
   if (lines.length) lines.push(rule.enforce === "block" ? "These limits are a must: breaking one stops scheduling and approval (timing is advice)." : "These limits are advice: breaking one is flagged, not blocked.");
   return lines;
 }
+
+const BOOLEAN_LIMITS: LimitKey[] = ["titleRequired", "specificHook", "noQuestionEnding", "artefactRequired"];
 
 /* --------------------------------------------------------- value handling */
 
@@ -403,7 +490,8 @@ export function readableValue(field: string, text: string | null) {
 /** Coerces typed input for one limit, or throws with a reason a person can act on. */
 export function coerceLimit(key: LimitKey, raw: unknown): RuleLimits[LimitKey] | null {
   if (raw === null || raw === undefined || raw === "") return null;
-  if (key === "titleRequired") return raw === true || raw === "true" || raw === "yes";
+  if (BOOLEAN_LIMITS.includes(key)) return raw === true || raw === "true" || raw === "yes";
+  if (key === "bannedPhrases" || key === "blockedTerms") return listOf(String(raw)).join(", ") || null;
   if (key === "mediaKind") {
     const s = String(raw);
     if (!["any", "image", "video", "none"].includes(s)) throw new Error("Media type must be any, image, video or none.");

@@ -5,6 +5,7 @@ import { asResult } from "@/lib/action-result";
 import { db, brands, media, masterPosts, posts } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import { storeUpload, kindFromMime } from "@/server/media";
+import { aiGeneratedMark } from "@/server/ai-provenance";
 import { syncCopy } from "@/server/masters";
 import { cleanCatalog } from "@/lib/media-catalog";
 import { catalogueWithClaude, saveCatalog } from "@/server/media-catalog";
@@ -31,6 +32,7 @@ async function storeAll(formData: FormData, row: { brandId: string | null; owner
   for (const [i, file] of files.entries()) {
     if (file.size === 0) continue;
     if (file.size > MAX_BYTES) throw new Error(`${file.name} is over the 200 MB limit.`);
+    const aiGenerated = await aiGeneratedMark(file);
     const stored = await storeUpload(file);
     const [inserted] = await db.insert(media).values({
       ...row,
@@ -40,6 +42,7 @@ async function storeAll(formData: FormData, row: { brandId: string | null; owner
       mimeType: file.type || "application/octet-stream",
       size: stored.size,
       ...dims[i],
+      aiGenerated,
       uploadedBy: userId,
     }).returning();
     saved.push(inserted.id);

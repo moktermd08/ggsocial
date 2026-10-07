@@ -11,6 +11,8 @@ const Media = z.object({
   width: z.number().int().positive().nullish(),
   height: z.number().int().positive().nullish(),
   durationSeconds: z.number().positive().nullish(),
+  /** True where the file's content credentials mark it AI-generated. */
+  aiGenerated: z.boolean().nullish(),
 });
 
 const Draft = z.object({
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
     const rules = await getBrandPlaybook(brand.id);
     const media = d.media.map((m, i) => ({
       kind: m.kind, originalName: m.name ?? `file ${i + 1}`, width: m.width, height: m.height,
-      durationMs: m.durationSeconds ? Math.round(m.durationSeconds * 1000) : null,
+      durationMs: m.durationSeconds ? Math.round(m.durationSeconds * 1000) : null, aiGenerated: m.aiGenerated ?? null,
     }));
     const scheduledAt = d.scheduledAt ? new Date(d.scheduledAt).toISOString() : null;
 
@@ -81,7 +83,7 @@ export async function POST(req: Request) {
     const direct = rules.find((r) => r.code === d.format?.trim().toLowerCase() && r.kind !== "format");
     if (direct) {
       if (!direct.enabled) return { passed: true, rule: direct.code, issues: [], checklist: [], note: "This rule is switched off for the brand." };
-      const issues = checkContent(direct, { title: d.title, body: d.body, firstComment: d.firstComment, media, scheduledAt, timezone: brand.timezone });
+      const issues = checkContent(direct, { title: d.title, body: d.body, firstComment: d.firstComment, media, scheduledAt, timezone: brand.timezone, platform });
       return {
         passed: !issues.some((i) => i.level === "error"),
         rule: direct.code,

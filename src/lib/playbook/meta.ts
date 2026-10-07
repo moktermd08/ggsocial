@@ -44,6 +44,21 @@ export type RuleLimits = {
   hashtagsMax?: number;
   bodyMinChars?: number;
   bodyMaxChars?: number;
+  bodyMinWords?: number;
+  bodyMaxWords?: number;
+  /** Emoji in the copy. Exactly one is min 1, max 1. */
+  emojiMin?: number;
+  emojiMax?: number;
+  /** The first line has a digit or a named thing, not a generic opener. */
+  specificHook?: boolean;
+  /** The copy ends on a statement: a closing "?" fails. */
+  noQuestionEnding?: boolean;
+  /** Something the reader can save: a list, steps, a framework, or an attached document. */
+  artefactRequired?: boolean;
+  /** Words and phrases that must not appear, comma-separated. Advice. */
+  bannedPhrases?: string;
+  /** Terms that give something away that must stay private, comma-separated. Always blocks, whatever the strictness. */
+  blockedTerms?: string;
   mediaKind?: RuleMediaKind;
   mediaMin?: number;
   mediaMax?: number;
@@ -77,6 +92,15 @@ export const LIMIT_FIELDS: {
   { key: "hashtagsMax", label: "Hashtags, at most", group: "copy", type: "number" },
   { key: "bodyMinChars", label: "Copy, at least", group: "copy", type: "number", unit: "characters" },
   { key: "bodyMaxChars", label: "Copy, at most", group: "copy", type: "number", unit: "characters" },
+  { key: "bodyMinWords", label: "Copy, at least", group: "copy", type: "number", unit: "words" },
+  { key: "bodyMaxWords", label: "Copy, at most", group: "copy", type: "number", unit: "words" },
+  { key: "emojiMin", label: "Emoji, at least", group: "copy", type: "number" },
+  { key: "emojiMax", label: "Emoji, at most", group: "copy", type: "number" },
+  { key: "specificHook", label: "Specific first line", group: "copy", type: "boolean", hint: "A number or a named thing in line one" },
+  { key: "noQuestionEnding", label: "Ends on a statement", group: "copy", type: "boolean", hint: "A closing question fails" },
+  { key: "artefactRequired", label: "Saveable artefact", group: "copy", type: "boolean", hint: "A list, steps, framework or attached document" },
+  { key: "bannedPhrases", label: "Banned phrases", group: "copy", type: "text", placeholder: "game-changer, unlock", hint: "Comma-separated; advice" },
+  { key: "blockedTerms", label: "Blocked terms", group: "copy", type: "text", placeholder: "employer, sector", hint: "Comma-separated; always blocks. Never give a reason in the post's own words" },
   { key: "mediaKind", label: "Media type", group: "media", type: "select", choices: MEDIA_KINDS },
   { key: "mediaMin", label: "Files, at least", group: "media", type: "number" },
   { key: "mediaMax", label: "Files, at most", group: "media", type: "number" },
