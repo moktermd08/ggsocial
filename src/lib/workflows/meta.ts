@@ -12,7 +12,7 @@
  * reviews a step.
  */
 
-export const WORKFLOW_CODES = ["publish-post", "answer-engagement", "plan-ideas"] as const;
+export const WORKFLOW_CODES = ["publish-post", "answer-engagement", "plan-ideas", "register-platform"] as const;
 export type WorkflowCode = (typeof WORKFLOW_CODES)[number];
 
 export type StepPerformer = "agent" | "tool" | "human";
@@ -106,6 +106,32 @@ export const WORKFLOWS: WorkflowDef[] = [
       {
         key: "add", name: "Add to the plan", performer: "tool", reviewable: false,
         does: "Adds the ideas to the end of the plan as planned, for this brand only. The content writer takes them in order.",
+      },
+    ],
+  },
+  {
+    code: "register-platform",
+    name: "Register the brand on a platform",
+    summary: "Makes sure the brand is on a platform with the right details. If it already has a channel there, nothing is done. If not, a registration follows the playbook's rule from the brand page's own words.",
+    startedBy: "Brand registrar agent, daily, for each platform the brand is missing from",
+    activityCodes: ["Y-04", "Q-16"],
+    steps: [
+      {
+        key: "check", name: "Check it is needed", performer: "tool", reviewable: false,
+        does: "Ends the run if the brand already has a channel on the platform. Otherwise checks the brand page passes its details check, because registration copies it word for word.",
+      },
+      {
+        key: "prepare", name: "Prepare the sign-up details", performer: "agent", reviewable: true, fast: true,
+        does: "Gathers the exact values for the form from the brand page: handle, name, category, bio, contact details and the icon, with the playbook's sign-up steps.",
+        reviewQuestion: "Register the brand on this platform with these details, or reject to never register there.",
+      },
+      {
+        key: "register", name: "Create or claim the account", performer: "human", reviewable: false,
+        does: "A person signs up (or claims an existing profile), then adds the channel with its page URL. Platforms do not let an agent do this. The run moves on by itself once the channel exists.",
+      },
+      {
+        key: "verify", name: "Verify the page", performer: "tool", reviewable: false,
+        does: "Opens the page, checks it loads and belongs to the brand, and that the handle matches the other channels.",
       },
     ],
   },

@@ -10,7 +10,7 @@
  * review off, and always at a safety stop.
  */
 
-export const AGENT_CODES = ["writer", "community", "analyst", "strategist"] as const;
+export const AGENT_CODES = ["writer", "community", "analyst", "strategist", "registrar"] as const;
 export type AgentCode = (typeof AGENT_CODES)[number];
 
 export const AGENT_RUN_STATUSES = ["running", "succeeded", "idle", "failed"] as const;
@@ -162,6 +162,33 @@ export const AGENTS: AgentDef[] = [
     ],
     guidelineHint: "e.g. Half the ideas should be customer stories. Nothing about pricing until the new menu launches.",
     color: "#a16207",
+  },
+  {
+    code: "registrar",
+    name: "Brand registrar",
+    role: "Keeps the brand on every platform",
+    summary: "Checks every platform against the brand's channels. Where the brand is already registered it does nothing; where it is not, it starts a registration that follows the playbook rule from the brand page's exact words.",
+    does: [
+      "Lists the platforms the brand has no channel on, skipping any it already has, any it removed on purpose and any a person rejected",
+      "Holds back until the brand page passes its details check, since every sign-up copies it",
+      "Starts a 'Register the brand on a platform' run for the next few missing platforms",
+      "Prepares the exact sign-up values: handle, name, category, bio, contact details and icon",
+      "Flags registered channels with no page URL or a page that no longer loads",
+    ],
+    handsOff: [
+      "Never creates accounts: a person signs up or claims the profile, because platforms need a real person, a shared inbox and two-step verification",
+      "Never starts a registration while the brand page has problems, and a person approves each sign-up pack until the brand's owner switches that review off",
+      "Reject a registration to tell it never to register on that platform",
+    ],
+    activityCodes: ["Y-04", "Q-16"],
+    everyMinutes: 24 * 60,
+    cadence: "Daily",
+    settings: [
+      { key: "perRun", label: "Most registrations started per run", type: "number", min: 1, max: 10, hint: "Blank = 3." },
+      { key: "maxOpen", label: "Most registrations open at once", type: "number", min: 1, max: 20, hint: "Keeps the to-do list short. Blank = 5." },
+    ],
+    guidelineHint: "e.g. Only platforms our customers use. Our fallback handle is the name plus 'hq'.",
+    color: "#be185d",
   },
 ];
 

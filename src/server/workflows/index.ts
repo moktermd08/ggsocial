@@ -13,6 +13,7 @@ import { reviewWork, verdictReasons } from "@/server/reviewer";
 import { publishPost } from "@/server/workflows/publish-post";
 import { answerEngagement } from "@/server/workflows/answer-engagement";
 import { planIdeas } from "@/server/workflows/plan-ideas";
+import { registerPlatform } from "@/server/workflows/register-platform";
 import { sendAlert } from "@/server/alerts";
 import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
@@ -29,6 +30,7 @@ function implFor(code: WorkflowCode): WorkflowImpl {
     "publish-post": publishPost,
     "answer-engagement": answerEngagement,
     "plan-ideas": planIdeas,
+    "register-platform": registerPlatform,
   };
   return impls[code];
 }
