@@ -7,6 +7,7 @@ import { platformOrNull } from "@/lib/platforms";
 import { profileCopy } from "@/lib/brand-details";
 import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
 import { recordUsage } from "@/server/ai-usage";
+import { HOOK_CRAFT, PLAIN_WRITING } from "@/server/agents/craft";
 
 /**
  * Claude drafting: one idea, told in one brand's voice, written separately
@@ -91,7 +92,7 @@ export type DraftBrief = {
 
 /** The limits a writer controls. Media and timing are the person's to sort. */
 const COPY_KEYS = new Set(["titleRequired", "titleMaxWords", "hashtagsMin", "hashtagsMax", "bodyMinChars", "bodyMaxChars",
-  "bodyMinWords", "bodyMaxWords", "emojiMin", "emojiMax", "specificHook", "noQuestionEnding", "artefactRequired", "bannedPhrases", "blockedTerms"]);
+  "bodyMinWords", "bodyMaxWords", "emojiMin", "emojiMax", "specificHook", "noQuestionEnding", "plainWriting", "artefactRequired", "bannedPhrases", "blockedTerms"]);
 
 /** The playbook rule each channel falls under, by channel id. */
 function rulesFor(brief: DraftBrief) {
@@ -127,7 +128,11 @@ What good looks like here:
 - When a tracked link is given for a channel, use that exact URL and no other: it is how traffic is measured. Where the platform supports a first comment, the link can go there instead of the body.
 - Never use a banned word, and follow the emoji policy exactly.
 
-The idea is written in shorthand and usually names one company as the one doing the work. Retell it from this brand's own position: a person speaks in the first person from experience; a company speaks as the one that does the work. Never make a different brand the hero of the story.`;
+The idea is written in shorthand and usually names one company as the one doing the work. Retell it from this brand's own position: a person speaks in the first person from experience; a company speaks as the one that does the work. Never make a different brand the hero of the story.
+
+${HOOK_CRAFT}
+
+${PLAIN_WRITING}`;
 
 const offerings = (rows: BrandOffering[]) =>
   rows.map((o) => [o.name, o.description].filter(Boolean).join(" — ")).join("; ") || null;

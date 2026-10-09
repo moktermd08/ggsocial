@@ -53,6 +53,8 @@ export type RuleLimits = {
   specificHook?: boolean;
   /** The copy ends on a statement: a closing "?" fails. */
   noQuestionEnding?: boolean;
+  /** The copy reads like a person wrote it: no stock phrases, no "not just X, it's Y", no pile of em dashes. */
+  plainWriting?: boolean;
   /** Something the reader can save: a list, steps, a framework, or an attached document. */
   artefactRequired?: boolean;
   /** Words and phrases that must not appear, comma-separated. Advice. */
@@ -98,6 +100,7 @@ export const LIMIT_FIELDS: {
   { key: "emojiMax", label: "Emoji, at most", group: "copy", type: "number" },
   { key: "specificHook", label: "Specific first line", group: "copy", type: "boolean", hint: "A number or a named thing in line one" },
   { key: "noQuestionEnding", label: "Ends on a statement", group: "copy", type: "boolean", hint: "A closing question fails" },
+  { key: "plainWriting", label: "Plain, human writing", group: "copy", type: "boolean", hint: "Flags stock AI phrases and em-dash pileups" },
   { key: "artefactRequired", label: "Saveable artefact", group: "copy", type: "boolean", hint: "A list, steps, framework or attached document" },
   { key: "bannedPhrases", label: "Banned phrases", group: "copy", type: "text", placeholder: "game-changer, unlock", hint: "Comma-separated; advice" },
   { key: "blockedTerms", label: "Blocked terms", group: "copy", type: "text", placeholder: "employer, sector", hint: "Comma-separated; always blocks. Never give a reason in the post's own words" },

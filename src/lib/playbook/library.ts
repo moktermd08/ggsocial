@@ -59,6 +59,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     platforms: [], activityCodes: ["D-01", "W-03", "W-05", "W-28", "W-25", "W-26", "W-34", "Y-07", "W-21"],
     enforce: "warn",
     limits: {
+      plainWriting: true,
       titleRequired: true, titleMaxWords: 3, hashtagsMin: 3, hashtagsMax: 3, bodyMinChars: 80,
       mediaKind: "any", mediaMin: 1, aspectRatio: "4:5, 1:1", minWidth: 1080,
       windows: "08:00-10:00, 12:00-13:00, 18:00-20:00", days: "mon-fri", perWeek: 5,
@@ -78,6 +79,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     platforms: ["instagram", "facebook"], activityCodes: ["2D-01", "W-33", "D-21"],
     enforce: "warn",
     limits: {
+      plainWriting: true,
       titleRequired: true, titleMaxWords: 3, hashtagsMin: 3, hashtagsMax: 3,
       mediaKind: "video", mediaMin: 1, mediaMax: 1, aspectRatio: "9:16", minWidth: 1080, minHeight: 1920,
       videoMinSeconds: 7, videoMaxSeconds: 90,
@@ -115,6 +117,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     platforms: ["instagram", "linkedin", "facebook", "threads", "x"], activityCodes: ["W-04", "W-21"],
     enforce: "block",
     limits: {
+      plainWriting: true,
       titleRequired: true, titleMaxWords: 3, hashtagsMin: 3, hashtagsMax: 3,
       mediaKind: "image", mediaMin: 3, mediaMax: 10, aspectRatio: "4:5, 1:1", minWidth: 1080,
       windows: "08:00-10:00, 17:00-19:00", days: "tue-thu", perWeek: 1,
@@ -133,6 +136,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     platforms: ["tiktok", "youtube", "snapchat", "douyin", "kuaishou"], activityCodes: ["2D-01", "W-33"],
     enforce: "block",
     limits: {
+      plainWriting: true,
       titleRequired: true, titleMaxWords: 3, hashtagsMin: 3, hashtagsMax: 3,
       mediaKind: "video", mediaMin: 1, mediaMax: 1, aspectRatio: "9:16", minWidth: 1080, minHeight: 1920,
       videoMinSeconds: 7, videoMaxSeconds: 60,
@@ -170,7 +174,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     instructions: "One sharp thought per post. The first post has to earn the click to read on. End the thread with the takeaway and a question.",
     platforms: ["x", "threads", "bluesky", "mastodon", "farcaster"], activityCodes: ["2D-03", "D-19"],
     enforce: "warn",
-    limits: { hashtagsMax: 2, bodyMinChars: 40, windows: "08:00-10:00, 12:00-14:00", perWeek: 4 },
+    limits: { plainWriting: true, hashtagsMax: 2, bodyMinChars: 40, windows: "08:00-10:00, 12:00-14:00", perWeek: 4 },
     checklist: points("thread", [
       "The first post stands on its own",
       "Each post in the thread makes one point",
@@ -184,7 +188,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     platforms: ["wordpress", "ghost", "webflow", "shopify_blog", "devto", "hashnode", "medium", "substack", "notion"],
     activityCodes: ["W-02", "M-02", "M-03"],
     enforce: "warn",
-    limits: { titleRequired: true, titleMaxWords: 12, hashtagsMax: 5, bodyMinChars: 2500, mediaMin: 1, windows: "07:00-10:00", days: "tue-thu", perWeek: 1 },
+    limits: { plainWriting: true, titleRequired: true, titleMaxWords: 12, hashtagsMax: 5, bodyMinChars: 2500, mediaMin: 1, windows: "07:00-10:00", days: "tue-thu", perWeek: 1 },
     checklist: points("article", [
       "Headline promises something specific",
       "Subheadings every few paragraphs",
@@ -199,7 +203,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     instructions: "The subject line is the title: short, specific, no clickbait. One main story, one call to action. Preview text set. Send a test to yourself first.",
     platforms: ["beehiiv", "mailchimp", "brevo", "convertkit", "klaviyo", "resend", "sendgrid"], activityCodes: ["W-24", "M-24"],
     enforce: "block",
-    limits: { titleRequired: true, titleMaxWords: 9, hashtagsMax: 0, bodyMinChars: 300, windows: "07:00-09:00", days: "tue-thu", perWeek: 1 },
+    limits: { plainWriting: true, titleRequired: true, titleMaxWords: 9, hashtagsMax: 0, bodyMinChars: 300, windows: "07:00-09:00", days: "tue-thu", perWeek: 1 },
     checklist: points("newsletter", [
       "Preview text set",
       "One main call to action, with a tracked link",
@@ -214,7 +218,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     description: "Answering comments on our own posts, videos, reels and stories.",
     instructions: "Reply within the brand's reply SLA. Answer the actual point, add something, and ask one follow-up question so the thread keeps going. Never copy-paste the same reply twice. Move anything sensitive or sales-related to DM.",
     platforms: [], activityCodes: ["D-02", "D-04", "D-10", "D-20", "D-22", "D-25", "W-18"],
-    enforce: "warn", limits: {},
+    enforce: "warn", limits: { plainWriting: true },
     checklist: points("reply", [
       "Every comment answered within the reply SLA",
       "Each reply adds something and ends with a question where it fits",
@@ -228,7 +232,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     description: "DMs, page messages, WhatsApp, Telegram and messaging-app enquiries, and outbound value-first DMs.",
     instructions: "Answer every message. Qualify buying intent with one question (need, timing, budget) and log real leads. Outbound: lead with something useful for them, never a pitch in the first message.",
     platforms: [], activityCodes: ["D-03", "D-08", "D-09", "D-26", "D-23", "W-08", "W-09", "2D-04"],
-    enforce: "warn", limits: {},
+    enforce: "warn", limits: { plainWriting: true },
     checklist: points("dm", [
       "Every inbound message answered",
       "Buying intent qualified and logged as a lead",
@@ -241,7 +245,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     description: "Comments on prospects', industry voices', customers' and partners' posts, and in groups and forums.",
     instructions: "Two sentences or more, with a point of view or an example. Never a link, never a pitch. Pick posts from the last 24 hours so the comment gets seen.",
     platforms: [], activityCodes: ["D-05", "D-06", "D-11", "D-15", "D-14", "D-24", "2D-05", "2D-07", "W-10", "W-31"],
-    enforce: "warn", limits: {},
+    enforce: "warn", limits: { plainWriting: true },
     checklist: points("prospect-comment", [
       "At least two sentences with a point of view",
       "No links and no pitch",
@@ -253,7 +257,7 @@ export const PLAYBOOK_LIBRARY: LibraryRule[] = [
     description: "Replies to reviews on Google Business, Trustpilot, G2, Clutch, Yelp and the rest.",
     instructions: "Reply to every review within 48 hours. Thank by name and mention something specific. For negative reviews: acknowledge, do not argue, and take it offline with a contact.",
     platforms: [], activityCodes: ["D-13", "M-08"],
-    enforce: "warn", limits: {},
+    enforce: "warn", limits: { plainWriting: true },
     checklist: points("review-reply", [
       "Answered within 48 hours",
       "Thanks by name and mentions something specific",

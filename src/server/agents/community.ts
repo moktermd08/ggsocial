@@ -8,6 +8,7 @@ import { truncate } from "@/lib/format";
 import type { AgentUsage } from "@/lib/agents/meta";
 import { getBrandPlaybook } from "@/server/playbook";
 import { askClaude, addUsage } from "@/server/agents/claude";
+import { PLAIN_WRITING } from "@/server/agents/craft";
 import { exampleText } from "@/server/drafting";
 import { advance, startRun } from "@/server/workflows";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
@@ -32,7 +33,9 @@ What good looks like:
 - Spam, abuse and bots: no reply (empty string), and say so in the note.
 - A message or lead showing buying intent: qualify it with one question (need, timing or budget) and mark priority high.
 - Never repeat the same wording across replies. Never use a banned word; follow the emoji policy exactly.
-- The note is for the team: one line on what you did and anything they must check.`;
+- The note is for the team: one line on what you did and anything they must check.
+
+${PLAIN_WRITING}`;
 
 const ReplySchema = z.object({
   replies: z.array(z.object({

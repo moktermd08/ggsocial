@@ -4,6 +4,7 @@
  * composer checks as you type and the server, the review panel, Claude
  * drafting and the agent API all run exactly the same checks.
  */
+import { aiTellsIn } from "./writing-tells";
 import { PERSON_SENDS, PERSON_SENDS_LABEL } from "@/lib/workflows/handoff";
 import {
   LIMIT_KEYS, type ChecklistItem, type EnforceLevel, type LimitKey, type RuleExample, type RuleKind, type RuleLimits,
@@ -300,6 +301,10 @@ export function checkContent(rule: Pick<EffectiveRule, "code" | "name" | "enforc
   if (L.noQuestionEnding && withoutTrailingHashtags(input.body).endsWith("?")) {
     add("noQuestionEnding", "ends on a question — end on a statement.");
   }
+  if (L.plainWriting) {
+    const tells = aiTellsIn(`${input.title}\n${input.body}`);
+    if (tells.length) add("plainWriting", `reads machine-written — ${tells.join(", ")}. Say it the way a person would.`);
+  }
   if (L.artefactRequired && input.body.trim() && !hasArtefact(input.body, input.media)) {
     add("artefactRequired", "no saveable artefact (list, steps, framework) — add one or attach a document.");
   }
@@ -433,6 +438,7 @@ export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce"> & {
   }
   if (L.specificHook) lines.push("First line: a number, a named system or a specific fact");
   if (L.noQuestionEnding) lines.push("Ending: a statement, never a question");
+  if (L.plainWriting) lines.push("Writing: plain and human — no stock AI phrases (delve, game-changer, unlock the power), no \"not just X, it's Y\", at most two em dashes");
   if (L.artefactRequired) lines.push("Include something saveable: a list, steps, a framework or an attached document");
   if (L.bannedPhrases) lines.push(`Never write: ${listOf(L.bannedPhrases).join(", ")}`);
   if (L.blockedTerms) lines.push("Disclosure: never name, hint at or imply anything the blocked terms cover (a must; the terms are not repeated here)");
@@ -458,7 +464,7 @@ export function describeRule(rule: Pick<EffectiveRule, "limits" | "enforce"> & {
   return lines;
 }
 
-const BOOLEAN_LIMITS: LimitKey[] = ["titleRequired", "specificHook", "noQuestionEnding", "artefactRequired"];
+const BOOLEAN_LIMITS: LimitKey[] = ["titleRequired", "specificHook", "noQuestionEnding", "plainWriting", "artefactRequired"];
 
 /* --------------------------------------------------------- value handling */
 

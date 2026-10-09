@@ -8,6 +8,7 @@ import { METRIC_META } from "@/lib/goals/meta";
 import { POST_TYPES } from "@/lib/templates";
 import { platformOrNull } from "@/lib/platforms";
 import { askClaude } from "@/server/agents/claude";
+import { ANGLE_SPREAD, HOOK_CRAFT } from "@/server/agents/craft";
 import type { StepContext, StepResult, WorkflowImpl } from "@/server/workflows/types";
 
 /**
@@ -48,7 +49,12 @@ What good looks like:
 - Specific beats general: a real situation from the brand's world, not a topic. "When a café runs out of oat milk at 8am" is an idea; "customer service" is not.
 - A mix across the brand's pillars and formats, weighted to what has worked. Never repeat or lightly reword an idea the brand already has.
 - Nothing the brand could not stand behind: no invented statistics, clients, prices or results. Where a real detail would help and the brand book has none, write the idea so it does not need one.
-- Formats the brand's channels can actually carry (no video-only idea for a brand with only text channels).`;
+- Formats the brand's channels can actually carry (no video-only idea for a brand with only text channels).
+
+${ANGLE_SPREAD}
+
+${HOOK_CRAFT}
+Write each idea's "problem" as that first line's raw material, in the reader's own words.`;
 
 /** The brand's plan owners: its owners, else its admins. Ideas live in their plan. */
 async function planOwner(brandId: string) {

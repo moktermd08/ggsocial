@@ -19,6 +19,8 @@ Score it from 0 to 100 for whether it can go out exactly as it is:
 - 50–74: a person should look before it goes: off-voice, vague, weak hook, a rule half-followed.
 - below 50: should not go out: wrong, confusing, off-brand or against a rule.
 
+Also judge how it reads. Copy that sounds machine-written — stock phrases (delve, game-changer, unlock the power), the "it's not just X, it's Y" turn, more than two em dashes, a vague or generic first line, an empty summary at the end — cannot score above 74: name the offending words in "fixes". A hook that is specific, and that the rest of the piece delivers on, is worth a few points.
+
 Raise every risk flag that applies, even when the work is otherwise good — these always go to a person:
 - price_or_offer: states or implies a price, discount, offer, promo code or free trial.
 - refund_or_guarantee: promises a refund, guarantee, warranty or anything contractual.

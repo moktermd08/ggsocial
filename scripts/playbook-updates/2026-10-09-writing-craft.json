@@ -1,0 +1,170 @@
+{
+  "source": "awesome-agent-skills-2026-10-09",
+  "note": "Plain-writing check and hook/angle craft, adapted from the humanizer, zero-slop, copywriting, headline-matrix and content-strategy skills. The same craft is built into the drafting, reviewer, strategist and community prompts (src/server/agents/craft.ts).",
+  "brandSlug": "mhossain",
+  "changes": [
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "post",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "reel",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "carousel",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "short",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "thread",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "article",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "newsletter",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "reply",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "dm",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "prospect-comment",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "limits",
+      "scope": "master",
+      "rule": "review-reply",
+      "set": {
+        "plainWriting": {
+          "to": true,
+          "from": []
+        }
+      },
+      "reason": "Built-in check for machine-sounding copy (stock phrases, 'not just X, it's Y', em-dash pileups). From the humanizer / zero-slop / better-writing skills in awesome-agent-skills."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "post",
+      "points": [
+        "Reads like a person wrote it: no stock AI phrases, no 'not just X, it's Y', at most two em dashes",
+        "The first line commits to one angle (a number, a mistake, a before/after, a contrarian view) and the post delivers on it"
+      ],
+      "reason": "Hook and plain-writing craft from the copywriting, headline-matrix and generic-language-killer skills."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "reel",
+      "points": [
+        "The hook lands in the first three seconds, on screen and in words, before any branding"
+      ],
+      "reason": "scroll-stopping-creative skill: attention is won or lost in three seconds."
+    },
+    {
+      "op": "points-append",
+      "scope": "master",
+      "rule": "planning",
+      "points": [
+        "No two ideas in a batch share the same angle (mistake, behind-the-scenes, before/after, myth, how-to, customer situation, opinion)",
+        "Each idea names who it is for and how much they already know"
+      ],
+      "reason": "content-strategy and ad-angle-multiplier skills: spread angles within a pillar."
+    }
+  ],
+  "needsBuild": [],
+  "built": "plainWriting is a limit on the rule, checked in the composer, scheduling, approval and drafting repair round (src/lib/playbook/writing-tells.ts)."
+}
