@@ -16,6 +16,16 @@ if [[ -n "$(git status --porcelain)" ]]; then
   [[ "$answer" == [yY] ]] || exit 1
 fi
 
+# Nothing reaches the server if the tests fail. They run on this machine against
+# an in-memory database, so they need no network. SKIP_TESTS=1 is for an
+# emergency fix only.
+if [[ "${SKIP_TESTS:-}" == 1 ]]; then
+  echo "Warning: SKIP_TESTS=1, deploying without running the tests."
+else
+  echo "==> Running tests"
+  npm test || { echo "Tests failed. Nothing was deployed." >&2; exit 1; }
+fi
+
 # BatchMode: fail now with a clear message instead of prompting for a password
 # halfway through. A passphrase-protected key must be in the agent first.
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" true 2>/dev/null; then

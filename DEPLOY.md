@@ -26,7 +26,7 @@ npm run deploy
 ```
 
 [`scripts/deploy.sh`](scripts/deploy.sh) runs on your machine: it warns about
-uncommitted changes, checks SSH works without a prompt, rsyncs the tree, then
+uncommitted changes, runs `npm test` (a failure stops the deploy; `SKIP_TESTS=1 npm run deploy` skips it for an emergency fix), checks SSH works without a prompt, rsyncs the tree, then
 streams [`scripts/deploy-remote.sh`](scripts/deploy-remote.sh) to the server
 over `ssh … 'bash -s'`. The server half:
 
