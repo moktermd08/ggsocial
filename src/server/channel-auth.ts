@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
 import { db, activity, channelConnections, channels } from "@/lib/db";
 import { decryptJson, encryptJson } from "@/lib/crypto";
+import { sendAlert } from "@/server/alerts";
 
 /**
  * Signing a channel in with its platform — "Connect with Facebook" — instead
@@ -285,6 +286,11 @@ export async function markReconnect(channel: typeof channels.$inferSelect, messa
   await db.insert(activity).values({
     brandId: channel.brandId, actorId: null, action: "channel.expired", entity: "channel", entityId: channel.id,
     meta: { platform: channel.platform, message },
+  });
+  await sendAlert({
+    brandId: channel.brandId, kind: "channel_reconnect", key: channel.id, path: "/channels",
+    subject: `${channel.handle} needs reconnecting`,
+    lines: [message, "Until it is reconnected, its posts wait in the publish queue for a person to post."],
   });
 }
 

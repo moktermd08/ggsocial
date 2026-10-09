@@ -3,17 +3,7 @@ import { eq } from "drizzle-orm";
 
 // A real Postgres (PGlite, in memory) stands in for the app database so the
 // atomic claim is tested against actual SQL, not a hand-written fake.
-vi.mock("@/lib/db", async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
-  const { pushSchema } = await import("drizzle-kit/api");
-  const schema = await import("../src/lib/db/schema");
-  const client = new PGlite();
-  const db = drizzle(client, { schema });
-  const { apply } = await pushSchema(schema, db as never);
-  await apply();
-  return { db, schema, ...schema };
-});
+vi.mock("@/lib/db", async () => (await import("./stubs/test-db")).makeTestDb());
 
 const platform = vi.hoisted(() => ({ publish: vi.fn() }));
 vi.mock("@/lib/platforms", async () => {
@@ -27,6 +17,8 @@ vi.mock("@/server/channel-auth", async () => {
 vi.mock("@/server/media", () => ({ publicUrl: (u: string) => u }));
 const engagement = vi.hoisted(() => ({ openPostEngagement: vi.fn() }));
 vi.mock("@/server/actions/engagement", () => engagement);
+const alerts = vi.hoisted(() => ({ sendAlert: vi.fn() }));
+vi.mock("@/server/alerts", () => alerts);
 
 import { db, users, brands, channels, posts, postTargets, activity } from "@/lib/db";
 import { NotConnectedError } from "@/lib/platforms/types";
@@ -54,6 +46,7 @@ const postStatus = async (id: string) => (await db.query.posts.findFirst({ where
 beforeEach(() => {
   platform.publish.mockReset();
   engagement.openPostEngagement.mockReset();
+  alerts.sendAlert.mockReset();
 });
 
 describe("publishTarget", () => {
@@ -130,6 +123,18 @@ describe("publishTarget", () => {
     expect(await postStatus(post.id)).toBe("failed");
     const log = await db.select().from(activity).where(eq(activity.entityId, target.id));
     expect(log.map((a) => a.action)).toContain("target.failed");
+    expect(alerts.sendAlert).toHaveBeenCalledTimes(1);
+    expect(alerts.sendAlert).toHaveBeenCalledWith(expect.objectContaining({ kind: "post_failed", key: target.id }));
+  });
+
+  it("does not alert while retries remain, or when the channel just needs connecting", async () => {
+    const retry = await seed({ attempts: 0 });
+    platform.publish.mockRejectedValueOnce(new Error("boom"));
+    await publishTarget(retry.target.id);
+    const unconnected = await seed();
+    platform.publish.mockRejectedValueOnce(new NotConnectedError("Fake", "no token"));
+    await publishTarget(unconnected.target.id);
+    expect(alerts.sendAlert).not.toHaveBeenCalled();
   });
 
   it("falls back to the manual queue, without retrying, when the channel is not connected", async () => {
@@ -217,6 +222,7 @@ describe("failInterruptedPublishes", () => {
     expect(r.lastError).toMatch(/Interrupted/);
     expect(r.claimedAt).toBeNull();
     expect(await postStatus(post.id)).toBe("failed");
+    expect(alerts.sendAlert).toHaveBeenCalledWith(expect.objectContaining({ kind: "post_interrupted", key: target.id }));
   });
 
   it("leaves a recent claim alone", async () => {

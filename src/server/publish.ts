@@ -5,6 +5,7 @@ import { getPlatform, NotConnectedError, type MediaItem, type PublishContext } f
 import { freshCredentials, isRevokedToken, markReconnect } from "@/server/channel-auth";
 import { publicUrl } from "./media";
 import { openPostEngagement } from "@/server/actions/engagement";
+import { sendAlert } from "@/server/alerts";
 
 const MAX_ATTEMPTS = 3;
 /** A target claimed this long ago with no outcome was interrupted (crash, restart, timeout). */
@@ -116,6 +117,13 @@ export async function publishTarget(targetId: string, opts: { force?: boolean } 
       meta: { platform: platform.id, error: message, attempts },
     });
     await rollupPostStatus(ctx.post.id);
+    if (!notConnected && !willRetry) {
+      await sendAlert({
+        brandId: ctx.brand.id, kind: "post_failed", key: targetId, path: `/posts/${ctx.post.id}`,
+        subject: `A post to ${platform.name} failed`,
+        lines: [`A post to ${platform.name} (${ctx.channel.handle}) failed after ${attempts} attempts and will not be retried.`, `Error: ${message}`],
+      });
+    }
     return { ok: false, targetId, error: message, willRetry };
   }
 }
@@ -238,6 +246,16 @@ export async function failInterruptedPublishes() {
     .set({ status: "failed", claimedAt: null, lastError: "Interrupted while publishing. Check the channel for the post before retrying." })
     .where(and(eq(postTargets.status, "publishing"), lt(postTargets.claimedAt, cutoff)))
     .returning({ id: postTargets.id, postId: postTargets.postId });
-  for (const t of stuck) await rollupPostStatus(t.postId);
+  for (const t of stuck) {
+    await rollupPostStatus(t.postId);
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, t.postId), columns: { brandId: true } });
+    if (post) {
+      await sendAlert({
+        brandId: post.brandId, kind: "post_interrupted", key: t.id, path: `/posts/${t.postId}`,
+        subject: "A post was cut off while publishing",
+        lines: ["A post was interrupted while it was being sent. It may or may not be live on the platform.", "Check the channel before retrying, or it could go out twice."],
+      });
+    }
+  }
   return stuck.length;
 }

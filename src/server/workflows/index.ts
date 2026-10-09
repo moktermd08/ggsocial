@@ -13,6 +13,7 @@ import { reviewWork, verdictReasons } from "@/server/reviewer";
 import { publishPost } from "@/server/workflows/publish-post";
 import { answerEngagement } from "@/server/workflows/answer-engagement";
 import { planIdeas } from "@/server/workflows/plan-ideas";
+import { sendAlert } from "@/server/alerts";
 import type { Brand, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
 
 export type RunStep = typeof workflowRunSteps.$inferSelect;
@@ -301,6 +302,13 @@ async function pauseStep(run: WorkflowRun, stepKey: string, pause: Pause, extra:
     runId: run.id, brandId: run.brandId, stepKey, status: "paused", pause,
     summary: extra.summary ?? null, output: extra.output ?? {}, usage: extra.usage ?? null, error: extra.error ?? null,
   });
+  if (pause.kind === "safety") {
+    await sendAlert({
+      brandId: run.brandId, kind: "run_stopped", key: run.id, path: "/review",
+      subject: "An agent run stopped for a safety check",
+      lines: [pause.question, ...(pause.reasons ?? []).map((r) => `- ${r}`)],
+    });
+  }
 }
 
 async function decideRow(rowId: string, decision: StepDecision, userId: string | null, note: string | null) {

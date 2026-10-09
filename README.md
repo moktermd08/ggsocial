@@ -125,6 +125,7 @@ npm run scheduler
 | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | Optional. Enables importing Canva designs into Media. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Enables importing from Google Photos into Media, and "Connect with Google" for YouTube channels. |
 | `META_APP_ID`, `META_APP_SECRET` | Optional. Enables "Connect with Facebook" for Facebook Page and Instagram channels. |
+| `RESEND_API_KEY`, `ALERT_FROM` | Optional. Failure alerts by email to each brand's owners and admins: a post that ran out of retries or was cut off mid-send, a channel that needs reconnecting, an agent run stopped for a safety check. The same alert is sent at most once every 12 hours. Without them nothing is sent. |
 | `ANTHROPIC_API_KEY` | Optional. Enables drafting with Claude and the brand agents, which run from `/api/cron/agents` every five minutes (the scheduler and `vercel.json` both call it). |
 | `CLAUDE_WRITING_MODEL`, `CLAUDE_ANALYSIS_MODEL`, `CLAUDE_REVIEW_MODEL` | Optional. The model that writes posts and replies, the one that writes the analyst's reports, and the reviewer. Writing and analysis default to `claude-sonnet-5`, the reviewer to `claude-haiku-4-5`; set `claude-opus-5` to trade cost for a bigger model. |
 
