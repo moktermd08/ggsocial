@@ -666,6 +666,8 @@ export const postTargets = pgTable("post_targets", {
   externalUrl: text("external_url"),
   lastError: text("last_error"),
   attempts: integer("attempts").notNull().default(0),
+  /** Set when a publish run claims the target; a `publishing` row that stays claimed too long was interrupted. */
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
   createdAt: now(),
 }, (t) => [
   uniqueIndex("post_targets_post_channel_idx").on(t.postId, t.channelId),

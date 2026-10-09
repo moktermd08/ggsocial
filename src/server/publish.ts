@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, lte, asc } from "drizzle-orm";
+import { and, eq, inArray, lt, lte, ne, notInArray, asc, sql } from "drizzle-orm";
 import { db, posts, postTargets, channels, brands, media, attachments, activity, metrics } from "@/lib/db";
 import { getPlatform, NotConnectedError, type MediaItem, type PublishContext } from "@/lib/platforms";
 import { freshCredentials, isRevokedToken, markReconnect } from "@/server/channel-auth";
@@ -7,6 +7,8 @@ import { publicUrl } from "./media";
 import { openPostEngagement } from "@/server/actions/engagement";
 
 const MAX_ATTEMPTS = 3;
+/** A target claimed this long ago with no outcome was interrupted (crash, restart, timeout). */
+const STALE_CLAIM_MS = 15 * 60 * 1000;
 
 async function loadTargetContext(targetId: string) {
   const target = await db.query.postTargets.findFirst({ where: eq(postTargets.id, targetId) });
@@ -65,7 +67,20 @@ export async function publishTarget(targetId: string, opts: { force?: boolean } 
     return { ok: true, targetId, status: "awaiting_manual", note: "Waiting for someone to post it." };
   }
 
-  await db.update(postTargets).set({ status: "publishing", attempts: ctx.target.attempts + 1 }).where(eq(postTargets.id, targetId));
+  // Claim the target in one statement so two ticks (or a tick and a click) can
+  // never both send it: only the caller whose UPDATE matches a row goes on.
+  const claimed = await db
+    .update(postTargets)
+    .set({ status: "publishing", attempts: sql`${postTargets.attempts} + 1`, claimedAt: new Date() })
+    .where(and(
+      eq(postTargets.id, targetId),
+      opts.force ? ne(postTargets.status, "publishing") : notInArray(postTargets.status, ["publishing", "published"]),
+    ))
+    .returning({ attempts: postTargets.attempts });
+  if (claimed.length === 0) {
+    return { ok: false, targetId, error: "Already being published, or already published.", willRetry: false };
+  }
+  const attempts = claimed[0].attempts;
 
   try {
     const result = await platform.publish(ctx);
@@ -75,6 +90,7 @@ export async function publishTarget(targetId: string, opts: { force?: boolean } 
       externalPostId: result.externalId ?? null,
       externalUrl: result.externalUrl ?? null,
       lastError: null,
+      claimedAt: null,
     }).where(eq(postTargets.id, targetId));
     await db.insert(activity).values({
       brandId: ctx.brand.id, action: "target.published", entity: "post_target", entityId: targetId,
@@ -89,11 +105,11 @@ export async function publishTarget(targetId: string, opts: { force?: boolean } 
     // A token Meta has revoked is a setup problem too: the channel waits to be reconnected.
     if (isRevokedToken(err)) await markReconnect(ctx.channel, `${platform.name} no longer accepts the sign-in. Connect it again.`);
     const notConnected = err instanceof NotConnectedError || isRevokedToken(err);
-    const attempts = ctx.target.attempts + 1;
     const willRetry = !notConnected && attempts < MAX_ATTEMPTS;
     await db.update(postTargets).set({
       status: notConnected ? "awaiting_manual" : willRetry ? "scheduled" : "failed",
       lastError: message,
+      claimedAt: null,
     }).where(eq(postTargets.id, targetId));
     await db.insert(activity).values({
       brandId: ctx.brand.id, action: "target.failed", entity: "post_target", entityId: targetId,
@@ -156,6 +172,7 @@ export async function rollupPostStatus(postId: string) {
  * Called by /api/cron/publish (Vercel Cron, or any external pinger).
  */
 export async function runDuePublishes(limit = 25) {
+  await failInterruptedPublishes();
   const due = await db
     .select()
     .from(postTargets)
@@ -207,4 +224,20 @@ export async function refreshMetrics(brandId: string, sinceDays = 30) {
     }
   }
   return updated;
+}
+
+/**
+ * A target left in `publishing` past the stale window was cut off mid-send, so
+ * the platform may or may not have it. Retrying blind could post twice, so it
+ * is marked failed with a note and a person decides.
+ */
+export async function failInterruptedPublishes() {
+  const cutoff = new Date(Date.now() - STALE_CLAIM_MS);
+  const stuck = await db
+    .update(postTargets)
+    .set({ status: "failed", claimedAt: null, lastError: "Interrupted while publishing. Check the channel for the post before retrying." })
+    .where(and(eq(postTargets.status, "publishing"), lt(postTargets.claimedAt, cutoff)))
+    .returning({ id: postTargets.id, postId: postTargets.postId });
+  for (const t of stuck) await rollupPostStatus(t.postId);
+  return stuck.length;
 }
