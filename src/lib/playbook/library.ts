@@ -576,6 +576,92 @@ PLAYBOOK_LIBRARY.push(
       ["Agents never change passwords, admins or billing — they report what needs doing", "agent"],
     ]),
   },
+
+  /* ======================================== what to look for, and what to promote */
+  // These six govern what an agent hunts for and who or what it brings to a
+  // customer's attention. The source of truth for "what we want" and "what we
+  // promote" is each brand's own details (Products & services, Target audience,
+  // Key people, Proof & FAQs), never the agent's general knowledge.
+  {
+    code: "target-people", kind: "activity", name: "Search: People",
+    description: "Finding individuals to follow, connect with, comment for or message: prospects, customers' decision-makers, partners, referrers and voices in the brand's field.",
+    instructions: "Only look for people who fit one of the Target audience segments in the brand details: the role, company size, sector and place written there. Do not widen the net on a hunch. Skip anyone outside those segments, competitors' staff (unless the playbook says to track them), recruiters, and private individuals with no business link. Read the profile before acting, and record why the person fits in the lead or task. If the brand details name no segments, stop and ask the owner; never invent one.",
+    platforms: [], activityCodes: [],
+    enforce: "warn", limits: {},
+    checklist: points("target-people", [
+      "The person matches a named Target audience segment in the brand details",
+      "Reason for fit is written down (role, company, sector, place)",
+      "Profile was read before any approach; nothing is assumed",
+      "No contact with anyone the brand details mark as off-limits",
+      ["A person sends the first message; agents draft only", "agent"],
+    ]),
+  },
+  {
+    code: "target-products", kind: "activity", name: "Search: Products",
+    description: "Finding products to promote to customers, to stock or resell, or to learn from, on marketplaces, directories and competitors' pages.",
+    instructions: "The products we promote are the ones listed under Products & services in the brand details, and only those that can be bought today. The product types we are interested in finding are the ones the owner has listed there or in the playbook's own notes for this brand. A product the owner has not listed is never offered, described or implied to customers. Never invent a product, price, spec, stock level, discount or availability. Use the brand's own wording and the price on its own page. If a customer asks for something not listed, say it is not currently offered and pass the request to the owner.",
+    platforms: [], activityCodes: [],
+    enforce: "warn", limits: {},
+    checklist: points("target-products", [
+      "Every product mentioned is in the brand's Products & services and on sale today",
+      "Name, price and details are copied from the brand's own page, not worked out",
+      "Nothing promised about stock, delivery or discounts that the brand has not stated",
+      "Unlisted product types are logged as a note to the owner, not offered",
+    ]),
+  },
+  {
+    code: "target-services", kind: "activity", name: "Search: Services",
+    description: "Finding services to promote, to buy in, or to partner on, and the businesses and freelancers that provide them.",
+    instructions: "The services we promote are the ones listed under Products & services in the brand details. Describe them in the brand's own words: what it is, who it is for, how it is delivered. Never invent a service, package, turnaround, guarantee, case study or result. Claims of results use only facts from Proof & FAQs, with their source. When looking at other providers, record what they offer and how they differ; do not recommend, contract or pay anyone without the owner's say-so.",
+    platforms: [], activityCodes: [],
+    enforce: "warn", limits: {},
+    checklist: points("target-services", [
+      "Every service named is in the brand's Products & services and offered today",
+      "Results and numbers come from Proof & FAQs and cite a source",
+      "No guarantee, price or timescale the brand has not published",
+      ["No outside provider is hired, paid or recommended without the owner's approval", "all"],
+    ]),
+  },
+  {
+    code: "target-companies", kind: "activity", name: "Search: Companies",
+    description: "Finding companies that are prospects, customers, partners, suppliers, competitors or worth following.",
+    instructions: "A company is worth acting on only if it matches a Target audience segment (sector, size, place) or is a named partner or supplier in the brand details. Log what you can verify: legal name, sector, size, place and website, from the company's own page or the company register. Leave unknown fields empty. Competitors are watched, never attacked: no negative comments, no tagging them in promotions, no copying their content. Do not contact a company's staff in bulk.",
+    platforms: [], activityCodes: [],
+    enforce: "warn", limits: {},
+    checklist: points("target-companies", [
+      "The company matches a Target audience segment or is a named partner or supplier",
+      "Details recorded are verified on the company's own page or register; unknowns left blank",
+      "Competitors are observed only: no comments against them, no copied content",
+      "No bulk approaches to a company's staff",
+    ]),
+  },
+  {
+    code: "target-groups", kind: "activity", name: "Search: Groups",
+    description: "Choosing which groups, communities, forums and pages to join, watch or post in.",
+    instructions: "Join only groups where members are in a Target audience segment or discuss the brand's products and services. Check the group's rules, size, activity in the last 30 days and moderation before joining. Skip groups that are dead, spam-heavy, off-topic, or that ban brand accounts. Joining and posting rules in Groups & communities apply. List a new group in the lead or task with the reason it fits, and let the owner decide before the brand posts in it.",
+    platforms: [], activityCodes: [],
+    enforce: "warn", limits: {},
+    checklist: points("target-groups", [
+      "Members or topic match a Target audience segment or the brand's offer",
+      "Rules, size, recent activity and moderation checked before joining",
+      "No dead, spam-heavy or off-topic groups; none that ban brand accounts",
+      ["The owner approves before the brand posts in a new group", "all"],
+    ]),
+  },
+  {
+    code: "target-collaboration", kind: "activity", name: "Search: Collaboration",
+    description: "Finding and approaching partners, creators, co-marketers, referrers and joint-content or event opportunities.",
+    instructions: "A collaborator must share the brand's Target audience and have a real, active presence. Check their recent work, audience and past partnerships before suggesting them. Draft the approach and the proposed shape (guest post, joint live, referral, co-marketing) for the owner; agents never agree terms, fees, exclusivity, free products, discount codes or deadlines on the brand's behalf. Collaborations are disclosed as such where the platform or law requires it. Never offer payment or product in return for a review.",
+    platforms: [], activityCodes: ["Q-08"],
+    enforce: "warn", limits: {},
+    checklist: points("target-collaboration", [
+      "The collaborator's audience overlaps the brand's Target audience",
+      "Recent work, audience and past partnerships were checked and recorded",
+      "Approach is a draft; no terms, fees, free products or codes agreed by an agent",
+      "Paid or gifted collaborations are disclosed as the platform and law require",
+      ["The owner approves every collaboration before it is confirmed", "all"],
+    ]),
+  },
 );
 
 for (const r of PLAYBOOK_LIBRARY) r.examples ??= libraryExamples(r.code);
