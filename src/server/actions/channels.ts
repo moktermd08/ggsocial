@@ -1,11 +1,11 @@
 "use server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { asResult } from "@/lib/action-result";
-import { db, channels, activity } from "@/lib/db";
+import { db, brands, channels, activity } from "@/lib/db";
 import { requireBrandRole, requireUser } from "@/lib/auth";
 import { connectChannel, dropHeld, heldCandidates } from "@/server/channel-auth";
-import { getPlatform } from "@/lib/platforms";
+import { getPlatform, PLATFORM_LIST } from "@/lib/platforms";
 import { encryptJson } from "@/lib/crypto";
 import { checkChannelPages, normalisePageUrl, recordPageChecks } from "@/server/page-checks";
 import { hasPublicPage } from "@/lib/platforms";
@@ -33,6 +33,37 @@ export async function addChannelAction(brandId: string, formData: FormData) {
     if (channel.pageUrl) await checkPage(channel.id, brandId);
     revalidatePath("/", "layout");
     return { id: channel.id };
+  });
+}
+
+/**
+ * Adds every platform the brand doesn't already have, as manual channels, in
+ * one go. The handle starts as the brand's name; each one can be renamed or
+ * connected afterwards, and anything not wanted can be removed.
+ */
+export async function addAllChannelsAction(brandId: string) {
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "admin");
+    const brand = await db.query.brands.findFirst({ where: eq(brands.id, brandId) });
+    if (!brand) throw new Error("Brand not found");
+
+    const existing = await db.query.channels.findMany({
+      where: and(eq(channels.brandId, brandId), isNull(channels.archivedAt)),
+      columns: { platform: true },
+    });
+    const have = new Set(existing.map((c) => c.platform));
+    const missing = PLATFORM_LIST.filter((p) => !have.has(p.id));
+    if (missing.length === 0) throw new Error(`${brand.name} already has every platform.`);
+
+    await db.insert(channels).values(missing.map((p) => ({
+      brandId, platform: p.id, handle: brand.name, mode: "manual" as const, status: "connected" as const,
+    })));
+    await db.insert(activity).values({
+      brandId, actorId: user.id, action: "channel.added", entity: "brand", entityId: brandId,
+      meta: { bulk: true, count: missing.length },
+    });
+    revalidatePath("/", "layout");
+    return { added: missing.length };
   });
 }
 

@@ -1,12 +1,12 @@
 "use client";
 import { useState, useTransition } from "react";
-import { ExternalLink, Globe, Plug, Power, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ExternalLink, Globe, Plug, Plus, Power, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Card, CardHeader, Field, buttonClass, Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { PlatformPicker } from "./platform-picker";
 import type { PlatformMeta } from "@/lib/platforms/meta";
 import {
-  addChannelAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
+  addChannelAction, addAllChannelsAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
   setChannelSettingsAction, setChannelPageUrlAction, checkChannelPageAction,
 } from "@/server/actions/channels";
 import { relativeTime } from "@/lib/format";
@@ -268,6 +268,21 @@ export function ChannelManager({
                 <button onClick={() => setPicking(true)} className={buttonClass("subtle", "sm")}>
                   <Settings2 className="size-3.5" /> Add a channel
                 </button>
+                {platforms.some((p) => !channels.some((c) => c.platform === p.id)) && (
+                  <button
+                    disabled={pending}
+                    onClick={() => {
+                      const n = platforms.filter((p) => !channels.some((c) => c.platform === p.id)).length;
+                      if (confirm(`Add ${n} channels to ${brandName}? Each starts in manual mode, named after the brand. You can rename, connect or remove any of them afterwards.`)) {
+                        run(() => addAllChannelsAction(brandId));
+                      }
+                    }}
+                    className={buttonClass("primary", "sm")}
+                    title="Add every platform this brand doesn't have yet"
+                  >
+                    <Plus className="size-3.5" /> Add all channels
+                  </button>
+                )}
                 <span className="text-[11px] text-muted">
                   {platforms.length} platforms — {platforms.filter((p) => !p.manualOnly).length} publish automatically.
                 </span>
