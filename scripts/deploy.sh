@@ -16,14 +16,16 @@ if [[ -n "$(git status --porcelain)" ]]; then
   [[ "$answer" == [yY] ]] || exit 1
 fi
 
-# Nothing reaches the server if the types or the tests fail. Both run on this
+# Nothing reaches the server if the types, the lint or the tests fail. Both run on this
 # machine (the tests against an in-memory database), so they need no network.
 # SKIP_TESTS=1 skips both, for an emergency fix only.
 if [[ "${SKIP_TESTS:-}" == 1 ]]; then
-  echo "Warning: SKIP_TESTS=1, deploying without type-checking or running the tests."
+  echo "Warning: SKIP_TESTS=1, deploying without type-checking, linting or running the tests."
 else
   echo "==> Type-checking"
   npx tsc --noEmit || { echo "Type errors. Nothing was deployed." >&2; exit 1; }
+  echo "==> Linting"
+  npm run lint || { echo "Lint errors. Nothing was deployed." >&2; exit 1; }
   echo "==> Running tests"
   npm test || { echo "Tests failed. Nothing was deployed." >&2; exit 1; }
 fi
