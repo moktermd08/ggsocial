@@ -38,10 +38,11 @@ export async function addChannelAction(brandId: string, formData: FormData) {
 
 /**
  * Adds every platform the brand doesn't already have, as manual channels, in
- * one go. The handle starts as the brand's name; each one can be renamed or
- * connected afterwards, and anything not wanted can be removed.
+ * one go, or only the ones that publish by themselves with `liveOnly`. The
+ * handle starts as the brand's name; each one can be renamed or connected
+ * afterwards, and anything not wanted can be removed.
  */
-export async function addAllChannelsAction(brandId: string) {
+export async function addAllChannelsAction(brandId: string, liveOnly = false) {
   return asResult(async () => {
     const { user } = await requireBrandRole(brandId, "admin");
     const brand = await db.query.brands.findFirst({ where: eq(brands.id, brandId) });
@@ -52,15 +53,15 @@ export async function addAllChannelsAction(brandId: string) {
       columns: { platform: true },
     });
     const have = new Set(existing.map((c) => c.platform));
-    const missing = PLATFORM_LIST.filter((p) => !have.has(p.id));
-    if (missing.length === 0) throw new Error(`${brand.name} already has every platform.`);
+    const missing = PLATFORM_LIST.filter((p) => !have.has(p.id) && (!liveOnly || !p.manualOnly));
+    if (missing.length === 0) throw new Error(`${brand.name} already has every ${liveOnly ? "auto-publish " : ""}platform.`);
 
     await db.insert(channels).values(missing.map((p) => ({
       brandId, platform: p.id, handle: brand.name, mode: "manual" as const, status: "connected" as const,
     })));
     await db.insert(activity).values({
       brandId, actorId: user.id, action: "channel.added", entity: "brand", entityId: brandId,
-      meta: { bulk: true, count: missing.length },
+      meta: { bulk: true, liveOnly, count: missing.length },
     });
     revalidatePath("/", "layout");
     return { added: missing.length };

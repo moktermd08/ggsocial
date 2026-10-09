@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { ExternalLink, Globe, Plug, Plus, Power, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ExternalLink, Globe, Plug, Plus, Power, Zap, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Card, CardHeader, Field, buttonClass, Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { PlatformPicker } from "./platform-picker";
@@ -281,6 +281,21 @@ export function ChannelManager({
                     title="Add every platform this brand doesn't have yet"
                   >
                     <Plus className="size-3.5" /> Add all channels
+                  </button>
+                )}
+                {platforms.some((p) => !p.manualOnly && !channels.some((c) => c.platform === p.id)) && (
+                  <button
+                    disabled={pending}
+                    onClick={() => {
+                      const n = platforms.filter((p) => !p.manualOnly && !channels.some((c) => c.platform === p.id)).length;
+                      if (confirm(`Add the ${n} auto-publish channels to ${brandName}? Each starts in manual mode, named after the brand, and publishes by itself once you connect it.`)) {
+                        run(() => addAllChannelsAction(brandId, true));
+                      }
+                    }}
+                    className={buttonClass("subtle", "sm")}
+                    title="Add only the platforms ggsocial can publish to by itself"
+                  >
+                    <Zap className="size-3.5" /> Add auto-publish only
                   </button>
                 )}
                 <span className="text-[11px] text-muted">
