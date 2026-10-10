@@ -47,7 +47,7 @@ with the copy and files ready to paste.
   recorded is never overwritten.
 - **Workflows and the Review inbox** — each kind of work runs as a workflow of steps, done
   by an agent, a tool or a person: so far, *publish a planned post*, *answer a comment or
-  message* (sent through the platform on connected Facebook, Instagram and YouTube channels)
+  message* (sent through the platform on connected Facebook, Instagram, YouTube, Bluesky and Mastodon channels)
   and *plan new ideas*. After an agent's step the run stops for a person only
   where that step's review is on — and review is on for every step until the brand's owner
   switches it off, with a reason that is kept in the log. A reviewer (Claude Haiku) reads
@@ -188,6 +188,13 @@ publish queue) and is marked *needs reconnecting*.
 3. On the consent screen, add the scopes `youtube.force-ssl` and `youtube.upload`, and add
    yourself as a test user. Until Google verifies the project, uploads are private and
    only test users can connect.
+
+**Bluesky and Mastodon** connect by pasting a credential, and then work the same way: replies and
+mentions come into Engagement every ten minutes, replies go out in the thread, and each post's likes,
+replies and reposts are read back (neither platform reports reach). Bluesky needs an app password.
+A Mastodon token needs the scopes `read:notifications` and `read:statuses` as well as the posting
+ones, so a token made before this existed must be created again with them; the channel says so when
+the platform refuses.
 
 Other platforms still connect by pasting a token (the **Token** / **Connect** button).
 

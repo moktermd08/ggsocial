@@ -1,10 +1,27 @@
-import { apiFetch, fetchMediaBytes, NotConnectedError, type Platform } from "../types";
+import { apiFetch, fetchMediaBytes, NotConnectedError, type InboundItem, type Platform } from "../types";
 
 function host(ctx: { channel: { settings: unknown }; options: Record<string, unknown> }) {
   const s = (ctx.channel.settings ?? {}) as Record<string, unknown>;
   const raw = String(ctx.options.instance ?? s.instance ?? "https://mastodon.social");
   return (raw.startsWith("http") ? raw : `https://${raw}`).replace(/\/$/, "");
 }
+
+const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&nbsp;": " " };
+
+/** A status's HTML as plain text, without the @mention of the account it was sent to. */
+export function statusText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>\s*<p[^>]*>/gi, "\n\n").replace(/<[^>]+>/g, "")
+    .replace(/&(?:amp|lt|gt|quot|#39|apos|nbsp);/g, (e) => ENTITIES[e])
+    .replace(/^(?:@\S+\s*)+/, "").trim();
+}
+
+type MastoStatus = { id: string; url?: string; content: string; visibility: string; in_reply_to_id?: string | null; account: { id: string; acct: string; display_name?: string; url?: string } };
+
+const scopeHint = (err: unknown) =>
+  err instanceof Error && /\((?:401|403)\)/.test(err.message)
+    ? new Error("Mastodon refused the request. The access token needs the read:notifications and read:statuses scopes: create it again with them.")
+    : err;
 
 export const mastodon: Platform = {
   id: "mastodon",
@@ -39,7 +56,7 @@ export const mastodon: Platform = {
     docsUrl: "https://docs.joinmastodon.org/methods/statuses/",
     envKeys: [],
     requiresAppReview: false,
-    notes: "Instance settings → Development → New application. Scopes: write:statuses, write:media, read:accounts (for follower counts).Paste the access token here — most instances never expire it.",
+    notes: "Instance settings → Development → New application. Scopes: write:statuses, write:media, read:accounts (follower counts), read:notifications and read:statuses (replies, mentions and post counts). Paste the access token here — most instances never expire it.",
   },
   publish: async (ctx) => {
     const token = ctx.credentials?.accessToken;
@@ -88,5 +105,65 @@ export const mastodon: Platform = {
       headers: { Authorization: `Bearer ${token}` },
     });
     return res.followers_count != null ? { followers: Number(res.followers_count) } : {};
+  },
+  fetchMetrics: async ({ channel, externalPostId, credentials }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Mastodon", "missing access token");
+    const res = await apiFetch(`${host({ channel, options: {} })}/api/v1/statuses/${encodeURIComponent(externalPostId)}`, {
+      label: "Mastodon status metrics", headers: { Authorization: `Bearer ${token}` },
+    });
+    // Mastodon does not report impressions or reach.
+    return { likes: Number(res.favourites_count ?? 0), commentCount: Number(res.replies_count ?? 0), shares: Number(res.reblogs_count ?? 0), raw: res };
+  },
+  fetchInbound: async ({ channel, credentials, since, posts }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Mastodon", "missing access token");
+    const base = host({ channel, options: {} });
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const me = await apiFetch(`${base}/api/v1/accounts/verify_credentials`, { label: "Mastodon account", headers });
+      // A reply to the brand's post arrives as a mention, as does a direct message.
+      const res = (await apiFetch(`${base}/api/v1/notifications?types[]=mention&limit=40`, { label: "Mastodon notifications", headers })) as unknown;
+      const list = (Array.isArray(res) ? res : []) as Array<{ type: string; created_at: string; account: MastoStatus["account"]; status?: MastoStatus }>;
+      const ours = new Set(posts);
+      const items: InboundItem[] = [];
+      for (const n of list) {
+        const at = new Date(n.created_at);
+        if (at <= since) break;
+        const st = n.status;
+        if (!st || n.account.id === String(me.id)) continue;
+        const text = statusText(st.content);
+        if (!text) continue;
+        const replyTo = st.in_reply_to_id ?? null;
+        items.push({
+          externalId: st.id, receivedAt: at, body: text,
+          kind: st.visibility === "direct" ? "message" : replyTo && ours.has(replyTo) ? "comment" : "mention",
+          externalPostId: replyTo && ours.has(replyTo) ? replyTo : null,
+          authorName: n.account.display_name || n.account.acct, authorHandle: `@${n.account.acct}`,
+          authorUrl: n.account.url ?? null, externalUrl: st.url ?? null,
+        });
+      }
+      return items;
+    } catch (err) {
+      throw scopeHint(err);
+    }
+  },
+  sendReply: async ({ channel, credentials, replyTo, body }) => {
+    const token = credentials?.accessToken;
+    if (!token) throw new NotConnectedError("Mastodon", "missing access token");
+    const base = host({ channel, options: {} });
+    const headers = { Authorization: `Bearer ${token}` };
+    const original = (await apiFetch(`${base}/api/v1/statuses/${encodeURIComponent(replyTo)}`, { label: "Mastodon status", headers })) as unknown as MastoStatus;
+    // The reply only notifies the person if their @name is in the text.
+    const mention = `@${original.account.acct}`;
+    const status = body.trimStart().startsWith(mention) ? body : `${mention} ${body}`;
+    if (status.length > 500) throw new Error(`Mastodon reply is ${status.length} characters with the @mention: the limit is 500.`);
+    const res = await apiFetch(`${base}/api/v1/statuses`, {
+      label: "Mastodon reply", method: "POST",
+      headers: { ...headers, "Content-Type": "application/json", "Idempotency-Key": `reply-${replyTo}` },
+      // Same audience as the message being answered: a direct message stays direct.
+      body: JSON.stringify({ status, in_reply_to_id: replyTo, visibility: original.visibility }),
+    });
+    return { externalId: String(res.id), externalUrl: String(res.url ?? "") };
   },
 };
