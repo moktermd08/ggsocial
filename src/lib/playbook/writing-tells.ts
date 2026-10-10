@@ -14,6 +14,7 @@ export const AI_TELL_PHRASES = [
   "let's dive in", "let’s dive in", "dive into", "unlock the power", "unlock your", "harness the power", "unleash",
   "supercharge", "elevate your", "revolutionize", "cutting-edge", "seamless", "seamlessly", "in conclusion",
   "here's the thing", "here’s the thing", "buckle up", "look no further", "take it to the next level",
+  "let that sink in", "read that again", "say goodbye to",
 ];
 
 const NOT_JUST = /\b(?:isn['’]t|is not|not|aren['’]t|are not|wasn['’]t|was not)\s+(?:just|only|merely|simply)\b[^.!?\n]{1,80}[,;—–-]\s*(?:it['’]s|it is|they['’]re|they are|but)\b/i;

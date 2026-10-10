@@ -7,7 +7,7 @@ import { platformOrNull } from "@/lib/platforms";
 import { profileCopy } from "@/lib/brand-details";
 import { checkContent, describeRule, resolveFormat, type EffectiveRule } from "@/lib/playbook/check";
 import { recordUsage } from "@/server/ai-usage";
-import { HOOK_CRAFT, PLAIN_WRITING } from "@/server/agents/craft";
+import { HOOK_CRAFT, PLAIN_WRITING, PLATFORM_CRAFT } from "@/server/agents/craft";
 
 /**
  * Claude drafting: one idea, told in one brand's voice, written separately
@@ -131,6 +131,8 @@ What good looks like here:
 The idea is written in shorthand and usually names one company as the one doing the work. Retell it from this brand's own position: a person speaks in the first person from experience; a company speaks as the one that does the work. Never make a different brand the hero of the story.
 
 ${HOOK_CRAFT}
+
+${PLATFORM_CRAFT}
 
 ${PLAIN_WRITING}`;
 
