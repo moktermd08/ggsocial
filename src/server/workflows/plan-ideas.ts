@@ -8,6 +8,7 @@ import { METRIC_META } from "@/lib/goals/meta";
 import { POST_TYPES } from "@/lib/templates";
 import { platformOrNull } from "@/lib/platforms";
 import { askClaude } from "@/server/agents/claude";
+import { fetchSignals, researchQueries, signalsBlock } from "@/server/research";
 import { ANGLE_SPREAD, HOOK_CRAFT, STRATEGY_CRAFT } from "@/server/agents/craft";
 import type { StepContext, StepResult, WorkflowImpl } from "@/server/workflows/types";
 
@@ -115,6 +116,7 @@ async function propose(ctx: StepContext): Promise<StepResult> {
   const { run, brand } = ctx;
   const count = Math.max(1, Math.min(10, Number(run.context.count) || 5));
   const b = await briefing(brand.id);
+  const signals = await fetchSignals(researchQueries(b.pillars, brand.defaultHashtags));
   const guidelines = typeof run.context.guidelines === "string" ? run.context.guidelines : null;
 
   const task = [
@@ -125,6 +127,7 @@ async function propose(ctx: StepContext): Promise<StepResult> {
       : "\nThe brand has no active goals; aim for steady reach and conversation.",
     b.platforms.length ? `\nIts channels: ${b.platforms.join(", ")}.` : "",
     b.pillars.length ? `\nIts content pillars so far: ${b.pillars.join("; ")}.` : "",
+    signalsBlock(signals),
     b.lessons.length ? `\nLessons from its own posts (build on these):\n${b.lessons.map((l) => `- "${l.title}": ${l.keyLearning}`).join("\n")}` : "",
     b.recent.length ? `\nRecently published or booked (do not repeat):\n${b.recent.map((p) => `- ${p.title}${p.postType ? ` (${p.postType})` : ""}`).join("\n")}` : "",
     b.everIdeas.length ? `\nIdeas already in the plan, used or not (never repeat or reword these):\n${b.everIdeas.map((i) => `- ${i.title || i.problem}`).join("\n")}` : "",
@@ -138,8 +141,8 @@ async function propose(ctx: StepContext): Promise<StepResult> {
 
   return {
     outcome: "done",
-    summary: `Proposed ${ideas.length} new idea${ideas.length === 1 ? "" : "s"} for the plan.`,
-    output: { ideas },
+    summary: `Proposed ${ideas.length} new idea${ideas.length === 1 ? "" : "s"} for the plan${signals.length ? `, with ${signals.length} outside signals as input` : ""}.`,
+    output: { ideas, signals: signals.map((x) => ({ source: x.source, title: x.title, url: x.url, score: x.score })) },
     context: { ideas },
     usage,
     href: "/ideas",
