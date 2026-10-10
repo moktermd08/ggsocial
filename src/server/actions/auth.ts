@@ -1,5 +1,5 @@
 "use server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, users, memberships, invites } from "@/lib/db";
@@ -37,10 +37,18 @@ export async function signUpAction(_prev: FormState, formData: FormData): Promis
   }).returning();
 
   if (invite) {
-    const row = await db.query.invites.findFirst({ where: eq(invites.token, invite) });
-    if (row && !row.acceptedAt) {
-      await db.insert(memberships).values({ userId: user.id, brandId: row.brandId, role: row.role });
-      await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.token, invite));
+    // The link's own invite, plus any other open invites sent to this address
+    // (adding someone to several brands at once creates one invite per brand).
+    const tokenRow = await db.query.invites.findFirst({ where: eq(invites.token, invite) });
+    const sameEmail = await db.query.invites.findMany({
+      where: and(eq(invites.email, user.email), isNull(invites.acceptedAt)),
+    });
+    const open = new Map<string, typeof sameEmail[number]>();
+    if (tokenRow && !tokenRow.acceptedAt) open.set(tokenRow.token, tokenRow);
+    for (const row of sameEmail) open.set(row.token, row);
+    for (const row of open.values()) {
+      await db.insert(memberships).values({ userId: user.id, brandId: row.brandId, role: row.role }).onConflictDoNothing();
+      await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.token, row.token));
     }
   }
 

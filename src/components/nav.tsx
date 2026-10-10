@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Inbox, Workflow, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Bot, Images, Plug, BarChart3, Link2, Building2,
+  LayoutDashboard, Inbox, Workflow, CalendarDays, Lightbulb, PenSquare, Megaphone, FileText, ListChecks, MessagesSquare, ClipboardCheck, BookCheck, Goal, Bot, Images, Plug, BarChart3, Link2, Building2, Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -43,6 +43,7 @@ export const GROUPS: Array<{ label: string; items: Item[] }> = [
   { label: "Setup", items: [
     { href: "/brands", label: "Brands & team", icon: Building2 },
     { href: "/channels", label: "Channels", icon: Plug },
+    { href: "/users", label: "Users", icon: Users },
   ] },
 ];
 const ITEMS = GROUPS.flatMap((g) => g.items);
