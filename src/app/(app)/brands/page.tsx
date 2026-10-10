@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireUser, getMyBrands } from "@/lib/auth";
 import { getBrandChannels } from "@/server/queries";
 import { Card, EmptyState, LinkButton, PageHeader, Badge } from "@/components/ui";
-import { PlatformIcon } from "@/components/platform-icon";
+import { BrandChannelChips } from "@/components/brand-channel-chips";
 import { readableOn } from "@/lib/color";
 
 /** How much of the brand book is filled in — nudges people to finish it. */
@@ -92,15 +92,7 @@ export default async function BrandsPage() {
                 )}
 
                 <div className="mt-3 flex flex-wrap gap-1">
-                  {mine.length === 0 ? (
-                    <span className="text-xs text-muted">No channels yet</span>
-                  ) : (
-                    mine.map((c) => (
-                      <span key={c.id} className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px]">
-                        <PlatformIcon platform={c.platform} size={13} variant="glyph" /> {c.handle}
-                      </span>
-                    ))
-                  )}
+                  <BrandChannelChips brandName={b.name} channels={mine} />
                 </div>
 
                 <div className="mt-auto pt-3">
