@@ -5,11 +5,13 @@ import { buttonClass, Field } from "./ui";
 import type { FormState } from "@/server/actions/auth";
 
 export function AuthForm({
-  mode, action, invite,
+  mode, action, invite, email,
 }: {
   mode: "signin" | "signup";
   action: (prev: FormState, data: FormData) => Promise<FormState>;
   invite?: string;
+  /** The address the invite was sent to; fixed on sign-up. */
+  email?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const isSignup = mode === "signup";
@@ -33,7 +35,7 @@ export function AuthForm({
         </Field>
       )}
       <Field label="Email">
-        <input name="email" type="email" required autoComplete="email" placeholder="you@company.com" />
+        <input name="email" type="email" required autoComplete="email" placeholder="you@company.com" defaultValue={email} readOnly={Boolean(email)} />
       </Field>
       <Field label="Password" hint={isSignup ? "At least 8 characters." : undefined}>
         <input name="password" type="password" required autoComplete={isSignup ? "new-password" : "current-password"} />
@@ -51,7 +53,7 @@ export function AuthForm({
         {isSignup ? (
           <>Already have an account? <Link href="/login" className="text-accent hover:underline">Sign in</Link></>
         ) : (
-          <>New here? <Link href="/signup" className="text-accent hover:underline">Create an account</Link></>
+          <>Access is by invitation only.</>
         )}
       </p>
     </form>

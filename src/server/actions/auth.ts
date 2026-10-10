@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, users, memberships, invites } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { findOpenInvite } from "@/lib/auth/invite";
 import { createSession, destroySession } from "@/lib/auth/session";
 
 export type FormState = { error?: string; ok?: boolean };
@@ -27,6 +28,14 @@ export async function signUpAction(_prev: FormState, formData: FormData): Promis
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { email, password, name, invite } = parsed.data;
 
+  // Invitation only: there is no open sign-up. The link's invite must be unused
+  // and sent to the address being registered.
+  const tokenRow = await findOpenInvite(invite);
+  if (!tokenRow) return { error: "Sign-up is by invitation only. Ask an admin for an invite link." };
+  if (tokenRow.email.toLowerCase() !== email.toLowerCase().trim()) {
+    return { error: "This invite was sent to a different email address." };
+  }
+
   const existing = await db.query.users.findFirst({ where: eq(users.email, email.toLowerCase()) });
   if (existing) return { error: "That email already has an account. Sign in instead." };
 
@@ -36,20 +45,16 @@ export async function signUpAction(_prev: FormState, formData: FormData): Promis
     passwordHash: await hashPassword(password),
   }).returning();
 
-  if (invite) {
-    // The link's own invite, plus any other open invites sent to this address
-    // (adding someone to several brands at once creates one invite per brand).
-    const tokenRow = await db.query.invites.findFirst({ where: eq(invites.token, invite) });
-    const sameEmail = await db.query.invites.findMany({
-      where: and(eq(invites.email, user.email), isNull(invites.acceptedAt)),
-    });
-    const open = new Map<string, typeof sameEmail[number]>();
-    if (tokenRow && !tokenRow.acceptedAt) open.set(tokenRow.token, tokenRow);
-    for (const row of sameEmail) open.set(row.token, row);
-    for (const row of open.values()) {
-      await db.insert(memberships).values({ userId: user.id, brandId: row.brandId, role: row.role }).onConflictDoNothing();
-      await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.token, row.token));
-    }
+  // The link's own invite, plus any other open invites sent to this address
+  // (adding someone to several brands at once creates one invite per brand).
+  const sameEmail = await db.query.invites.findMany({
+    where: and(eq(invites.email, user.email), isNull(invites.acceptedAt)),
+  });
+  const open = new Map<string, typeof sameEmail[number]>([[tokenRow.token, tokenRow]]);
+  for (const row of sameEmail) open.set(row.token, row);
+  for (const row of open.values()) {
+    await db.insert(memberships).values({ userId: user.id, brandId: row.brandId, role: row.role }).onConflictDoNothing();
+    await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.token, row.token));
   }
 
   await createSession(user.id);
