@@ -8,6 +8,9 @@ import { platformMeta, hasPublicPage } from "@/lib/platforms/meta";
 import { getPlatform } from "@/lib/platforms";
 import { CHANNEL_PROVIDERS, channelAuthConfigured, heldCandidates, providerFor } from "@/server/channel-auth";
 import { ChannelManager } from "@/components/channel-manager";
+import { getBrandPlaybooks } from "@/server/playbook";
+import { scheduleFor } from "@/server/schedule";
+import { describeSchedule } from "@/lib/posting-schedule";
 import { ConnectPicker } from "@/components/channel-connect";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 
@@ -21,6 +24,7 @@ export default async function ChannelsPage({ searchParams }: {
   const platforms = platformMeta();
   const shown = scope.activeBrand ? brands.filter((b) => b.id === scope.activeBrand!.id) : brands;
   const { connected, connectError, pick } = await searchParams;
+  const playbooks = await getBrandPlaybooks(shown.map((b) => b.id));
 
   // A sign-in that reached several accounts: names and handles only — the tokens stay on the server.
   const held = pick ? await heldCandidates(pick, user.id) : null;
@@ -96,6 +100,10 @@ export default async function ChannelsPage({ searchParams }: {
                   hasPublicPage: hasPublicPage(c.platform),
                   pageCheckedAt: c.pageCheckedAt?.toISOString() ?? null,
                   signIn: signIn(c.platform, c.id),
+                  schedule: (() => {
+                    const sch = scheduleFor(c, playbooks.get(b.id) ?? [], null);
+                    return { label: describeSchedule(sch), source: sch.source, timezone: b.timezone };
+                  })(),
                 }))}
             />
           ))}

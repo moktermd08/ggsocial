@@ -15,6 +15,7 @@ import { findPlaceholders } from "@/lib/templates";
 import { checkTargets } from "@/lib/playbook/check";
 import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 import { syncSubjectReview } from "@/server/workflows";
+import { snapPostTargets } from "@/server/schedule";
 
 export type TargetInput = {
   channelId: string;
@@ -174,6 +175,10 @@ export async function savePostAction(input: PostInput) {
       await db.insert(attachments).values({ postId, mediaId, position: i });
     }
 
+    // Each channel posts only at its own times: book every dated channel onto its next slot.
+    // "Post now" is the deliberate way around it.
+    if (input.intent === "schedule") await snapPostTargets(postId);
+
     // A brand copy: whatever now matches the master is back in step with it,
     // and master changes to fields this save left alone come through.
     await syncCopy(postId);
@@ -236,6 +241,7 @@ export async function reschedulePostAction(postId: string, iso: string) {
   await db.update(posts).set({ scheduledAt: when, updatedAt: new Date() }).where(eq(posts.id, postId));
   await db.update(postTargets).set({ scheduledAt: when })
     .where(and(eq(postTargets.postId, postId), inArray(postTargets.status, ["pending", "scheduled", "failed"])));
+  await snapPostTargets(postId);
   revalidatePath("/", "layout");
 }
 
@@ -288,6 +294,7 @@ export async function reviewPostAction(
       if (post.scheduledAt) {
         await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
           .where(and(eq(postTargets.postId, postId), eq(postTargets.status, "pending")));
+        await snapPostTargets(postId);
       }
     } else {
       await db.update(posts).set({ status: "changes_requested", updatedAt: new Date() }).where(eq(posts.id, postId));

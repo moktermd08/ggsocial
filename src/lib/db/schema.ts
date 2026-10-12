@@ -638,6 +638,34 @@ export const posts = pgTable("posts", {
   index("posts_master_idx").on(t.masterPostId),
 ]);
 
+import type { VERSION_STATUSES } from "../formats";
+
+/**
+ * One piece of content in one format — the text post, the carousel, the reel
+ * script, the thread — made ready ahead of time so that whichever format a
+ * channel suits is already written. A channel's target points at the version
+ * it will publish (see `src/lib/formats.ts`).
+ */
+export const postVersions = pgTable("post_versions", {
+  id: id(),
+  postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+  /** A playbook format code: post, carousel, thread, reel, short, story, video, article, newsletter. */
+  format: text("format").notNull(),
+  title: text("title").notNull().default(""),
+  /** The caption, or the body for long formats. */
+  body: text("body").notNull().default(""),
+  /** Slides, thread posts, shots or sections, in order. */
+  outline: jsonb("outline").$type<string[]>().notNull().default([]),
+  /** The spoken script, for video formats. */
+  script: text("script").notNull().default(""),
+  mediaIds: jsonb("media_ids").$type<string[]>().notNull().default([]),
+  status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("drafted"),
+  /** The brand agent that wrote it, when an agent did rather than a person. */
+  agentCode: text("agent_code"),
+  createdAt: now(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("post_versions_post_format_idx").on(t.postId, t.format)]);
+
 export const TARGET_STATUSES = [
   "pending",
   "scheduled",
@@ -654,6 +682,8 @@ export const postTargets = pgTable("post_targets", {
   id: id(),
   postId: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
   channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  /** The format version this channel publishes. null = the post as written. */
+  versionId: text("version_id").references((): AnyPgColumn => postVersions.id, { onDelete: "set null" }),
   /** null = use the post's base body. */
   bodyOverride: text("body_override"),
   firstComment: text("first_comment"),
@@ -1417,8 +1447,13 @@ export const postsRelations = relations(posts, ({ one, many }) => ({
   master: one(masterPosts, { fields: [posts.masterPostId], references: [masterPosts.id] }),
   author: one(users, { fields: [posts.createdBy], references: [users.id] }),
   targets: many(postTargets),
+  versions: many(postVersions),
   attachments: many(attachments),
   comments: many(comments),
+}));
+
+export const postVersionsRelations = relations(postVersions, ({ one }) => ({
+  post: one(posts, { fields: [postVersions.postId], references: [posts.id] }),
 }));
 
 export const masterPostsRelations = relations(masterPosts, ({ one, many }) => ({

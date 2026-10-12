@@ -28,15 +28,19 @@ type Status = typeof postTargets.$inferSelect["status"];
 const past = () => new Date(Date.now() - 60_000);
 let seq = 0;
 
-async function seed(opts: { status?: Status; mode?: "live" | "manual"; attempts?: number; claimedAt?: Date | null; scheduledAt?: Date } = {}) {
+async function seed(opts: { status?: Status; mode?: "live" | "manual"; attempts?: number; claimedAt?: Date | null; scheduledAt?: Date; offSchedule?: boolean } = {}) {
   const n = ++seq;
   const [user] = await db.insert(users).values({ email: `u${n}@t.test`, name: "U", passwordHash: "x" }).returning();
   const [brand] = await db.insert(brands).values({ name: `B${n}`, slug: `b${n}` }).returning();
-  const [channel] = await db.insert(channels).values({ brandId: brand.id, platform: "fake", handle: "h", mode: opts.mode ?? "live" }).returning();
+  // The channel posts at the minute the target is due, every day: the schedule
+  // is not what these tests are about (see "posting times" below).
+  const at = opts.scheduledAt ?? past();
+  const settings = opts.offSchedule ? { postTimes: "03:07", postDays: "sun-sat" } : { postTimes: at.toISOString().slice(11, 16), postDays: "sun-sat" };
+  const [channel] = await db.insert(channels).values({ brandId: brand.id, platform: "fake", handle: "h", mode: opts.mode ?? "live", settings }).returning();
   const [post] = await db.insert(posts).values({ brandId: brand.id, body: "hello" }).returning();
   const [target] = await db.insert(postTargets).values({
     postId: post.id, channelId: channel.id, status: opts.status ?? "scheduled",
-    scheduledAt: opts.scheduledAt ?? past(), attempts: opts.attempts ?? 0, claimedAt: opts.claimedAt ?? null,
+    scheduledAt: at, attempts: opts.attempts ?? 0, claimedAt: opts.claimedAt ?? null,
   }).returning();
   return { user, brand, channel, post, target };
 }
@@ -237,5 +241,26 @@ describe("failInterruptedPublishes", () => {
     await runDuePublishes();
     expect(platform.publish).not.toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ id: target.id }) }));
     expect((await row(target.id)).status).toBe("failed");
+  });
+});
+
+describe("posting times", () => {
+  it("holds a due target that is off its channel's schedule until the next slot", async () => {
+    const { target } = await seed({ offSchedule: true });
+    const before = (await row(target.id)).scheduledAt!;
+    const results = await runDuePublishes();
+    expect(results.find((r) => r.targetId === target.id)).toBeUndefined();
+    expect(platform.publish).not.toHaveBeenCalled();
+    const after = await row(target.id);
+    expect(after.status).toBe("scheduled");
+    expect(after.scheduledAt!.getTime()).toBeGreaterThan(before.getTime());
+    expect(after.scheduledAt!.toISOString().slice(11, 16)).toBe("03:07");
+  });
+
+  it("still sends a target that is on its schedule", async () => {
+    const { target } = await seed();
+    platform.publish.mockResolvedValue({ externalId: "e" });
+    await runDuePublishes();
+    expect((await row(target.id)).status).toBe("published");
   });
 });

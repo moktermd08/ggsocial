@@ -20,6 +20,9 @@ import { CampaignBriefCard } from "@/components/campaign-panels";
 import { FromMasterPanel, MasterComments } from "@/components/master-panels";
 import { MASTER_FIELDS, MASTER_FIELD_LABELS, type MasterField } from "@/lib/masters";
 import { appOrigin } from "@/lib/links";
+import { VersionsPanel } from "@/components/versions-panel";
+import { versionPanelData } from "@/server/versions";
+import { draftingConfigured } from "@/server/drafting";
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -32,9 +35,22 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   if (!membership) notFound();
 
   const data = await getComposerData(brands.filter((b) => b.id === post.brandId), user.id);
-  const [postLinks, destinationOptions] = await Promise.all([
-    getPostLinks(post.id), destinationOptionsByBrand(user.id, [post.brandId]),
+  const [postLinks, destinationOptions, formats] = await Promise.all([
+    getPostLinks(post.id), destinationOptionsByBrand(user.id, [post.brandId]), versionPanelData(post.id, post.brandId),
   ]);
+  const formatsPanel = (
+    <VersionsPanel
+      postId={post.id}
+      brandName={post.brand.name}
+      brandColor={post.brand.color}
+      versions={formats.versions}
+      channels={formats.channels}
+      targets={post.targets.map((t) => ({ id: t.id, channelId: t.channelId, versionId: t.versionId, published: t.status === "published" }))}
+      postMedia={post.media.map((m) => ({ url: m.url, kind: m.kind }))}
+      canEdit={can.edit(membership.role) && post.status !== "published"}
+      aiReady={draftingConfigured()}
+    />
+  );
   const meta = STATUS_META[post.status];
   const editable = can.edit(membership.role) && post.status !== "published";
   const [copy, campaign, playbook] = await Promise.all([
@@ -177,6 +193,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
       />
 
       {editable ? (
+        <>
         <Composer
           // Remount when the saved post changes underneath (a master change
           // taken from the side panel), so the editor shows it.
@@ -210,6 +227,8 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
             })),
           }}
         />
+        {formatsPanel}
+        </>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">
@@ -239,6 +258,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           <div className="space-y-5">{sidebar}</div>
         </div>
       )}
+      {!editable && formatsPanel}
     </>
   );
 }

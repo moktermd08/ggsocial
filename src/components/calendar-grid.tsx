@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { PlatformIcon } from "./platform-icon";
 import { STATUS_META } from "@/lib/format";
+import { tintedInk } from "@/lib/color";
 import { reschedulePostAction } from "@/server/actions/posts";
 import type { PostStatus } from "@/lib/db";
 
@@ -16,6 +17,10 @@ export type CalendarItem = {
   day: string;
   time: string;
   platforms: string[];
+  /** The formats going out at this time, as labels: "Carousel", "Reel". */
+  formats: string[];
+  /** What it needs from a person, or null. */
+  action: string | null;
   canEdit: boolean;
 };
 
@@ -87,15 +92,20 @@ export function CalendarGrid({
                       dragging === item.id ? "opacity-40" : ""
                     }`}
                     style={{ borderLeftColor: item.brandColor }}
-                    title={`${item.brandName} · ${STATUS_META[item.status].label} · ${item.time} ${timezone}`}
+                    title={`${item.brandName} · ${STATUS_META[item.status].label}${item.formats.length ? " · " + item.formats.join(", ") : ""} · ${item.time} ${timezone}`}
                   >
                     <div className="flex items-center gap-1">
+                      <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_META[item.status].color }} />
                       <span className="tabular-nums text-muted">{item.time}</span>
                       <div className="flex gap-0.5">
                         {item.platforms.slice(0, 3).map((p, i) => <PlatformIcon key={i} platform={p} size={13} />)}
                       </div>
                     </div>
                     <p className="mt-0.5 line-clamp-2">{item.title}</p>
+                    {item.formats.length > 0 && <p className="mt-0.5 truncate text-[10px] text-muted">{item.formats.join(" · ")}</p>}
+                    <p className="mt-0.5 truncate text-[10px] font-medium" style={{ color: tintedInk(STATUS_META[item.status].color) }}>
+                      {item.action ?? STATUS_META[item.status].label}
+                    </p>
                   </Link>
                 ))}
               </div>

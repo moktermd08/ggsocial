@@ -1,11 +1,13 @@
 import "server-only";
 import { and, eq, inArray, lt, lte, ne, notInArray, asc, sql } from "drizzle-orm";
-import { db, posts, postTargets, channels, brands, media, attachments, activity, metrics } from "@/lib/db";
+import { db, posts, postTargets, postVersions, channels, brands, media, attachments, activity, metrics } from "@/lib/db";
 import { getPlatform, NotConnectedError, type MediaItem, type PublishContext } from "@/lib/platforms";
 import { freshCredentials, isRevokedToken, markReconnect } from "@/server/channel-auth";
 import { publicUrl } from "./media";
 import { openPostEngagement } from "@/server/actions/engagement";
 import { sendAlert } from "@/server/alerts";
+import { slotFor } from "@/server/schedule";
+import { publishBody } from "@/server/versions";
 
 const MAX_ATTEMPTS = 3;
 /** A target claimed this long ago with no outcome was interrupted (crash, restart, timeout). */
@@ -29,11 +31,19 @@ async function loadTargetContext(targetId: string) {
     .where(eq(attachments.postId, post.id))
     .orderBy(asc(attachments.position));
   const forTarget = rows.filter((r) => r.attachment.targetId === target.id);
-  const items: MediaItem[] = (forTarget.length ? forTarget : rows.filter((r) => r.attachment.targetId === null)).map((r) => r.item);
+  const version = target.versionId
+    ? (await db.query.postVersions.findFirst({ where: eq(postVersions.id, target.versionId) })) ?? null
+    : null;
+  let items: MediaItem[] = (forTarget.length ? forTarget : rows.filter((r) => r.attachment.targetId === null)).map((r) => r.item);
+  // A version made for a format (a reel's clip, a carousel's slides) brings its own media.
+  if (version && version.mediaIds.length && forTarget.length === 0) {
+    const own = await db.select().from(media).where(inArray(media.id, version.mediaIds));
+    items = version.mediaIds.map((id) => own.find((m) => m.id === id)).filter((m): m is MediaItem => Boolean(m));
+  }
 
   const ctx: PublishContext = {
     brand, channel, post, target,
-    body: target.bodyOverride ?? post.body,
+    body: publishBody(target, version, post),
     firstComment: target.firstComment,
     media: items,
     options: (target.options ?? {}) as Record<string, unknown>,
@@ -189,8 +199,16 @@ export async function runDuePublishes(limit = 25) {
     .limit(limit);
 
   const results: PublishOutcome[] = [];
+  const now = new Date();
   for (const t of due) {
     try {
+      // A channel posts only at its own times: a target that is due but off
+      // its schedule is moved to the next slot and waits for it.
+      const slot = await slotFor(t, now);
+      if (slot && slot.getTime() > now.getTime()) {
+        await db.update(postTargets).set({ scheduledAt: slot }).where(eq(postTargets.id, t.id));
+        continue;
+      }
       results.push(await publishTarget(t.id));
     } catch (err) {
       results.push({ ok: false, targetId: t.id, error: err instanceof Error ? err.message : String(err), willRetry: false });

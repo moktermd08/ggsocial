@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   db, posts, postTargets, channels, brands, media, attachments, comments, users, memberships, metrics,
-  contentIdeas, interactions, links, linkClicks, OPEN_INTERACTION_STATUSES,
+  contentIdeas, interactions, links, linkClicks, postVersions, OPEN_INTERACTION_STATUSES,
 } from "@/lib/db";
 import { ideaAccess, ideaVersionViews, planOwnersFor } from "./ideas";
 import type { IdeaVersionView } from "@/lib/ideas";
@@ -260,6 +260,8 @@ export type IdeaLane = {
   replyMinutes: number | null;
   /** This brand's adapted version of the idea. null = it tells the idea as written. */
   version: IdeaVersionView | null;
+  /** The formats made for the post, and how far each has got. */
+  formats: { format: string; status: string }[];
 };
 
 export type IdeaBoardRow = IdeaRow & {
@@ -310,7 +312,7 @@ export async function getIdeaBoard(userId: string, brandIds: string[], myBrandId
     : [];
   const postIds = postRows.map((p) => p.id);
 
-  const [targetRows, attachmentCounts, snapshots, clicksByIdea] = await Promise.all([
+  const [targetRows, attachmentCounts, snapshots, clicksByIdea, formatRows] = await Promise.all([
     postIds.length
       ? db.select({ target: postTargets, channel: channels })
           .from(postTargets).innerJoin(channels, eq(channels.id, postTargets.channelId))
@@ -327,6 +329,10 @@ export async function getIdeaBoard(userId: string, brandIds: string[], myBrandId
           .orderBy(desc(metrics.fetchedAt))
       : [],
     getClicksByIdea(brandIds),
+    postIds.length
+      ? db.select({ postId: postVersions.postId, format: postVersions.format, status: postVersions.status })
+          .from(postVersions).where(inArray(postVersions.postId, postIds))
+      : [],
   ]);
   const versions = await ideaVersionViews(ideaRows, brandRows.map((b) => b.id));
 
@@ -342,7 +348,7 @@ export async function getIdeaBoard(userId: string, brandIds: string[], myBrandId
       const post = postByIdeaBrand.get(`${idea.id}:${brand.id}`) ?? null;
       const version = versions.get(`${idea.id}:${brand.id}`) ?? null;
       if (!post) {
-        return { brand, post: null, version, channels: [], mediaCount: 0, hasAuthorComment: false, impressions: 0, commentCount: 0, replyMinutes: null };
+        return { brand, post: null, version, formats: [], channels: [], mediaCount: 0, hasAuthorComment: false, impressions: 0, commentCount: 0, replyMinutes: null };
       }
       const mine = targetRows.filter((t) => t.target.postId === post.id);
       const snaps = mine.map((t) => latestByTarget.get(t.target.id)).filter(Boolean) as (typeof metrics.$inferSelect)[];
@@ -350,6 +356,7 @@ export async function getIdeaBoard(userId: string, brandIds: string[], myBrandId
         brand,
         post,
         version,
+        formats: formatRows.filter((f) => f.postId === post.id).map((f) => ({ format: f.format, status: f.status })),
         channels: mine.map((t) => t.channel),
         mediaCount: mediaCountByPost.get(post.id) ?? 0,
         hasAuthorComment: mine.some((t) => Boolean(t.target.firstComment?.trim())),

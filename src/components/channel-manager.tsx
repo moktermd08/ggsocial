@@ -1,13 +1,13 @@
 "use client";
 import { useState, useTransition } from "react";
-import { ExternalLink, Globe, Plug, Plus, Power, Zap, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Clock, ExternalLink, Globe, Plug, Plus, Power, Zap, RefreshCw, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Card, CardHeader, Field, buttonClass, Badge } from "./ui";
 import { PlatformIcon } from "./platform-icon";
 import { PlatformPicker } from "./platform-picker";
 import type { PlatformMeta } from "@/lib/platforms/meta";
 import {
   addChannelAction, addAllChannelsAction, connectChannelAction, disconnectChannelAction, setChannelModeAction, archiveChannelAction,
-  setChannelSettingsAction, setChannelPageUrlAction, checkChannelPageAction,
+  setChannelSettingsAction, setChannelScheduleAction, setChannelPageUrlAction, checkChannelPageAction,
 } from "@/server/actions/channels";
 import { relativeTime } from "@/lib/format";
 import { hasPublicPage } from "@/lib/platforms/meta";
@@ -22,6 +22,8 @@ export type ChannelRow = {
   pageUrl: string | null; pageStatus: "live" | "down" | "unknown" | null; pageNote: string | null; pageCheckedAt: string | null;
   /** False for senders and inboxes, which have no page of their own to visit. */
   hasPublicPage: boolean;
+  /** When this channel posts, and whose rule that comes from. */
+  schedule: { label: string; source: "channel" | "format" | "post" | "default"; timezone: string };
   /** "Connect with Facebook / Google", where the platform signs in that way. */
   signIn: { href: string; label: string; configured: boolean; hint: string } | null;
 };
@@ -36,6 +38,7 @@ export function ChannelManager({
   const [connecting, setConnecting] = useState<string | null>(null);
   const [tuning, setTuning] = useState<string | null>(null);
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
+  const [editingTimes, setEditingTimes] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -128,6 +131,15 @@ export function ChannelManager({
                 onEdit={() => setEditingUrl(editingUrl === c.id ? null : c.id)}
                 onSave={(fd) => run(async () => { const res = await setChannelPageUrlAction(c.id, fd); if (res.ok) setEditingUrl(null); return res; })}
                 onCheck={() => run(() => checkChannelPageAction(c.id))}
+              />
+
+              <ScheduleLine
+                channel={c}
+                canManage={canManage}
+                pending={pending}
+                editing={editingTimes === c.id}
+                onEdit={() => setEditingTimes(editingTimes === c.id ? null : c.id)}
+                onSave={(fd) => run(async () => { const res = await setChannelScheduleAction(c.id, fd); if (res.ok) setEditingTimes(null); return res; })}
               />
 
               {meta?.manualOnly && (
@@ -370,5 +382,51 @@ function PageLine({
         </span>
       )}
     </div>
+  );
+}
+
+const SCHEDULE_SOURCE = {
+  channel: "this channel's own times",
+  format: "the playbook's windows for the format",
+  post: "the brand's feed-post windows",
+  default: "the house default",
+} as const;
+
+/** When the channel posts. A post is only ever sent at one of these times. */
+function ScheduleLine({
+  channel: c, canManage, pending, editing, onEdit, onSave,
+}: {
+  channel: ChannelRow; canManage: boolean; pending: boolean; editing: boolean;
+  onEdit: () => void; onSave: (fd: FormData) => void;
+}) {
+  if (editing) {
+    return (
+      <form action={onSave} className="mt-2 space-y-2 rounded-lg border border-border bg-surface-2 p-3">
+        <p className="text-xs text-muted">
+          Posts go out only at these times, in {c.schedule.timezone}. Leave both blank to follow the playbook&apos;s posting
+          windows for each format, then the house default.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label="Times" hint='24-hour, comma separated: "09:00, 13:30, 18:00"'>
+            <input name="postTimes" defaultValue={String(c.settings.postTimes ?? "")} placeholder="09:00, 13:00, 17:00" />
+          </Field>
+          <Field label="Days" hint='"mon-fri", "sat, sun", or blank for every day'>
+            <input name="postDays" defaultValue={String(c.settings.postDays ?? "")} placeholder="mon-fri" />
+          </Field>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className={buttonClass("primary", "sm")} disabled={pending}>Save times</button>
+          <button type="button" onClick={onEdit} className={buttonClass("ghost", "sm")}>Cancel</button>
+        </div>
+      </form>
+    );
+  }
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+      <Clock className="size-3 shrink-0" />
+      <span>Posts {c.schedule.label} <span className="opacity-70">({c.schedule.timezone})</span></span>
+      <span className="opacity-70">· from {SCHEDULE_SOURCE[c.schedule.source]}</span>
+      {canManage && <button onClick={onEdit} className="font-medium text-accent hover:underline">Set times</button>}
+    </p>
   );
 }

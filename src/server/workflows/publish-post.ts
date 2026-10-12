@@ -10,6 +10,8 @@ import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playboo
 import { ideaForBrand } from "@/server/ideas";
 import { draftPost, type Draft, type DraftChannel } from "@/server/drafting";
 import { publishTarget } from "@/server/publish";
+import { snapPostTargets } from "@/server/schedule";
+import { generateVersions } from "@/server/versions";
 import { searchBrandLibrary } from "@/server/media-catalog";
 import { rankForText } from "@/lib/media-catalog";
 import type { StepContext, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
@@ -200,6 +202,20 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     usage = result.usage;
   }
 
+  // The same post in every other format its channels carry — carousel, thread,
+  // reel script — so each channel has the right one ready when it is approved.
+  // Turn off with the writer's "makeFormats" setting. A failure here never
+  // fails the step: the post itself is already written.
+  let formatNote = "";
+  if (config?.settings?.makeFormats !== false) {
+    try {
+      const made = await generateVersions(postId, { source: "workflow:publish-post", agentCode: "writer" });
+      if (made.made.length) formatNote = ` Also wrote ${made.made.length} format${made.made.length === 1 ? "" : "s"} (${made.made.join(", ")}).`;
+    } catch (err) {
+      formatNote = ` Could not write the other formats: ${err instanceof Error ? err.message : "unknown error"}`;
+    }
+  }
+
   // Where the post needs an image, the best filed one goes on now, so whoever
   // approves the post sees it whole. The media step only fills a gap left here.
   const context: Record<string, unknown> = {};
@@ -217,7 +233,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
   const when = existing?.scheduledAt ?? (run.context.slot ? new Date(String(run.context.slot)) : null);
   return {
     outcome: "done",
-    summary: `${existing ? "Revised" : "Wrote"} "${title}"${when ? ` for ${toLocalInput(when, brand.timezone).replace("T", " ")}` : ""}.`,
+    summary: `${existing ? "Revised" : "Wrote"} "${title}"${when ? ` for ${toLocalInput(when, brand.timezone).replace("T", " ")}` : ""}.${formatNote}`,
     subject: { type: "post", id: postId },
     context,
     output: { postId, title },
@@ -337,11 +353,13 @@ async function schedule(ctx: StepContext): Promise<StepResult> {
   await db.update(posts).set({ status: "scheduled", approvedAt: now, updatedAt: now }).where(eq(posts.id, post.id));
   await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
     .where(and(eq(postTargets.postId, post.id), eq(postTargets.status, "pending")));
+  await snapPostTargets(post.id, now);
   await db.insert(activity).values({
     brandId: brand.id, actorId: null, action: "post.scheduled_by_workflow", entity: "post", entityId: post.id,
     meta: { workflowRun: run.id, note: "Passed every playbook must and the safety screen. The checklist points for people were covered by the workflow's review settings." },
   });
-  return { outcome: "done", summary: `Scheduled for ${toLocalInput(post.scheduledAt!, brand.timezone).replace("T", " ")}.` };
+  const booked = (await db.query.posts.findFirst({ where: eq(posts.id, post.id) }))?.scheduledAt ?? post.scheduledAt!;
+  return { outcome: "done", summary: `Scheduled for ${toLocalInput(booked, brand.timezone).replace("T", " ")}.` };
 }
 
 async function publish(ctx: StepContext): Promise<StepResult> {

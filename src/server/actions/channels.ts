@@ -9,6 +9,8 @@ import { getPlatform, PLATFORM_LIST } from "@/lib/platforms";
 import { encryptJson } from "@/lib/crypto";
 import { checkChannelPages, normalisePageUrl, recordPageChecks } from "@/server/page-checks";
 import { hasPublicPage } from "@/lib/platforms";
+import { assertTimes } from "@/lib/posting-schedule";
+import { parseDays } from "@/lib/playbook/check";
 
 export async function addChannelAction(brandId: string, formData: FormData) {
   return asResult(async () => {
@@ -196,6 +198,35 @@ export async function setChannelSettingsAction(channelId: string, formData: Form
         : field.type === "boolean" ? value === "on" || value === "true"
         : value;
     }
+
+    // The posting schedule has its own form and survives a save of the defaults.
+    const prior = (channel.settings ?? {}) as Record<string, unknown>;
+    if (prior.postTimes) settings.postTimes = prior.postTimes;
+    if (prior.postDays) settings.postDays = prior.postDays;
+
+    await db.update(channels).set({ settings }).where(eq(channels.id, channelId));
+    revalidatePath("/", "layout");
+  });
+}
+
+/**
+ * Saves the times (and days) this channel posts at. Blank means the channel
+ * follows the playbook's windows for each format, then the house default.
+ */
+export async function setChannelScheduleAction(channelId: string, formData: FormData) {
+  return asResult(async () => {
+    const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
+    if (!channel) throw new Error("Channel not found");
+    await requireBrandRole(channel.brandId, "admin");
+
+    const times = String(formData.get("postTimes") ?? "").trim();
+    const days = String(formData.get("postDays") ?? "").trim();
+    if (times) assertTimes(times);
+    if (days && !parseDays(days)) throw new Error(`Posting days look like "mon-fri" or "sat, sun" — could not read "${days}".`);
+
+    const settings = { ...((channel.settings ?? {}) as Record<string, unknown>) };
+    if (times) settings.postTimes = assertTimes(times).join(", "); else delete settings.postTimes;
+    if (days) settings.postDays = days.toLowerCase(); else delete settings.postDays;
 
     await db.update(channels).set({ settings }).where(eq(channels.id, channelId));
     revalidatePath("/", "layout");

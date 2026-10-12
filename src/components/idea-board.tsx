@@ -16,6 +16,7 @@ import { IDEA_FIELD_LABELS, ideaValues, readableIdeaValue, type IdeaField, type 
 import { LabelRow, MasterTag } from "./master-panels";
 import { draftPostAction, draftingStatusAction } from "@/server/actions/drafting";
 import type { IdeaBoardRow } from "@/server/queries";
+import { FORMAT_META, type ContentFormat } from "@/lib/formats";
 
 const IDEA_STATUS_META: Record<IdeaStatus, { label: string; color: string }> = {
   backlog: { label: "Backlog", color: "#8b8b96" },
@@ -687,6 +688,14 @@ function LaneCell({ lane }: { lane: IdeaBoardRow["lanes"][number] }) {
       {lane.channels.length > 0 && (
         <span className="flex flex-wrap gap-0.5">
           {lane.channels.slice(0, 4).map((c) => <PlatformIcon key={c.id} platform={c.platform} size={13} />)}
+        </span>
+      )}
+      {lane.formats.length > 0 && (
+        <span
+          className="block text-[10px] text-muted"
+          title={lane.formats.map((f) => `${FORMAT_META[f.format as ContentFormat]?.label ?? f.format}: ${f.status}`).join("\n")}
+        >
+          {lane.formats.filter((f) => f.status === "ready").length}/{lane.formats.length} formats ready
         </span>
       )}
       {lane.impressions > 0 && (
