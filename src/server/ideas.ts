@@ -1,6 +1,6 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
-import { db, contentIdeas, ideaVersions, memberships } from "@/lib/db";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { db, brands, contentIdeas, ideaVersions, memberships, posts } from "@/lib/db";
 import { masterOwnersFor } from "@/server/media-library";
 import { inheritState, planSync } from "@/lib/masters";
 import { IDEA_FIELDS, ideaColumns, ideaValues, type IdeaField, type IdeaVersionView } from "@/lib/ideas";
@@ -92,4 +92,37 @@ export async function ideaAccess(userId: string, ownerId: string) {
 /** Whose plans a person sees: their own, and those of anyone who admins a brand they are on. */
 export async function planOwnersFor(userId: string, brandIds: string[]) {
   return masterOwnersFor(userId, brandIds);
+}
+
+/**
+ * Ideas in the plan that some of these brands have not told yet and have not
+ * skipped: the work still to be put on the calendar, planned ones first, in
+ * plan order.
+ */
+export async function unbookedIdeas(userId: string, myBrandIds: string[], scopeBrandIds: string[], limit = 12) {
+  if (scopeBrandIds.length === 0) return [];
+  const owners = await planOwnersFor(userId, myBrandIds);
+  if (owners.length === 0) return [];
+  const ideas = await db.select().from(contentIdeas).where(and(
+    inArray(contentIdeas.ownerId, owners), isNull(contentIdeas.archivedAt),
+    inArray(contentIdeas.status, ["backlog", "planned", "drafting"]),
+  )).orderBy(asc(contentIdeas.sequence));
+  if (ideas.length === 0) return [];
+
+  const ids = ideas.map((i) => i.id);
+  const [told, skipped, brandRows] = await Promise.all([
+    db.select({ ideaId: posts.ideaId, brandId: posts.brandId }).from(posts)
+      .where(and(inArray(posts.ideaId, ids), inArray(posts.brandId, scopeBrandIds), ne(posts.status, "failed"))),
+    db.select({ ideaId: ideaVersions.ideaId, brandId: ideaVersions.brandId }).from(ideaVersions)
+      .where(and(inArray(ideaVersions.ideaId, ids), inArray(ideaVersions.brandId, scopeBrandIds), eq(ideaVersions.skipped, true))),
+    db.select({ id: brands.id, name: brands.name, color: brands.color }).from(brands)
+      .where(and(inArray(brands.id, scopeBrandIds), isNull(brands.archivedAt))),
+  ]);
+  const done = new Set([...told, ...skipped].map((r) => `${r.ideaId}:${r.brandId}`));
+
+  return ideas
+    .map((idea) => ({ idea, missing: brandRows.filter((b) => !done.has(`${idea.id}:${b.id}`)) }))
+    .filter((r) => r.missing.length > 0)
+    .sort((a, b) => Number(b.idea.status === "planned") - Number(a.idea.status === "planned") || a.idea.sequence - b.idea.sequence)
+    .slice(0, limit);
 }

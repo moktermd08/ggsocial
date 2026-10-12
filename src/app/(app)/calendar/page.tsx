@@ -4,6 +4,7 @@ import { and, asc, inArray, isNull } from "drizzle-orm";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getCalendarPosts } from "@/server/queries";
+import { unbookedIdeas } from "@/server/ideas";
 import { db, posts, postVersions } from "@/lib/db";
 import { CalendarGrid, type CalendarItem } from "@/components/calendar-grid";
 import { CalendarAgenda } from "@/components/calendar-agenda";
@@ -51,7 +52,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const days = monthGrid(year, month);
   const from = new Date(`${days[0].date}T00:00:00Z`);
   const to = new Date(`${days[41].date}T23:59:59Z`);
-  const [dated, undated] = await Promise.all([
+  const [dated, undated, ideas] = await Promise.all([
     getCalendarPosts(scope.brandIds, from, to),
     // Work with no date yet: it belongs on the calendar's to-do side, not nowhere.
     scope.brandIds.length
@@ -60,6 +61,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           inArray(posts.status, ["draft", "in_review", "changes_requested", "approved"]),
         )).orderBy(asc(posts.updatedAt)).limit(40)
       : [],
+    unbookedIdeas(user.id, brands.map((b) => b.id), scope.brandIds),
   ]);
 
   const timezone = scope.activeBrand?.timezone ?? "UTC";
@@ -179,6 +181,23 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
             <Link key={t.id} href={`/posts/${t.id}`} className="block rounded-lg border border-border bg-surface p-2.5 text-xs hover:bg-surface-2" style={{ borderLeft: `3px solid ${t.brandColor}` }}>
               <p className="line-clamp-2 font-medium">{t.title}</p>
               <p className="mt-0.5 text-muted">{t.brandName}{t.action ? ` · ${t.action}` : ""}</p>
+            </Link>
+          ))}
+          <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-muted">Ideas to schedule ({ideas.length}{ideas.length === 12 ? "+" : ""})</h2>
+          {ideas.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted">Every idea in the plan is on the calendar.</p>
+          ) : ideas.map(({ idea, missing }) => (
+            <Link key={idea.id} href="/ideas" className="block rounded-lg border border-dashed border-border bg-surface p-2.5 text-xs hover:bg-surface-2">
+              <p className="line-clamp-2 font-medium">{idea.title || idea.problem}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-muted">
+                <span>{idea.status === "planned" ? "Planned" : idea.status === "drafting" ? "Drafting" : "Backlog"}{idea.pillar ? ` · ${idea.pillar}` : ""}</span>
+              </p>
+              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+                {missing.slice(0, 3).map((b) => (
+                  <span key={b.id} className="inline-flex items-center gap-1"><span className="size-2 rounded-full" style={{ background: b.color }} />{b.name}</span>
+                ))}
+                {missing.length > 3 && <span>+{missing.length - 3} more</span>}
+              </p>
             </Link>
           ))}
         </aside>
