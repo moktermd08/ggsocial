@@ -30,11 +30,13 @@ export type CalendarItem = {
 };
 
 export function CalendarGrid({
-  days, items, timezone,
+  days, items, timezone, tall = false,
 }: {
   days: { date: string; inMonth: boolean; isToday: boolean; label: string }[];
   items: CalendarItem[];
   timezone: string;
+  /** The week view: one row of taller days. */
+  tall?: boolean;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function CalendarGrid({
                 if (ideaId) { e.preventDefault(); setOver(null); if (d.date >= new Date().toISOString().slice(0, 10)) pick.open(ideaId, d.date); return; }
                 drop(d.date);
               }}
-              className={`min-h-28 border-b border-r border-border p-1.5 last:border-r-0 ${
+              className={`${tall ? "min-h-80" : "min-h-28"} border-b border-r border-border p-1.5 last:border-r-0 ${
                 d.inMonth ? "" : "bg-surface-2/50"
               } ${over === d.date ? "bg-accent-soft" : ""}`}
             >

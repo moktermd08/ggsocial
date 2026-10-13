@@ -38,22 +38,33 @@ function localParts(at: Date, zone: string) {
   return { day: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour") === "24" ? "00" : get("hour")}:${get("minute")}` };
 }
 
-export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ m?: string; show?: string; view?: string }> }) {
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ m?: string; w?: string; show?: string; view?: string }> }) {
   const user = await requireUser();
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
-  const { m, show, view } = await searchParams;
+  const { m, w, show, view } = await searchParams;
   const filter: CalendarFilter = CALENDAR_FILTERS.some((f) => f.key === show) ? (show as CalendarFilter) : "all";
   const agenda = view === "agenda";
+  const week = view === "week";
 
   const now = new Date();
   const [y, mo] = m ? m.split("-").map(Number) : [now.getUTCFullYear(), now.getUTCMonth() + 1];
   const year = y ?? now.getUTCFullYear();
   const month = (mo ?? now.getUTCMonth() + 1) - 1;
 
-  const days = monthGrid(year, month);
+  // The week view shows the Monday-to-Sunday week holding `w` (today when absent).
+  const anchor = w && /^\d{4}-\d{2}-\d{2}$/.test(w) ? new Date(`${w}T00:00:00Z`) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekStart = new Date(anchor.getTime() - ((anchor.getUTCDay() + 6) % 7) * 86400_000);
+  const todayKey = now.toISOString().slice(0, 10);
+  const days = week
+    ? Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart.getTime() + i * 86400_000);
+        const key = d.toISOString().slice(0, 10);
+        return { date: key, inMonth: true, isToday: key === todayKey, label: String(d.getUTCDate()) };
+      })
+    : monthGrid(year, month);
   const from = new Date(`${days[0].date}T00:00:00Z`);
-  const to = new Date(`${days[41].date}T23:59:59Z`);
+  const to = new Date(`${days[days.length - 1].date}T23:59:59Z`);
   const [dated, undated, ideas] = await Promise.all([
     getCalendarPosts(scope.brandIds, from, to),
     // Work with no date yet: it belongs on the calendar's to-do side, not nowhere.
@@ -146,19 +157,27 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     canEdit: can.edit(roleByBrand.get(p.brandId) ?? "viewer"),
   }));
 
-  const label = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
-    .format(new Date(Date.UTC(year, month, 1)));
+  const fmtDay = (d: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(d);
+  const weekEnd = new Date(weekStart.getTime() + 6 * 86400_000);
+  const label = week
+    ? `${fmtDay(weekStart, { day: "numeric", ...(weekStart.getUTCMonth() === weekEnd.getUTCMonth() ? {} : { month: "short" }) })}–${fmtDay(weekEnd, { day: "numeric", month: "long", year: "numeric" })}`
+    : fmtDay(new Date(Date.UTC(year, month, 1)), { month: "long", year: "numeric" });
+  const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+  const prevWeek = dayKey(new Date(weekStart.getTime() - 7 * 86400_000));
+  const nextWeek = dayKey(new Date(weekStart.getTime() + 7 * 86400_000));
   const prev = new Date(Date.UTC(year, month - 1, 1));
   const next = new Date(Date.UTC(year, month + 1, 1));
   const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-  const href = (over: { m?: string; show?: string; view?: string }) => {
+  const href = (over: { m?: string; w?: string; show?: string; view?: string }) => {
     const q = new URLSearchParams();
-    const mm = over.m ?? m; const ss = over.show ?? filter; const vv = over.view ?? (agenda ? "agenda" : "");
+    const pick = (k: "m" | "w" | "show" | "view", cur: string | undefined) => (over[k] !== undefined ? over[k] : cur);
+    const mm = pick("m", m); const ww = pick("w", w); const ss = pick("show", filter); const vv = pick("view", agenda ? "agenda" : week ? "week" : "");
     if (mm) q.set("m", mm);
+    if (ww) q.set("w", ww);
     if (ss && ss !== "all") q.set("show", ss);
     if (vv) q.set("view", vv);
-    const s = q.toString();
-    return s ? `/calendar?${s}` : "/calendar";
+    const str = q.toString();
+    return str ? `/calendar?${str}` : "/calendar";
   };
 
   return (
@@ -170,12 +189,13 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         action={
           <div className="flex items-center gap-2">
             <div className="flex overflow-hidden rounded-lg border border-border text-xs">
-              <Link href={href({ view: "" })} className={`px-2.5 py-1 ${!agenda ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Month</Link>
+              <Link href={href({ view: "", w: "" })} className={`px-2.5 py-1 ${!agenda && !week ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Month</Link>
+              <Link href={href({ view: "week" })} className={`px-2.5 py-1 ${week ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Week</Link>
               <Link href={href({ view: "agenda" })} className={`px-2.5 py-1 ${agenda ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Agenda</Link>
             </div>
-            <Link href={href({ m: key(prev) })} className={buttonClass("subtle", "sm")}><ChevronLeft className="size-4" /></Link>
-            <Link href={href({ m: "" })} className={buttonClass("subtle", "sm")}>Today</Link>
-            <Link href={href({ m: key(next) })} className={buttonClass("subtle", "sm")}><ChevronRight className="size-4" /></Link>
+            <Link href={week ? href({ w: prevWeek }) : href({ m: key(prev) })} className={buttonClass("subtle", "sm")}><ChevronLeft className="size-4" /></Link>
+            <Link href={href({ m: "", w: "" })} className={buttonClass("subtle", "sm")}>Today</Link>
+            <Link href={week ? href({ w: nextWeek }) : href({ m: key(next) })} className={buttonClass("subtle", "sm")}><ChevronRight className="size-4" /></Link>
             <LinkButton href="/posts/new" variant="primary" size="sm">New post</LinkButton>
           </div>
         }
@@ -201,7 +221,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
         {agenda
           ? <CalendarAgenda items={visible} timezone={timezone} />
-          : <CalendarGrid days={days} items={visible} timezone={timezone} />}
+          : <CalendarGrid days={days} items={visible} timezone={timezone} tall={week} />}
         <aside className="space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Needs a date ({todo.length})</h2>
           {todo.length === 0 ? (
