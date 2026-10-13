@@ -3,7 +3,7 @@ import { PlatformIcon } from "./platform-icon";
 import { STATUS_META } from "@/lib/format";
 import { tintedInk } from "@/lib/color";
 import type { CalendarItem } from "./calendar-grid";
-import { PickEntry } from "./idea-pick";
+import { DayDrop, PickEntry } from "./idea-pick";
 
 /**
  * The calendar as a list: what is next, when it goes out, what it needs from
@@ -16,17 +16,25 @@ export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; tim
   const byDay = new Map<string, CalendarItem[]>();
   for (const i of upcoming) byDay.set(i.day, [...(byDay.get(i.day) ?? []), i]);
 
-  if (byDay.size === 0) {
-    return <p className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted">Nothing planned from today in this view.</p>;
+  // The next two weeks always show, so an idea can be dropped on a day with nothing in it yet.
+  for (let n = 0; n < 14; n++) {
+    const d = new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+    if (!byDay.has(d)) byDay.set(d, []);
   }
+  const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+
   return (
     <div className="space-y-4">
-      {[...byDay.entries()].map(([day, list]) => (
-        <section key={day}>
+      <p className="text-[11px] text-muted">Drag an idea (dashed purple) to another day to pin it there.</p>
+      {days.map(([day, list]) => (
+        <DayDrop key={day} day={day}>
           <h2 className="mb-1.5 text-xs font-semibold text-muted">
             {new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`))}
             {day === today ? " · today" : ""}
           </h2>
+          {list.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted">Nothing planned. Drop an idea here.</p>
+          ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {list.map((i, n) => {
               const meta = STATUS_META[i.status];
@@ -58,7 +66,8 @@ export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; tim
               );
             })}
           </ul>
-        </section>
+          )}
+        </DayDrop>
       ))}
     </div>
   );

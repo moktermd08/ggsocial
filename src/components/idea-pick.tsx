@@ -172,8 +172,44 @@ export function PickEntry({ ideaId, day, className, style, title, children }: {
 }) {
   const { open } = useIdeaPick();
   return (
-    <button type="button" onClick={() => open(ideaId, day)} className={`w-full text-left ${className ?? ""}`} style={style} title={title}>
+    <button
+      type="button" draggable onClick={() => open(ideaId, day)}
+      onDragStart={(e) => { e.dataTransfer.setData(IDEA_MOVE_TYPE, ideaId); e.dataTransfer.effectAllowed = "move"; }}
+      className={`w-full cursor-grab text-left ${className ?? ""}`} style={style} title={title}
+    >
       {children}
     </button>
+  );
+}
+
+/**
+ * A day in the agenda that a forecast idea can be dropped on: the idea is
+ * pinned to that day, the same as dragging it between days in the month grid.
+ */
+export function DayDrop({ day, children }: { day: string; children: ReactNode }) {
+  const router = useRouter();
+  const [over, setOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <section
+      onDragOver={(e) => { if (e.dataTransfer.types.includes(IDEA_MOVE_TYPE)) { e.preventDefault(); setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData(IDEA_MOVE_TYPE);
+        setOver(false);
+        if (!id) return;
+        e.preventDefault();
+        setError(null);
+        start(async () => {
+          const r = await pinIdeaToDayAction(id, day);
+          if (!r.ok) setError(r.error); else router.refresh();
+        });
+      }}
+      className={`rounded-xl transition-colors ${over ? "bg-accent-soft ring-2 ring-accent/40" : ""} ${pending ? "opacity-70" : ""}`}
+    >
+      {children}
+      {error && <p role="alert" className="mt-1 text-[11px] text-danger">{error}</p>}
+    </section>
   );
 }
