@@ -1,7 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
-import { and, eq, lt } from "drizzle-orm";
-import { db, activity, channelConnections, channels } from "@/lib/db";
+import { and, eq, inArray, lt } from "drizzle-orm";
+import { db, activity, channelConnections, channels, posts, postTargets } from "@/lib/db";
 import { decryptJson, encryptJson } from "@/lib/crypto";
 import { sendAlert } from "@/server/alerts";
 
@@ -211,6 +211,8 @@ export function pickObvious(candidates: ConnectCandidate[], channel: { handle: s
 export async function connectChannel(channelId: string, candidate: ConnectCandidate, userId: string) {
   const channel = await db.query.channels.findFirst({ where: eq(channels.id, channelId) });
   if (!channel) throw new Error("Channel not found.");
+  // A sign-in that lapsed dropped the channel to manual and parked its approved posts in the queue.
+  const wasLapsed = channel.status === "expired";
   await db.update(channels).set({
     credentials: encryptJson(candidate.credentials),
     externalId: candidate.externalId,
@@ -222,6 +224,27 @@ export async function connectChannel(channelId: string, candidate: ConnectCandid
     brandId: channel.brandId, actorId: userId, action: "channel.connected", entity: "channel", entityId: channelId,
     meta: { platform: channel.platform, account: candidate.name, via: candidate.credentials.provider },
   });
+  if (wasLapsed) await resumeStranded(channelId, userId);
+}
+
+/**
+ * Posts that were approved and waiting on a lapsed channel go out by
+ * themselves once it is reconnected, instead of waiting for someone to
+ * remember to post each one by hand.
+ */
+export async function resumeStranded(channelId: string, userId: string | null) {
+  const waiting = await db.select({ id: postTargets.id, brandId: posts.brandId }).from(postTargets)
+    .innerJoin(posts, eq(posts.id, postTargets.postId))
+    .where(and(eq(postTargets.channelId, channelId), eq(postTargets.status, "awaiting_manual"),
+      inArray(posts.status, ["scheduled", "approved", "partially_published"])));
+  if (waiting.length === 0) return 0;
+  await db.update(postTargets).set({ status: "scheduled", scheduledAt: new Date(), attempts: 0, lastError: null })
+    .where(inArray(postTargets.id, waiting.map((w) => w.id)));
+  await db.insert(activity).values({
+    brandId: waiting[0].brandId, actorId: userId, action: "channel.resumed_posts", entity: "channel", entityId: channelId,
+    meta: { posts: waiting.length },
+  });
+  return waiting.length;
 }
 
 /** Keeps a sign-in with several accounts until the person picks one. Returns its id. */

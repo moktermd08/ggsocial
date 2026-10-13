@@ -7,6 +7,7 @@ import { fromLocalInput, toLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
 import { getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
+import { pillarLifts } from "@/server/performance";
 import { writerChannels } from "@/server/workflows/publish-post";
 import { advance, runsForSubjects, startRun } from "@/server/workflows";
 import { addUsage } from "@/server/agents/claude";
@@ -150,8 +151,13 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
       .orderBy(asc(contentIdeas.sequence))
       .limit(40)
     : [];
-  // Planned before backlog, each in plan order.
-  candidates.sort((a, b) => (a.status === b.status ? a.sequence - b.sequence : a.status === "planned" ? -1 : 1));
+  // Planned before backlog. A person's plan keeps its order; the backlog has no order of its own, so it is
+  // worked through best-performing topic first, then in plan order.
+  const lifts = await pillarLifts(brand.id);
+  const lift = (c: (typeof candidates)[number]) => (c.pillar ? lifts.get(c.pillar) ?? 1 : 1);
+  candidates.sort((a, b) => a.status === b.status
+    ? (a.status === "backlog" && lift(a) !== lift(b) ? lift(b) - lift(a) : a.sequence - b.sequence)
+    : a.status === "planned" ? -1 : 1);
 
   // Ideas pinned to a day by dragging them on the calendar are booked for that
   // day, once it is within reach; the rest take the open slots in plan order.

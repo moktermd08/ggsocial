@@ -154,6 +154,7 @@ export async function draftPostAction(postId: string): Promise<DraftResponse> {
       const supportsFirstComment = platformOrNull(channel.platform)?.constraints.supportsFirstComment;
       await db.update(postTargets).set({
         bodyOverride: v.body,
+        useVersion: false,
         firstComment: supportsFirstComment ? v.firstComment : target.firstComment,
       }).where(eq(postTargets.id, target.id));
     }

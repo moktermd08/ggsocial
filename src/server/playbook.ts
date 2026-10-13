@@ -1,10 +1,12 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import {
-  db, attachments, brands, brandPlaybookRules, channels, media, memberships, metrics, playbookAdjustments, playbookRules, posts, postTargets,
+  db, attachments, brands, brandPlaybookRules, channels, media, memberships, metrics, playbookAdjustments, playbookRules, postVersions, posts, postTargets,
   type Role,
 } from "@/lib/db";
 import { PLAYBOOK_LIBRARY } from "@/lib/playbook/library";
+import { versionPublishText, type ContentFormat } from "@/lib/formats";
+import { engagementRate, matureReading } from "@/lib/performance";
 import {
   LIMIT_KEYS, isAdjustField, newItemId, CHECK_AUDIENCES, ENFORCE_LEVELS,
   type AdjustField, type AdjustSource, type AdjustStatus, type ChecklistItem, type LimitKey, type RuleExample, type RuleLimits,
@@ -346,7 +348,7 @@ export async function listAdjustments(opts: { brandIds: string[]; includeMaster?
 export async function checkSavedPost(postId: string) {
   const post = await db.query.posts.findFirst({ where: eq(posts.id, postId) });
   if (!post) return null;
-  const [brand, targetRows, mediaRows, rules] = await Promise.all([
+  const [brand, targetRows, mediaRows, rules, versionRows] = await Promise.all([
     db.query.brands.findFirst({ where: eq(brands.id, post.brandId) }),
     db.select({ target: postTargets, platform: channels.platform, handle: channels.handle }).from(postTargets)
       .innerJoin(channels, eq(channels.id, postTargets.channelId)).where(eq(postTargets.postId, postId)),
@@ -355,14 +357,21 @@ export async function checkSavedPost(postId: string) {
       .where(and(eq(attachments.postId, postId), isNull(attachments.targetId)))
       .orderBy(asc(attachments.position)),
     getBrandPlaybook(post.brandId),
+    db.select().from(postVersions).where(eq(postVersions.postId, postId)),
   ]);
   const results = checkTargets(rules, {
     title: post.title, body: post.body, postType: post.postType,
     scheduledAt: post.scheduledAt?.toISOString() ?? null, timezone: brand?.timezone ?? "UTC",
     media: mediaRows.map((m) => m.item),
     targets: targetRows.filter((t) => t.target.status !== "skipped").map((t) => ({
-      channelId: t.target.channelId, platform: t.platform, bodyOverride: t.target.bodyOverride,
+      channelId: t.target.channelId, platform: t.platform,
       firstComment: t.target.firstComment, options: t.target.options,
+      // An agent's post is held to the rule of the format each channel really goes out as; a person's, to its type.
+      format: post.agentCode && t.target.versionId ? (t.target.useVersion ? versionRows.find((v) => v.id === t.target.versionId)?.format ?? null : null) : undefined,
+      // What the channel will really send.
+      bodyOverride: t.target.useVersion && t.target.versionId && versionRows.some((v) => v.id === t.target.versionId)
+        ? versionPublishText(versionRows.find((v) => v.id === t.target.versionId)! as { format: ContentFormat; body: string; outline: string[] })
+        : t.target.bodyOverride,
     })),
   });
   return results.map((r) => ({ ...r, handle: targetRows.find((t) => t.target.channelId === r.channelId)?.handle ?? "" }));
@@ -394,39 +403,44 @@ export async function runPlaybookTuning(now = new Date()) {
   }).from(postTargets)
     .innerJoin(channels, eq(channels.id, postTargets.channelId))
     .innerJoin(posts, eq(posts.id, postTargets.postId))
-    .where(and(eq(postTargets.status, "published"), gte(postTargets.publishedAt, since)));
+    .where(and(eq(postTargets.status, "published"), isNull(postTargets.removedAt), gte(postTargets.publishedAt, since)));
   if (rows.length === 0) return { scanned: 0, proposed: [] };
 
   const targetIds = rows.map((r) => r.targetId);
   const postIds = [...new Set(rows.map((r) => r.postId))];
   const brandIds = [...new Set(rows.map((r) => r.brandId))];
-  const [latest, kinds, brandRows, playbooks] = await Promise.all([
-    db.selectDistinctOn([metrics.targetId]).from(metrics)
-      .where(inArray(metrics.targetId, targetIds))
-      .orderBy(metrics.targetId, desc(metrics.fetchedAt)),
+  const [readings, kinds, brandRows, playbooks] = await Promise.all([
+    db.select().from(metrics).where(inArray(metrics.targetId, targetIds)),
     db.select({ postId: attachments.postId, kind: media.kind }).from(attachments)
       .innerJoin(media, eq(media.id, attachments.mediaId))
       .where(and(inArray(attachments.postId, postIds), isNull(attachments.targetId))),
-    db.select({ id: brands.id, timezone: brands.timezone }).from(brands).where(inArray(brands.id, brandIds)),
+    db.select({ id: brands.id, timezone: brands.timezone, auto: brands.autoApplyTuning }).from(brands).where(inArray(brands.id, brandIds)),
     getBrandPlaybooks(brandIds),
   ]);
-  const metricBy = new Map(latest.map((m) => [m.targetId, m]));
+  // A post is scored on the reading taken once it had two days, not on whatever the latest happens to be.
+  const metricBy = new Map<string, typeof metrics.$inferSelect>();
+  for (const r of rows) {
+    if (!r.publishedAt) continue;
+    const m = matureReading(readings.filter((x) => x.targetId === r.targetId), r.publishedAt, now);
+    if (m) metricBy.set(r.targetId, m);
+  }
   const mediaBy = new Map<string, { kind: string }[]>();
   for (const k of kinds) (mediaBy.get(k.postId) ?? mediaBy.set(k.postId, []).get(k.postId)!).push({ kind: k.kind });
   const tzBy = new Map(brandRows.map((b) => [b.id, b.timezone]));
+  const autoBy = new Map(brandRows.map((b) => [b.id, b.auto]));
 
   // brand → rule code → scored posts
   const groups = new Map<string, Map<string, Scored[]>>();
   let scanned = 0;
   for (const r of rows) {
     const m = metricBy.get(r.targetId);
-    const seen = m ? m.reach || m.impressions : 0;
-    if (!m || !seen || !r.publishedAt) continue;
+    const er = m ? engagementRate(m) : null;
+    if (!m || er === null || !r.publishedAt) continue;
     const rule = resolveFormat(playbooks.get(r.brandId) ?? [], {
       platform: r.platform, options: r.options, postType: r.postType, media: mediaBy.get(r.postId) ?? [],
     });
     if (!rule?.limits.windows) continue;
-    const rate = ((m.likes + m.commentCount + m.shares + m.saves + m.clicks) / seen) * 100;
+    const rate = er * 100;
     const byRule = groups.get(r.brandId) ?? groups.set(r.brandId, new Map()).get(r.brandId)!;
     (byRule.get(rule.code) ?? byRule.set(rule.code, []).get(rule.code)!).push({
       minute: localClock(r.publishedAt.toISOString(), tzBy.get(r.brandId) ?? "UTC").minute, rate,
@@ -460,7 +474,9 @@ export async function runPlaybookTuning(now = new Date()) {
       await adjustRule({
         rule: master!, brandId, field: "windows", value: windows, reason,
         evidence: { sample: scored.length, base: Number(base.toFixed(2)), best: best.map((b) => ({ slot: slotsToWindows([b.start]), posts: b.posts, rate: Number(b.avg.toFixed(2)) })) },
-        source: "auto", actor: { kind: "ai", name: "Daily tuning", userId: null }, apply: false,
+        source: "auto", actor: { kind: "ai", name: "Daily tuning", userId: null },
+        // Proposed for a person, unless the brand's owner has let the tuning apply what the numbers favour.
+        apply: autoBy.get(brandId) === true,
       });
       proposed.push({ brandId, rule: code, windows, reason });
     }

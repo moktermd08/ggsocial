@@ -1,7 +1,7 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, notInArray } from "drizzle-orm";
 import {
-  db, activity, attachments, brandAgents, channels, comments, contentIdeas, posts, postTargets,
+  db, activity, attachments, brandAgents, channels, comments, contentIdeas, posts, postTargets, postVersions,
 } from "@/lib/db";
 import { defaultOptions, platformOrNull } from "@/lib/platforms";
 import { toLocalInput, truncate } from "@/lib/format";
@@ -12,6 +12,12 @@ import { draftPost, type Draft, type DraftChannel } from "@/server/drafting";
 import { publishTarget } from "@/server/publish";
 import { snapPostTargets } from "@/server/schedule";
 import { generateVersions } from "@/server/versions";
+import { generatePostImages } from "@/server/media-generate";
+import { platformLimitProblems, settleFormats } from "@/server/format-fit";
+import { stampApproval } from "@/server/approval";
+import { learningLines, recentOpenings } from "@/server/performance";
+import { publishBody } from "@/server/versions";
+import { FORMAT_META, type ContentFormat } from "@/lib/formats";
 import { searchBrandLibrary } from "@/server/media-catalog";
 import { rankForText } from "@/lib/media-catalog";
 import type { StepContext, StepResult, WorkflowImpl, WorkflowRun } from "@/server/workflows/types";
@@ -83,11 +89,17 @@ async function inspect(postId: string) {
   const targets = await db.select({ target: postTargets, platform: channels.platform }).from(postTargets)
     .innerJoin(channels, eq(channels.id, postTargets.channelId))
     .where(eq(postTargets.postId, postId));
-  const texts = [post.title, post.body, ...targets.flatMap((t) => [t.target.bodyOverride, t.target.firstComment])];
+  const versions = await db.select().from(postVersions).where(eq(postVersions.postId, postId));
+  // What each channel will really send: its adopted format's text, else its own copy.
+  const sent = (t: (typeof targets)[number]) => publishBody(t.target, versions.find((v) => v.id === t.target.versionId) ?? null, post);
+  const texts = [post.title, post.body, ...targets.flatMap((t) => [sent(t), t.target.firstComment])];
   const checks = (await checkSavedPost(postId)) ?? [];
   const reasons: string[] = [];
-  const blocked = blockingText(checks);
+  const held = new Set((await heldForMedia(post)).map((h) => h.channelId));
+  const blocked = blockingText(checks.filter((c) => !held.has(c.channelId)));
   if (blocked) reasons.push(blocked);
+  const limits = await platformLimitProblems(postId, (await heldForMedia(post)).map((h) => h.id));
+  if (limits.length) reasons.push(`Over a platform's limit: ${limits.join(" ")}`);
   const holes = findPlaceholders(texts.filter(Boolean).join("\n"));
   if (holes.length) reasons.push(`Template placeholders are still unfilled: ${holes.join(", ")}.`);
 
@@ -96,9 +108,11 @@ async function inspect(postId: string) {
     `Base copy:\n${post.body}`,
     ...targets.map(({ target, platform }) => {
       const warns = checks.find((c) => c.channelId === target.channelId)?.issues.map((i) => i.message) ?? [];
+      const version = versions.find((v) => v.id === target.versionId);
+      const as = target.useVersion && version ? ` (goes out as a ${FORMAT_META[version.format as ContentFormat].label.toLowerCase()})` : "";
       return [
-        `--- ${platformOrNull(platform)?.name ?? platform}:`,
-        target.bodyOverride ?? "(base copy)",
+        `--- ${platformOrNull(platform)?.name ?? platform}${as}:`,
+        sent({ target, platform }) || "(base copy)",
         target.firstComment ? `First comment: ${target.firstComment}` : "",
         warns.length ? `Playbook points still open: ${warns.join("; ")}` : "",
       ].filter(Boolean).join("\n");
@@ -139,6 +153,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     const result = await draftPost({
       brand, idea, title: existing.title, body: existing.body, channels: chans, playbook,
       postType: existing.postType, guidelines: config?.guidelines, feedback, source: "workflow:publish-post",
+      learnings: await learningLines(brand.id, { platforms: chans.map((c) => c.platform) }), recentOpenings: await recentOpenings(brand.id),
     });
     await db.update(posts).set({
       title: result.draft.title, body: result.draft.body, status: "in_review",
@@ -170,6 +185,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     // Draft first, so a failed call leaves no empty post behind.
     const result = await draftPost({
       brand, idea, channels: chans, playbook, postType: idea.postType, guidelines: config?.guidelines, source: "workflow:publish-post",
+      learnings: await learningLines(brand.id, { platforms: chans.map((c) => c.platform) }), recentOpenings: await recentOpenings(brand.id),
     });
     const d = result.draft;
     const [post] = await db.insert(posts).values({
@@ -227,8 +243,22 @@ async function draft(ctx: StepContext): Promise<StepResult> {
       const tried = Array.isArray(run.context.mediaTried) ? (run.context.mediaTried as string[]) : [];
       const best = await attachBestMedia(saved, need, tried);
       if (best) Object.assign(context, { mediaPicked: best.id, mediaTried: [...tried, best.id] });
+      else if (config?.settings?.makeImages !== false) {
+        // Nothing filed fits: make it from the brand's Canva template rather than wait for a person.
+        const made = await generatePostImages(postId);
+        if (made.ok) {
+          Object.assign(context, { mediaGenerated: made.mediaIds });
+          formatNote += ` ${made.summary}`;
+        } else {
+          Object.assign(context, { mediaError: made.reason });
+        }
+      }
     }
   }
+  // Now that the media is known, each channel takes the richest format it can really be sent in.
+  const settled = await settleFormats(postId);
+  const fellBack = settled.filter((s) => s.note).map((s) => `${s.channel} ${s.note}`);
+  if (settled.length) formatNote += ` Goes out as: ${settled.map((s) => `${s.channel} → ${s.chose}`).join(", ")}.${fellBack.length ? ` ${fellBack.join(" ")}` : ""}`;
   const checked = await inspect(postId);
   const when = existing?.scheduledAt ?? (run.context.slot ? new Date(String(run.context.slot)) : null);
   return {
@@ -256,6 +286,28 @@ async function mediaNeed(post: typeof posts.$inferSelect) {
     needed: Boolean(idea?.needsMedia) || needy.length > 0,
     videoOnly: needy.some((p) => !p.constraints.allowedMedia.includes("image")),
   };
+}
+
+/**
+ * Unsent channels that cannot go out yet because their platform wants an
+ * image or video (or the idea only works with one) and the post has none.
+ * Everything else about the post is ready, so these wait on their own and the
+ * other channels carry on: one Instagram image must not hold up Bluesky.
+ */
+async function heldForMedia(post: typeof posts.$inferSelect) {
+  const idea = post.ideaId ? await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, post.ideaId) }) : null;
+  const [targets, files] = await Promise.all([
+    db.select({ target: postTargets, platform: channels.platform, handle: channels.handle }).from(postTargets)
+      .innerJoin(channels, eq(channels.id, postTargets.channelId)).where(eq(postTargets.postId, post.id)),
+    db.select({ targetId: attachments.targetId }).from(attachments).where(eq(attachments.postId, post.id)),
+  ]);
+  const postLevel = files.some((a) => !a.targetId);
+  return targets
+    .filter(({ target, platform }) =>
+      target.status === "pending"
+      && (idea?.needsMedia || platformOrNull(platform)?.constraints.requiresMedia)
+      && !postLevel && !files.some((a) => a.targetId === target.id))
+    .map(({ target, platform }) => ({ id: target.id, channelId: target.channelId, name: platformOrNull(platform)?.name ?? platform }));
 }
 
 /**
@@ -305,6 +357,16 @@ async function media(ctx: StepContext): Promise<StepResult> {
   }
 
   const best = await attachBestMedia(post, need, tried);
+  if (!best && !need.idea?.needsMedia) {
+    // Only some channels want media. The rest of the post must not wait for it.
+    const held = await heldForMedia(post);
+    const names = [...new Set(held.map((h) => h.name))];
+    const others = (await db.select({ id: postTargets.id }).from(postTargets).where(eq(postTargets.postId, post.id))).length - held.length;
+    return {
+      outcome: "skip",
+      summary: `${names.join(", ") || "A channel"} still needs an image or video, and none is filed or could be made. ${others > 0 ? "The other channels go out now; " : ""}${names.join(", ") || "it"} will wait for one.`,
+    };
+  }
   if (!best) {
     const why = need.needy.length
       ? `${need.needy.map((p) => p.name).join(", ")} need${need.needy.length === 1 ? "s" : ""} ${need.videoOnly ? "a video" : "an image or video"}`
@@ -334,13 +396,27 @@ async function schedule(ctx: StepContext): Promise<StepResult> {
     return { outcome: "done", summary: "Already scheduled.", byHuman: true };
   }
 
-  const blocked = blockingText((await checkSavedPost(post.id)) ?? []);
+  // Media may have changed since the draft (a person attached a file): each channel re-picks its format.
+  await settleFormats(post.id);
+  // A channel waiting for its image has its own problems (a carousel with no slides yet); they must not hold the rest.
+  const held = await heldForMedia(post);
+  const heldChannels = new Set(held.map((h) => h.channelId));
+  const blocked = blockingText(((await checkSavedPost(post.id)) ?? []).filter((c) => !heldChannels.has(c.channelId)));
   const targets = await db.select().from(postTargets).where(eq(postTargets.postId, post.id));
   const holes = findPlaceholders([post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""])].join("\n"));
-  const reasons = [blocked, holes.length ? `Template placeholders are still unfilled: ${holes.join(", ")}.` : null].filter((r): r is string => Boolean(r));
-  if (!post.scheduledAt) reasons.push("The post has no date and time.");
-  else if (post.scheduledAt.getTime() < now.getTime() - HOUR) {
-    reasons.push(`Its slot, ${toLocalInput(post.scheduledAt, brand.timezone).replace("T", " ")}, has passed.`);
+  const limits = await platformLimitProblems(post.id, held.map((h) => h.id));
+  const reasons = [
+    blocked,
+    holes.length ? `Template placeholders are still unfilled: ${holes.join(", ")}.` : null,
+    limits.length ? `Over a platform's limit: ${limits.join(" ")}` : null,
+  ].filter((r): r is string => Boolean(r));
+  // Approval came after the slot: book the next one instead of handing it back to a person.
+  let slot = post.scheduledAt;
+  let late: Date | null = null;
+  if (!slot) reasons.push("The post has no date and time.");
+  else if (slot.getTime() < now.getTime() - HOUR) {
+    late = slot;
+    slot = new Date(now.getTime() + 2 * MINUTE);
   }
   if (reasons.length) {
     return {
@@ -350,16 +426,28 @@ async function schedule(ctx: StepContext): Promise<StepResult> {
     };
   }
 
-  await db.update(posts).set({ status: "scheduled", approvedAt: now, updatedAt: now }).where(eq(posts.id, post.id));
-  await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
-    .where(and(eq(postTargets.postId, post.id), eq(postTargets.status, "pending")));
+  await db.update(posts).set({ status: "scheduled", approvedAt: now, scheduledAt: slot, updatedAt: now }).where(eq(posts.id, post.id));
+  const heldIds = held.map((h) => h.id);
+  await db.update(postTargets).set({ status: "scheduled", scheduledAt: slot })
+    .where(and(eq(postTargets.postId, post.id), eq(postTargets.status, "pending"), heldIds.length ? notInArray(postTargets.id, heldIds) : undefined));
+  if (late && heldIds.length) await db.update(postTargets).set({ scheduledAt: slot }).where(inArray(postTargets.id, heldIds));
   await snapPostTargets(post.id, now);
+  // Whoever approved this step (a person, or the reviewer under auto-approve) approved these words.
+  await stampApproval(post.id);
   await db.insert(activity).values({
     brandId: brand.id, actorId: null, action: "post.scheduled_by_workflow", entity: "post", entityId: post.id,
     meta: { workflowRun: run.id, note: "Passed every playbook must and the safety screen. The checklist points for people were covered by the workflow's review settings." },
   });
-  const booked = (await db.query.posts.findFirst({ where: eq(posts.id, post.id) }))?.scheduledAt ?? post.scheduledAt!;
-  return { outcome: "done", summary: `Scheduled for ${toLocalInput(booked, brand.timezone).replace("T", " ")}.` };
+  const booked = (await db.query.posts.findFirst({ where: eq(posts.id, post.id) }))?.scheduledAt ?? slot!;
+  const when = toLocalInput(booked, brand.timezone).replace("T", " ");
+  return {
+    outcome: "done",
+    summary: [
+      late ? `Its slot (${toLocalInput(late, brand.timezone).replace("T", " ")}) passed while it waited, so it moved to the next one.` : "",
+      `Scheduled for ${when}.`,
+      held.length ? `${[...new Set(held.map((h) => h.name))].join(", ")} wait${held.length === 1 ? "s" : ""} for an image or video; the rest go out.` : "",
+    ].filter(Boolean).join(" "),
+  };
 }
 
 async function publish(ctx: StepContext): Promise<StepResult> {
@@ -374,10 +462,24 @@ async function publish(ctx: StepContext): Promise<StepResult> {
     return publish({ ...ctx, retry: false });
   }
 
+  // Channels that were waiting for an image go out as soon as it is attached.
+  await settleFormats(post.id);
+  const stillHeld = new Set((await heldForMedia(post)).map((h) => h.id));
+  const releasable = targets.filter((t) => t.target.status === "pending" && !stillHeld.has(t.target.id));
+  if (releasable.length) {
+    for (const { target } of releasable) {
+      const at = target.scheduledAt && target.scheduledAt.getTime() > ctx.now.getTime() ? target.scheduledAt : new Date(ctx.now.getTime() + MINUTE);
+      await db.update(postTargets).set({ status: "scheduled", scheduledAt: at }).where(eq(postTargets.id, target.id));
+    }
+    await snapPostTargets(post.id, ctx.now);
+    return publish(ctx);
+  }
+
   const name = (p: string) => platformOrNull(p)?.name ?? p;
   const failed = targets.filter((t) => t.target.status === "failed");
   const manual = targets.filter((t) => t.target.status === "awaiting_manual");
-  const pending = targets.filter((t) => ["pending", "scheduled", "publishing"].includes(t.target.status));
+  const pending = targets.filter((t) => ["scheduled", "publishing"].includes(t.target.status));
+  const waitingForMedia = targets.filter((t) => t.target.status === "pending");
 
   if (pending.length) {
     const at = post.scheduledAt && post.scheduledAt > ctx.now ? post.scheduledAt : ctx.now;
@@ -396,6 +498,16 @@ async function publish(ctx: StepContext): Promise<StepResult> {
       outcome: "human", summary: `${manual.map((t) => name(t.platform)).join(", ")} ${manual.length === 1 ? "has" : "have"} no publishing API, so a person posts it.`,
       question: `Post "${post.title || "this post"}" from the publish queue and tick it off.`,
       href: "/queue", recheckAt: new Date(ctx.now.getTime() + 30 * MINUTE),
+    };
+  }
+  if (waitingForMedia.length) {
+    const names = [...new Set(waitingForMedia.map((t) => name(t.platform)))];
+    return {
+      outcome: "human",
+      summary: `${names.join(", ")} ${names.length === 1 ? "is" : "are"} waiting for an image or video; the other channels are done.`,
+      question: `Add an image or video to "${post.title || "this post"}" for ${names.join(", ")}. It goes out by itself once it is attached.`,
+      href: `/posts/${post.id}`,
+      recheckAt: new Date(ctx.now.getTime() + 15 * MINUTE),
     };
   }
   const live = targets.filter((t) => t.target.status === "published").length;
@@ -417,12 +529,25 @@ export const publishPost: WorkflowImpl = {
 
   async onReject(run, userId, note) {
     if (run.subjectType !== "post" || !run.subjectId) return;
-    const post = await db.query.posts.findFirst({ where: eq(posts.id, run.subjectId), columns: { status: true } });
+    const post = await db.query.posts.findFirst({ where: eq(posts.id, run.subjectId), columns: { status: true, ideaId: true } });
     // Something already went out: leave the record of it alone.
     if (!post || ["published", "partially_published"].includes(post.status)) return;
-    // Back to a plain draft with no slot, so the slot opens up again. The idea
-    // stays linked, so the writer does not pick it up a second time.
-    await db.update(posts).set({ status: "draft", scheduledAt: null, updatedAt: new Date() }).where(eq(posts.id, run.subjectId));
+    // Back to a plain draft with no slot, so the slot opens up again.
+    await db.update(posts).set({ status: "draft", scheduledAt: null, approvedHash: null, ideaId: null, updatedAt: new Date() }).where(eq(posts.id, run.subjectId));
+    // The idea is let go too, or it would sit linked to a dead draft and never be written again. It goes to the
+    // back of the plan with the reason beside it, which the writer reads next time round.
+    if (post.ideaId) {
+      const idea = await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, post.ideaId) });
+      if (idea) {
+        const last = await db.select({ s: contentIdeas.sequence }).from(contentIdeas).where(eq(contentIdeas.ownerId, idea.ownerId)).orderBy(desc(contentIdeas.sequence)).limit(1);
+        const stamp = new Date().toISOString().slice(0, 10);
+        await db.update(contentIdeas).set({
+          status: idea.status === "drafting" ? "backlog" : idea.status, plannedFor: null, sequence: (last[0]?.s ?? 0) + 1,
+          notes: [idea.notes, `Written as a post on ${stamp} and turned down${note ? `: ${note}` : "."} Take a different angle.`].filter(Boolean).join("\n"),
+          updatedAt: new Date(),
+        }).where(eq(contentIdeas.id, idea.id));
+      }
+    }
     await db.update(postTargets).set({ status: "pending", scheduledAt: null })
       .where(and(eq(postTargets.postId, run.subjectId), inArray(postTargets.status, ["pending", "scheduled"])));
     await db.insert(comments).values({ postId: run.subjectId, userId, body: `Stopped in review${note ? `: ${note}` : "."}` });

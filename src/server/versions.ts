@@ -210,10 +210,12 @@ export async function assignVersions(postId: string, opts: { reset?: boolean } =
 
 /** What actually goes out on a target: its own override, else its version, else the post. */
 export function publishBody(
-  target: { bodyOverride: string | null },
+  target: { bodyOverride: string | null; useVersion?: boolean },
   version: { format: string; body: string; outline: string[] } | null,
   post: { body: string },
 ) {
+  // An agent adopted the version for this channel: it is the format that goes out, whatever tuned copy sits beside it.
+  if (target.useVersion && version) return versionPublishText({ format: version.format as ContentFormat, body: version.body, outline: version.outline });
   if (target.bodyOverride) return target.bodyOverride;
   if (version) return versionPublishText({ format: version.format as ContentFormat, body: version.body, outline: version.outline });
   return post.body;

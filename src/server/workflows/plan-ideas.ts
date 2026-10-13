@@ -8,6 +8,7 @@ import { METRIC_META } from "@/lib/goals/meta";
 import { POST_TYPES } from "@/lib/templates";
 import { platformOrNull } from "@/lib/platforms";
 import { askClaude } from "@/server/agents/claude";
+import { learningLines } from "@/server/performance";
 import { fetchSignals, researchQueries, signalsBlock } from "@/server/research";
 import { ANGLE_SPREAD, HOOK_CRAFT, STRATEGY_CRAFT } from "@/server/agents/craft";
 import type { StepContext, StepResult, WorkflowImpl } from "@/server/workflows/types";
@@ -101,6 +102,7 @@ async function briefing(brandId: string) {
     db.select({ platform: channels.platform }).from(channels).where(and(eq(channels.brandId, brandId), isNull(channels.archivedAt))),
   ]);
   const owner = await planOwner(brandId);
+  const numbers = await learningLines(brandId, { max: 5 });
   const pillars = owner
     ? (await db.selectDistinct({ pillar: contentIdeas.pillar }).from(contentIdeas)
         .where(and(eq(contentIdeas.ownerId, owner), isNotNull(contentIdeas.pillar)))).map((r) => r.pillar!).slice(0, 12)
@@ -109,7 +111,7 @@ async function briefing(brandId: string) {
     ? await db.select({ title: contentIdeas.title, problem: contentIdeas.problem }).from(contentIdeas)
         .where(eq(contentIdeas.ownerId, owner)).orderBy(desc(contentIdeas.createdAt)).limit(60)
     : [];
-  return { active, lessons, recent, existing, pillars, everIdeas, platforms: [...new Set(chans.map((c) => platformOrNull(c.platform)?.name ?? c.platform))] };
+  return { active, lessons, numbers, recent, existing, pillars, everIdeas, platforms: [...new Set(chans.map((c) => platformOrNull(c.platform)?.name ?? c.platform))] };
 }
 
 async function propose(ctx: StepContext): Promise<StepResult> {
@@ -128,6 +130,9 @@ async function propose(ctx: StepContext): Promise<StepResult> {
     b.platforms.length ? `\nIts channels: ${b.platforms.join(", ")}.` : "",
     b.pillars.length ? `\nIts content pillars so far: ${b.pillars.join("; ")}.` : "",
     signalsBlock(signals),
+    b.numbers.more.length || b.numbers.less.length
+      ? `\nWhat the brand's settled numbers show (worked out from its published posts; weight the plan towards the first list and away from the second, and say in "why" when an idea follows one):\nDo more of:\n${b.numbers.more.map((s) => `- ${s}`).join("\n") || "- (nothing clear yet)"}\nDo less of:\n${b.numbers.less.map((s) => `- ${s}`).join("\n") || "- (nothing clear yet)"}`
+      : "",
     b.lessons.length ? `\nLessons from its own posts (build on these):\n${b.lessons.map((l) => `- "${l.title}": ${l.keyLearning}`).join("\n")}` : "",
     b.recent.length ? `\nRecently published or booked (do not repeat):\n${b.recent.map((p) => `- ${p.title}${p.postType ? ` (${p.postType})` : ""}`).join("\n")}` : "",
     b.everIdeas.length ? `\nIdeas already in the plan, used or not (never repeat or reword these):\n${b.everIdeas.map((i) => `- ${i.title || i.problem}`).join("\n")}` : "",

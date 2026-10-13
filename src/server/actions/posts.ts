@@ -16,6 +16,7 @@ import { checkTargets } from "@/lib/playbook/check";
 import { blockingText, checkSavedPost, getBrandPlaybook } from "@/server/playbook";
 import { syncSubjectReview } from "@/server/workflows";
 import { snapPostTargets } from "@/server/schedule";
+import { stampApproval } from "@/server/approval";
 
 export type TargetInput = {
   channelId: string;
@@ -95,12 +96,22 @@ async function assertPlaybook(input: PostInput, scheduledAt: Date | null) {
   if (blocked) throw new Error(blocked);
 }
 
-export async function savePostAction(input: PostInput) {
+export async function savePostAction(original: PostInput) {
   return asResult(async () => {
+    let input = original;
+    const wanted = original.intent;
     const { user, role } = await requireBrandRole(input.brandId, "editor");
     if (!can.edit(role)) throw new Error("You need editor access to save posts.");
 
     const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
+
+    // Going out is an approver's decision. An editor who tries to schedule submits it for review instead,
+    // and one who tries to publish now is told why not; the server holds this line whatever the page shows.
+    if (!can.approve(role) && input.intent === "publish_now") {
+      throw new Error("Publishing straight away needs approver access. Save it and submit it for review.");
+    }
+    const sendsOut = (input.intent === "schedule" || input.intent === "publish_now") && can.approve(role);
+    if (input.intent === "schedule" && !sendsOut) input = { ...input, intent: "review" };
 
     if (input.intent === "schedule" || input.intent === "publish_now") {
       const validation = await validatePostAction(input);
@@ -158,6 +169,8 @@ export async function savePostAction(input: PostInput) {
         if (prior.status === "published") continue;
         await db.update(postTargets).set({
           bodyOverride: t.bodyOverride ?? null, firstComment: t.firstComment ?? null,
+          // Copy a person changed here is theirs; copy they left alone keeps the agent's chosen format.
+          useVersion: (t.bodyOverride ?? null) !== prior.bodyOverride ? false : prior.useVersion,
           options, status: targetStatus, scheduledAt: input.intent === "publish_now" ? new Date() : scheduledAt,
         }).where(eq(postTargets.id, prior.id));
       } else {
@@ -192,8 +205,12 @@ export async function savePostAction(input: PostInput) {
       for (const t of targets) if (t.status !== "published") await publishTarget(t.id);
     }
 
+    // The approver who scheduled it approved these words.
+    if (sendsOut) await stampApproval(postId);
+    else await db.update(posts).set({ approvedHash: null }).where(eq(posts.id, postId));
+
     revalidatePath("/", "layout");
-    return { postId };
+    return { postId, ...(input.intent === "review" && !sendsOut && wanted === "schedule" ? { note: "Submitted for review: an approver schedules it." } : {}) };
   });
 }
 
@@ -270,6 +287,10 @@ export async function reviewPostAction(
     if (!can.approve(role)) throw new Error("You need approver or admin access to review posts.");
 
     if (decision === "approve") {
+      // A second click, or a stale tab, must not turn something already out (or booked) back into a fresh approval.
+      if (["scheduled", "publishing", "published", "partially_published"].includes(post.status)) {
+        throw new Error("This post is already scheduled or published.");
+      }
       const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
       const holes = findPlaceholders([
         post.title, post.body, ...targets.flatMap((t) => [t.bodyOverride ?? "", t.firstComment ?? ""]),
@@ -287,15 +308,19 @@ export async function reviewPostAction(
         brandId: post.brandId, actorId: user.id, action: "post.playbook_confirmed", entity: "post", entityId: postId,
         meta: { rules: [...new Set(playbook.map((r) => r.rule?.code).filter(Boolean))], confirmed: required },
       });
+      // Approved after its slot passed: take the channel's next one rather than post stale copy days late.
+      const now = new Date();
+      const slot = post.scheduledAt && post.scheduledAt.getTime() < now.getTime() - 3_600_000 ? new Date(now.getTime() + 2 * 60_000) : post.scheduledAt;
       await db.update(posts).set({
-        status: post.scheduledAt ? "scheduled" : "approved",
-        approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date(),
+        status: slot ? "scheduled" : "approved", scheduledAt: slot,
+        approvedBy: user.id, approvedAt: now, updatedAt: now,
       }).where(eq(posts.id, postId));
-      if (post.scheduledAt) {
-        await db.update(postTargets).set({ status: "scheduled", scheduledAt: post.scheduledAt })
+      if (slot) {
+        await db.update(postTargets).set({ status: "scheduled", scheduledAt: slot })
           .where(and(eq(postTargets.postId, postId), eq(postTargets.status, "pending")));
-        await snapPostTargets(postId);
+        await snapPostTargets(postId, now);
       }
+      await stampApproval(postId);
     } else {
       await db.update(posts).set({ status: "changes_requested", updatedAt: new Date() }).where(eq(posts.id, postId));
     }
@@ -332,7 +357,11 @@ export async function publishTargetNowAction(targetId: string) {
   if (!target) throw new Error("Target not found");
   const post = await db.query.posts.findFirst({ where: eq(posts.id, target.postId) });
   if (!post) throw new Error("Post not found");
-  await requireBrandRole(post.brandId, "editor");
+  const { role } = await requireBrandRole(post.brandId, "editor");
+  // Publishing now sends what an approver signed off. Before that, only an approver may send it.
+  if (!can.approve(role) && !["scheduled", "approved", "partially_published", "failed"].includes(post.status)) {
+    throw new Error("This post has not been approved. Submit it for review first.");
+  }
   const result = await publishTarget(targetId, { force: false });
   revalidatePath("/", "layout");
   return result;

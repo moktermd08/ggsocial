@@ -86,6 +86,10 @@ export type DraftBrief = {
   guidelines?: string | null;
   /** What a reviewer asked to change, when this is a revision of a sent-back post. */
   feedback?: string | null;
+  /** What the brand's own numbers say works and does not, worked out from its published posts. */
+  learnings?: { more: string[]; less: string[] };
+  /** How the brand's latest posts opened, so this one does not open the same way. */
+  recentOpenings?: string[];
   /** Who asked, for the spend ledger: "workflow:publish-post", say. A person in the composer when unset. */
   source?: string;
 };
@@ -232,6 +236,15 @@ export function draftRequestText(brief: DraftBrief) {
   }
   if (brief.feedback?.trim()) {
     parts.push("", "The reviewer sent the last version back. Their note, which this revision must address:", brief.feedback.trim());
+  }
+
+  if (brief.learnings && (brief.learnings.more.length || brief.learnings.less.length)) {
+    parts.push("", "What this brand's own numbers show (use it where it fits the idea; never force it):",
+      ...brief.learnings.more.map((s) => `- works: ${s}`), ...brief.learnings.less.map((s) => `- weaker: ${s}`));
+  }
+  if (brief.recentOpenings?.length) {
+    parts.push("", "How its latest posts opened. Open this one differently, in a new way and not a reworded copy:",
+      ...brief.recentOpenings.map((s) => `- ${s}`));
   }
 
   parts.push("", `Write the base post for ${brief.brand.name}, then one version per channel below.`);

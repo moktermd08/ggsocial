@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, activity, activityChecks, activityTemplates, channels, goals, metrics, posts, postTargets } from "@/lib/db";
 import { platformOrNull } from "@/lib/platforms";
@@ -11,6 +11,9 @@ import { agentActorName } from "@/lib/agents/meta";
 import { METRIC_META } from "@/lib/goals/meta";
 import { ensureActivityLibrary, recordCheck } from "@/server/activities";
 import { refreshMetrics } from "@/server/publish";
+import { engagementOf as engagementsOfReading, engagementRate, matureReading } from "@/lib/performance";
+import { learningLines, refreshLearnings } from "@/server/performance";
+import { sendAlert } from "@/server/alerts";
 import { askClaude, addUsage } from "@/server/agents/claude";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
 
@@ -52,27 +55,32 @@ const ReportSchema = z.object({
 });
 
 type Numbers = { impressions: number; reach: number; engagements: number; clicks: number; n: number };
-const engagementsOf = (m: typeof metrics.$inferSelect) => m.likes + m.commentCount + m.shares + m.saves;
+const engagementsOf = engagementsOfReading;
 
-type Row = { postId: string; title: string; postType: string | null; platform: string; day: string; m: typeof metrics.$inferSelect | null };
+type Row = {
+  postId: string; title: string; postType: string | null; platform: string; day: string; m: typeof metrics.$inferSelect | null;
+  /** The reading is the one taken once the post was two days old, so it can be compared fairly. */
+  mature: boolean;
+};
 
-/** Every published channel copy in the window, with its latest reading. */
+/** Every published channel copy in the window, with the reading it should be judged on. */
 async function published(brand: AgentJob["brand"], sinceDays: number, now: Date): Promise<Row[]> {
   const rows = await db.select({ target: postTargets, post: posts, platform: channels.platform })
     .from(postTargets)
     .innerJoin(posts, eq(posts.id, postTargets.postId))
     .innerJoin(channels, eq(channels.id, postTargets.channelId))
-    .where(and(eq(posts.brandId, brand.id), eq(postTargets.status, "published"), gte(postTargets.publishedAt, new Date(now.getTime() - sinceDays * DAY))));
-  const latest = new Map<string, typeof metrics.$inferSelect>();
-  if (rows.length) {
-    const ms = await db.select().from(metrics).where(inArray(metrics.targetId, rows.map((r) => r.target.id))).orderBy(desc(metrics.fetchedAt));
-    for (const m of ms) if (!latest.has(m.targetId)) latest.set(m.targetId, m);
-  }
-  return rows.map((r) => ({
-    postId: r.post.id, title: r.post.title || r.post.body.slice(0, 60), postType: r.post.postType, platform: r.platform,
-    day: r.target.publishedAt ? toLocalInput(r.target.publishedAt, brand.timezone).slice(0, 10) : "",
-    m: latest.get(r.target.id) ?? null,
-  }));
+    .where(and(eq(posts.brandId, brand.id), eq(postTargets.status, "published"), isNull(postTargets.removedAt), gte(postTargets.publishedAt, new Date(now.getTime() - sinceDays * DAY))));
+  const readings = rows.length ? await db.select().from(metrics).where(inArray(metrics.targetId, rows.map((r) => r.target.id))) : [];
+  return rows.map((r) => {
+    const own = readings.filter((m) => m.targetId === r.target.id);
+    const mature = r.target.publishedAt ? matureReading(own, r.target.publishedAt, now) : null;
+    const latest = own.reduce<typeof own[number] | null>((best, m) => (!best || m.fetchedAt > best.fetchedAt ? m : best), null);
+    return {
+      postId: r.post.id, title: r.post.title || r.post.body.slice(0, 60), postType: r.post.postType, platform: r.platform,
+      day: r.target.publishedAt ? toLocalInput(r.target.publishedAt, brand.timezone).slice(0, 10) : "",
+      m: mature ?? latest, mature: Boolean(mature),
+    };
+  });
 }
 
 function totals(rows: Row[]) {
@@ -90,7 +98,7 @@ const name = (p: string) => platformOrNull(p)?.name ?? p;
 const got = (m: Row["m"]) => m
   ? `${m.impressions} impressions, ${m.reach} reach, ${m.likes} likes, ${m.commentCount} comments, ${m.shares} shares, ${m.saves} saves, ${m.clicks} clicks`
   : "no numbers from this platform";
-const rate = (m: Row["m"]) => (m ? engagementsOf(m) / Math.max(1, m.reach || m.impressions) : -1);
+const rate = (m: Row["m"]) => (m ? engagementRate(m) ?? -1 : -1);
 
 /** Has this check been done for the period that `date` falls in? */
 async function checkDone(brandId: string, code: string, frequency: Frequency, date: string) {
@@ -134,20 +142,31 @@ async function keepLessons(standouts: { postId: string; learning: string }[], al
   return learned;
 }
 
+/** What the numbers already say, worked out in code, so the model builds on it instead of guessing. */
+async function findings(brandId: string) {
+  const { more, less } = await learningLines(brandId, { max: 4 });
+  if (!more.length && !less.length) return "";
+  return [
+    "\nWhat the brand's settled numbers already show (computed, not opinion; do not restate, build on it):",
+    ...more.map((s) => `- more: ${s}`), ...less.map((s) => `- less: ${s}`),
+  ].join("\n");
+}
+
 async function daily(job: AgentJob, out: AgentOutcome) {
   const { brand, config, now } = job;
   const today = todayIn(brand.timezone, now);
-  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - DAY).toISOString().slice(0, 10);
-  const rows = await published(brand, 31, now);
-  const fromYesterday = rows.filter((r) => r.day === yesterday);
+  // Posts are read when they have had two days: yesterday's are only hours old and would look weak next to older ones.
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 2 * DAY).toISOString().slice(0, 10);
+  const rows = await published(brand, 33, now);
+  const fromYesterday = rows.filter((r) => r.day === yesterday && r.mature);
 
   if (fromYesterday.length === 0) {
-    const notes = "Nothing was published yesterday, so there is nothing new to read.";
+    const notes = "Nothing published two days ago was ready to read, so there is nothing new to say.";
     await recordCheck({ brandId: brand.id, code: "D-16", date: today, status: "done", notes }, actor, "auto");
     out.items.push({ kind: "check", id: null, label: `D-16: ${notes}`, href: "/activities" });
-    return "Nothing published yesterday.";
+    return "Nothing new to read.";
   }
-  const typical = totals(rows.filter((r) => r.day < yesterday));
+  const typical = totals(rows.filter((r) => r.day < yesterday && r.mature));
   const lines = fromYesterday.map((r) => {
     const t = typical.get(r.platform);
     const avg = t && t.n ? `typical here: ${Math.round(t.impressions / t.n)} impressions, ${Math.round(t.reach / t.n)} reach, ${Math.round(t.engagements / t.n)} engagements, ${Math.round(t.clicks / t.n)} clicks over ${t.n} posts` : "no earlier numbers on this platform";
@@ -155,15 +174,16 @@ async function daily(job: AgentJob, out: AgentOutcome) {
   });
   const task = [
     config.guidelines?.trim() ? `Standing guidelines from the brand's team (follow these):\n${config.guidelines.trim()}\n` : "",
-    `A daily read, in three to five sentences with one thing to try. Yesterday (${yesterday}) the brand published:`,
+    `A daily read, in three to five sentences with one thing to try. These posts went out on ${yesterday} and have had two days, so the numbers are settled:`,
     ...lines,
+    await findings(brand.id),
   ].filter(Boolean).join("\n");
   const { output, usage } = await askClaude({ schema: ReportSchema, system: SYSTEM, brand, task, effort: "low", job: "analysis", source: "agent:analyst" });
   out.usage = addUsage(out.usage, usage);
   const learned = await keepLessons(output.standouts, new Set(fromYesterday.map((r) => r.postId)), out);
   await recordCheck({ brandId: brand.id, code: "D-16", date: today, status: "done", count: new Set(fromYesterday.map((r) => r.postId)).size, notes: output.note }, actor, "auto");
   out.items.unshift({ kind: "note", id: null, label: output.note, href: "/activities" });
-  return `Read ${fromYesterday.length} post${fromYesterday.length === 1 ? "" : "s"} from yesterday.${learned ? ` Noted ${learned} lesson${learned === 1 ? "" : "s"}.` : ""}`;
+  return `Read ${fromYesterday.length} post${fromYesterday.length === 1 ? "" : "s"} that have had two days.${learned ? ` Noted ${learned} lesson${learned === 1 ? "" : "s"}.` : ""}`;
 }
 
 /** The week or month against the one before: the same read, over a longer window. */
@@ -173,14 +193,19 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
   const today = todayIn(brand.timezone, now);
   const since = new Date(Date.parse(`${today}T00:00:00Z`) - days * DAY).toISOString().slice(0, 10);
   const before = new Date(Date.parse(`${today}T00:00:00Z`) - 2 * days * DAY).toISOString().slice(0, 10);
-  const rows = await published(brand, 2 * days + 1, now);
-  const current = rows.filter((r) => r.day >= since && r.day < today);
-  const earlier = rows.filter((r) => r.day >= before && r.day < since);
+  const rows = await published(brand, 2 * days + 3, now);
+  const inWindow = rows.filter((r) => r.day >= since && r.day < today);
+  // Posts under two days old are counted as posted but not judged: their numbers are not finished.
+  const current = inWindow.filter((r) => r.mature);
+  const tooRecent = inWindow.length - current.length;
+  const earlier = rows.filter((r) => r.day >= before && r.day < since && r.mature);
   const code = span === "weekly" ? "W-15" : "M-14";
   const label = span === "weekly" ? "week" : "month";
 
   if (current.length === 0) {
-    const notes = `Nothing was published in the last ${label}, so there is nothing to compare.`;
+    const notes = inWindow.length
+      ? `${inWindow.length} post${inWindow.length === 1 ? " went" : "s went"} out in the last ${label}, but none has had two days yet, so there is nothing settled to compare.`
+      : `Nothing was published in the last ${label}, so there is nothing to compare.`;
     await recordCheck({ brandId: brand.id, code, date: today, status: "done", count: 0, notes }, actor, "auto");
     if (span === "weekly") await recordCheck({ brandId: brand.id, code: "W-16", date: today, status: "done", count: 0, notes }, actor, "auto");
     return notes;
@@ -192,12 +217,12 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
   const top = byRate.slice(0, 3), bottom = byRate.slice(-3).reverse().filter((r) => !top.includes(r));
   const active = await db.select({ name: goals.name, metric: goals.metric, targetValue: goals.targetValue, deadline: goals.deadline })
     .from(goals).where(and(eq(goals.brandId, brand.id), eq(goals.status, "active")));
-  const posted = new Set(current.map((r) => r.postId)).size;
+  const posted = new Set(inWindow.map((r) => r.postId)).size;
 
   const task = [
     config.guidelines?.trim() ? `Standing guidelines from the brand's team (follow these):\n${config.guidelines.trim()}\n` : "",
     `A ${span} report: the last ${label} (${since} to ${today}) against the ${label} before. End with up to three concrete things to do next ${label}.`,
-    `Posts published: ${posted} (the ${label} before: ${new Set(earlier.map((r) => r.postId)).size}).`,
+    `Posts published: ${posted}${tooRecent ? ` (${tooRecent} too recent to judge, left out of the numbers below)` : ""} (the ${label} before: ${new Set(earlier.map((r) => r.postId)).size}).`,
     "By platform, this " + label + " vs the one before:",
     ...platforms.map((p) => {
       const a = thisSpan.get(p), b = then.get(p);
@@ -206,6 +231,7 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
     }),
     top.length ? `\nBest posts by engagement rate:\n${top.map((r) => `- postId: ${r.postId} | ${name(r.platform)} | "${r.title}" — ${got(r.m)}`).join("\n")}` : "",
     bottom.length ? `\nWeakest posts:\n${bottom.map((r) => `- postId: ${r.postId} | ${name(r.platform)} | "${r.title}" — ${got(r.m)}`).join("\n")}` : "",
+    await findings(brand.id),
     active.length ? `\nThe brand's goals:\n${active.map((g) => `- ${g.name}: ${METRIC_META[g.metric]?.label ?? g.metric} to ${g.targetValue} by ${g.deadline}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 
@@ -220,6 +246,19 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
       learned ? `${learned} lesson${learned === 1 ? "" : "s"} noted on the posts.` : "",
     ].filter(Boolean).join(" ");
     await recordCheck({ brandId: brand.id, code: "W-16", date: today, status: "done", count: top.length + bottom.length, notes: tb || "Too few numbers to rank." }, actor, "auto");
+  }
+  if (span === "weekly") {
+    const { more, less } = await learningLines(brand.id, { max: 3 });
+    await sendAlert({
+      brandId: brand.id, kind: "weekly_report", key: `${brand.id}:${today}`, path: "/analytics",
+      subject: `Last week: ${posted} post${posted === 1 ? "" : "s"}${top[0] ? `, best "${top[0].title}"` : ""}`,
+      lines: [
+        output.note,
+        top.length ? `Best: ${top.map((r) => `"${r.title}" (${name(r.platform)})`).join(", ")}.` : "",
+        bottom.length ? `Weakest: ${bottom.map((r) => `"${r.title}" (${name(r.platform)})`).join(", ")}.` : "",
+        ...more.map((s) => `Do more: ${s}`), ...less.map((s) => `Do less: ${s}`),
+      ].filter(Boolean),
+    });
   }
   await db.insert(activity).values({
     brandId: brand.id, actorId: null, action: `agent.${span}_report`, entity: "brand", entityId: brand.id,
@@ -236,11 +275,16 @@ export async function runAnalyst(job: AgentJob): Promise<AgentOutcome> {
     out.summary = "Every read is done for today, this week and this month.";
     return out;
   }
-  const refreshed = await refreshMetrics(job.brand.id, 62);
+  // The numbers normally arrive on their own schedule; this catches up anything due and reports what could not be read.
+  const report = await refreshMetrics(job.brand.id, job.now);
+  for (const f of report.failed) out.issues.push(`Could not read numbers from ${f.platform} (${f.channel}): ${f.error}`);
+  if (report.removed) out.issues.push(`${report.removed} post${report.removed === 1 ? " is" : "s are"} gone from the platform and no longer counted.`);
+  const lessons = await refreshLearnings(job.brand, job.now);
+  const refreshed = report.read;
   const done: string[] = [];
   if (due.includes("daily")) done.push(await daily(job, out));
   if (due.includes("weekly")) done.push(await period(job, out, "weekly"));
   if (due.includes("monthly")) done.push(await period(job, out, "monthly"));
-  out.summary = `${done.join(" ")}${refreshed ? ` Refreshed ${refreshed} reading${refreshed === 1 ? "" : "s"}.` : ""}`;
+  out.summary = `${done.join(" ")}${refreshed ? ` Read ${refreshed} new set${refreshed === 1 ? "" : "s"} of numbers.` : ""}${lessons.length ? ` ${lessons.length} lesson${lessons.length === 1 ? "" : "s"} from the numbers.` : ""}`;
   return out;
 }

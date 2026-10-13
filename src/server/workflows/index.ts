@@ -6,7 +6,7 @@ import {
   type Pause, type RunStatus, type StepDecision, type WorkflowCode,
 } from "@/lib/workflows/meta";
 import { screenCopy } from "@/lib/workflows/safety";
-import { isVerdict, type ReviewRecord } from "@/lib/workflows/review";
+import { isCleanVerdict, isVerdict, type ReviewRecord } from "@/lib/workflows/review";
 import { draftingConfigured } from "@/server/drafting";
 import { BudgetError, assertBudget } from "@/server/ai-usage";
 import { reviewWork, verdictReasons } from "@/server/reviewer";
@@ -47,13 +47,39 @@ export async function getStepSettings(brandIds: string[]) {
   return db.select().from(workflowStepSettings).where(inArray(workflowStepSettings.brandId, brandIds));
 }
 
-async function reviewOn(brandId: string, code: WorkflowCode, stepKey: string) {
-  if (!stepDef(code, stepKey)?.reviewable) return false;
+/** How a step is reviewed for a brand: not at all, by a person every time, or by a person only when the reviewer does not pass it cleanly. */
+async function reviewMode(brandId: string, code: WorkflowCode, stepKey: string) {
+  if (!stepDef(code, stepKey)?.reviewable) return { review: false, autoApprove: false };
   const row = await db.query.workflowStepSettings.findFirst({
     where: and(eq(workflowStepSettings.brandId, brandId), eq(workflowStepSettings.workflowCode, code), eq(workflowStepSettings.stepKey, stepKey)),
-    columns: { review: true },
+    columns: { review: true, autoApprove: true },
   });
-  return row?.review ?? true;
+  return { review: row?.review ?? true, autoApprove: row?.autoApprove ?? false };
+}
+
+/**
+ * "Let clean work through": review stays on, but work the reviewer passes with
+ * no risk flag goes on by itself. Safety stops still pause it. The owner
+ * switches it on; anyone who may approve can take it off.
+ */
+export async function setStepAutoApprove(input: {
+  brandId: string; code: WorkflowCode; stepKey: string; autoApprove: boolean; reason: string | null; userId: string;
+}) {
+  const step = stepDef(input.code, input.stepKey);
+  if (!step?.reviewable) throw new Error("That step has nothing for a person to review.");
+  await db.insert(workflowStepSettings).values({
+    brandId: input.brandId, workflowCode: input.code, stepKey: input.stepKey,
+    review: true, autoApprove: input.autoApprove, reason: input.reason, updatedBy: input.userId,
+  }).onConflictDoUpdate({
+    target: [workflowStepSettings.brandId, workflowStepSettings.workflowCode, workflowStepSettings.stepKey],
+    set: { autoApprove: input.autoApprove, ...(input.autoApprove ? { reason: input.reason } : {}), updatedBy: input.userId, updatedAt: new Date() },
+  });
+  await db.insert(activity).values({
+    brandId: input.brandId, actorId: input.userId,
+    action: input.autoApprove ? "workflow.auto_approve_on" : "workflow.auto_approve_off",
+    entity: "workflow", entityId: input.code,
+    meta: { step: input.stepKey, reason: input.reason },
+  });
 }
 
 export async function setStepReview(input: {
@@ -234,7 +260,18 @@ export async function advance(runId: string, opts: { agentSteps: boolean; now?: 
             }
             reasons.push(...checked.reasons);
           }
-          const reviewing = !result.byHuman && (await reviewOn(run.brandId, run.workflowCode, step.key));
+          const mode = result.byHuman ? { review: false, autoApprove: false } : await reviewMode(run.brandId, run.workflowCode, step.key);
+          const passedClean = mode.review && mode.autoApprove && reasons.length === 0 && isCleanVerdict(output.review, brand.reviewThreshold);
+          const reviewing = mode.review && !passedClean;
+          if (passedClean) {
+            const score = (output.review as { score: number }).score;
+            result.summary = `${result.summary} The reviewer passed it (${score}/100, no risks), so it went on without waiting for a person.`;
+            base.summary = result.summary;
+            await db.insert(activity).values({
+              brandId: run.brandId, actorId: null, action: "workflow.auto_approved", entity: "workflow", entityId: run.workflowCode,
+              meta: { step: step.key, runId: run.id, score },
+            });
+          }
           if (reviewing || reasons.length) {
             await pauseStep(run, step.key, {
               kind: reasons.length ? "safety" : "review",
@@ -392,6 +429,32 @@ function describe(report: AdvanceReport | null, lead: string) {
   if (s === "done") return `${lead} The run is finished.`;
   if (s === "waiting_review" || s === "waiting_human") return `${lead} It has stopped again for a person: ${report.run.summary ?? ""}`.trim();
   return `${lead} ${report.run.summary ?? "It carries on by itself."}`;
+}
+
+/**
+ * Approves every review the reviewer passed cleanly on these brands: score at
+ * the brand's pass mark, no risk flag, and not a safety stop. What a person
+ * would have clicked through one by one. Anything with a reason to look is
+ * left in the inbox.
+ */
+export async function approveCleanPauses(brandIds: string[], userId: string) {
+  const open = await getOpenPauses(brandIds);
+  if (open.length === 0) return { approved: 0, left: 0, errors: [] as string[] };
+  const thresholds = new Map((await db.select({ id: brands.id, t: brands.reviewThreshold }).from(brands).where(inArray(brands.id, brandIds))).map((b) => [b.id, b.t]));
+  let approved = 0, left = 0;
+  const errors: string[] = [];
+  for (const { step, run } of open) {
+    const clean = step.pause?.kind === "review" && isCleanVerdict(step.output?.review, thresholds.get(run.brandId) ?? 75);
+    if (!clean) { left++; continue; }
+    try {
+      await decide({ stepId: step.id, decision: "approve", note: "Approved in bulk: the reviewer passed it cleanly.", userId });
+      approved++;
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+      left++;
+    }
+  }
+  return { approved, left, errors };
 }
 
 /**

@@ -75,6 +75,36 @@ export async function setCanvaBrandFolderAction(brandId: string, input: string |
   });
 }
 
+/**
+ * Points the brand at the Canva brand template its agents fill in to make a
+ * post's images, or clears it with null. Checks that the connected account can
+ * read the template and that it has a text field to fill.
+ */
+export async function setCanvaBrandTemplateAction(brandId: string, input: string | null) {
+  return asResult(async () => {
+    const { user } = await requireBrandRole(brandId, "admin");
+    if (!input?.trim()) {
+      await db.update(brands).set({ canvaTemplateId: null }).where(eq(brands.id, brandId));
+      revalidatePath("/workflows");
+      return { fields: [] as string[] };
+    }
+    const templateId = canva.parseTemplateId(input);
+    if (!templateId) throw new Error("Paste the brand template's Canva link or ID.");
+    const token = await getAccessToken(user.id, "canva");
+    let fields: canva.TemplateField[];
+    try {
+      fields = await canva.getTemplateFields(token, templateId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Canva refused.";
+      throw new Error(`${msg} Autofill needs Canva Enterprise. If you connected Canva before it was added here, disconnect it on the Library page and connect again.`);
+    }
+    if (!fields.some((f) => f.type === "text")) throw new Error("That template has no text field for the agent to fill. Mark one in Canva as data autofill.");
+    await db.update(brands).set({ canvaTemplateId: templateId }).where(eq(brands.id, brandId));
+    revalidatePath("/workflows");
+    return { fields: fields.filter((f) => f.type === "text").map((f) => f.name) };
+  });
+}
+
 /** Renders a Canva design and adds every page to the brand's library. */
 export async function importCanvaDesignAction(brandId: string, designId: string, format: canva.CanvaFormat, quality?: canva.CanvaVideoQuality) {
   return asResult(async () => {
