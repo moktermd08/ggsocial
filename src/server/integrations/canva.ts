@@ -116,6 +116,13 @@ export async function listFolderItems(token: string, folderId: string, continuat
   return { continuation: json.continuation ?? null, folders, designs };
 }
 
+/** Takes a template link or a bare ID and returns the ID, or null when it looks like neither. */
+export function parseTemplateId(input: string) {
+  const s = input.trim();
+  const m = s.match(/canva\.com\/.*?(?:templates?|design)\/([A-Za-z0-9_-]{8,})/) ?? s.match(/^([A-Za-z0-9_-]{8,})$/);
+  return m?.[1] ?? null;
+}
+
 export async function getDesign(token: string, designId: string) {
   const json = await call<{ design: RawDesign }>(token, `/designs/${encodeURIComponent(designId)}`);
   return { title: json.design.title || "Untitled design", editUrl: json.design.urls?.edit_url ?? null };
@@ -150,4 +157,40 @@ export async function exportDesign(token: string, designId: string, format: Canv
     if (!res.ok) throw new Error(`Could not download the Canva export (${res.status}).`);
     return { buffer: Buffer.from(await res.arrayBuffer()), mimeType: MIME[format] };
   }));
+}
+
+/* --------------------------------------------------------------- autofill */
+
+export type TemplateField = { name: string; type: "text" | "image" | "chart" };
+
+/** The fields a brand template lets you fill. Needs the brandtemplate:content:read scope. */
+export async function getTemplateFields(token: string, templateId: string): Promise<TemplateField[]> {
+  const json = await call<{ dataset?: Record<string, { type: TemplateField["type"] }> }>(
+    token, `/brand-templates/${encodeURIComponent(templateId)}/dataset`,
+  );
+  return Object.entries(json.dataset ?? {}).map(([name, f]) => ({ name, type: f.type }));
+}
+
+type AutofillJob = { id: string; status: "in_progress" | "success" | "failed"; result?: { design?: RawDesign }; error?: { message?: string } };
+
+/**
+ * Fills a brand template's text fields and returns the new design. Canva
+ * autofill is an async job, so this polls until it is done. Canva Enterprise
+ * only; an account without it gets Canva's own error back.
+ */
+export async function autofillTemplate(token: string, templateId: string, title: string, text: Record<string, string>) {
+  const data = Object.fromEntries(Object.entries(text).map(([k, v]) => [k, { type: "text", text: v }]));
+  let { job } = await call<{ job: AutofillJob }>(token, "/autofills", {
+    method: "POST",
+    body: JSON.stringify({ brand_template_id: templateId, title: title.slice(0, 255), data }),
+  });
+  const deadline = Date.now() + 60_000;
+  while (job.status === "in_progress") {
+    if (Date.now() > deadline) throw new Error("Canva is still filling the template. Try again in a minute.");
+    await new Promise((r) => setTimeout(r, 1500));
+    ({ job } = await call<{ job: AutofillJob }>(token, `/autofills/${job.id}`));
+  }
+  const design = job.result?.design;
+  if (job.status !== "success" || !design?.id) throw new Error(`Canva autofill failed: ${job.error?.message ?? "unknown error"}`);
+  return toDesign(design);
 }

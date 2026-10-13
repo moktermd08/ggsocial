@@ -32,3 +32,12 @@ export type ReviewRecord = ReviewVerdict | { skipped: string };
 export function isVerdict(r: unknown): r is ReviewVerdict {
   return typeof r === "object" && r !== null && typeof (r as ReviewVerdict).score === "number";
 }
+
+/**
+ * A verdict a person would only rubber-stamp: it reached the brand's pass mark
+ * and raised no risk flag. Nothing here overrides a safety stop; the engine
+ * still pauses whenever it found its own reasons.
+ */
+export function isCleanVerdict(r: unknown, threshold: number): r is ReviewVerdict {
+  return isVerdict(r) && r.flags.length === 0 && r.score >= threshold;
+}

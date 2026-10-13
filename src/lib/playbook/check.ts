@@ -377,10 +377,11 @@ export type TargetCheck = {
  */
 export function checkTargets(rules: EffectiveRule[], post: {
   title: string; body: string; postType?: string | null; scheduledAt?: string | null; timezone: string; media: CheckMedia[];
-  targets: { channelId: string; platform: string; bodyOverride?: string | null; firstComment?: string | null; options?: Record<string, unknown> }[];
+  /** `format`: the format this channel really goes out as (null = none, so the platform's default rule); left out, the post's type decides. */
+  targets: { channelId: string; platform: string; bodyOverride?: string | null; firstComment?: string | null; options?: Record<string, unknown>; format?: string | null }[];
 }): TargetCheck[] {
   return post.targets.map((t) => {
-    const rule = resolveFormat(rules, { platform: t.platform, options: t.options, postType: post.postType, media: post.media });
+    const rule = resolveFormat(rules, { platform: t.platform, options: t.options, postType: t.format !== undefined ? t.format : post.postType, media: post.media });
     if (!rule) return { channelId: t.channelId, platform: t.platform, rule: null, issues: [], checklist: [] };
     const o = t.options ?? {};
     const headline = [o.title, o.subject].find((v) => typeof v === "string" && v.trim()) as string | undefined;

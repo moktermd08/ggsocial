@@ -155,6 +155,10 @@ export const brands = pgTable("brands", {
   imageStyle: text("image_style"),
   /** The Canva folder this brand's designs live in; the Canva import opens there. */
   canvaFolderId: text("canva_folder_id"),
+  /** A Canva brand template the agents fill in (autofill) to make the images a post needs. */
+  canvaTemplateId: text("canva_template_id"),
+  /** The daily tuning applies the posting windows the numbers favour, instead of leaving them to a person. Owner-set. */
+  autoApplyTuning: boolean("auto_apply_tuning").notNull().default(false),
 
   /* --------------------------------------------------- voice & messaging */
   /** Voice/tone notes, approval rules — shown in the composer. */
@@ -630,6 +634,12 @@ export const posts = pgTable("posts", {
   agentCode: text("agent_code"),
   approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  /**
+   * A fingerprint of the words that were approved (post text, each channel's copy
+   * and first comment). If the words change afterwards, the publisher will not
+   * send them: the post goes back to review. null = approved before this existed.
+   */
+  approvedHash: text("approved_hash"),
   createdAt: now(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -688,6 +698,12 @@ export const postTargets = pgTable("post_targets", {
   versionId: text("version_id").references((): AnyPgColumn => postVersions.id, { onDelete: "set null" }),
   /** null = use the post's base body. */
   bodyOverride: text("body_override"),
+  /**
+   * An agent chose this channel's format version (a carousel, a thread) and what
+   * goes out is the version's text, not the override. A person saving their own
+   * copy for the channel turns it off again.
+   */
+  useVersion: boolean("use_version").notNull().default(false),
   firstComment: text("first_comment"),
   /** Platform-specific fields: subreddit, board, YT title/privacy, IG reel vs feed… */
   options: jsonb("options").$type<Record<string, unknown>>().notNull().default({}),
@@ -700,6 +716,10 @@ export const postTargets = pgTable("post_targets", {
   attempts: integer("attempts").notNull().default(0),
   /** Set when a publish run claims the target; a `publishing` row that stays claimed too long was interrupted. */
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  /** The platform says the post is gone (deleted there). Its old numbers no longer count. */
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  /** The last time its numbers were read from the platform; decides when they are due again. */
+  metricsCheckedAt: timestamp("metrics_checked_at", { withTimezone: true }),
   createdAt: now(),
 }, (t) => [
   uniqueIndex("post_targets_post_channel_idx").on(t.postId, t.channelId),
@@ -1276,6 +1296,12 @@ export const workflowStepSettings = pgTable("workflow_step_settings", {
   workflowCode: text("workflow_code").$type<WorkflowCode>().notNull(),
   stepKey: text("step_key").notNull(),
   review: boolean("review").notNull(),
+  /**
+   * Review stays on, but work the reviewer passes cleanly (score at the pass
+   * mark, no risk flag, no safety reason) goes on without waiting for a person.
+   * Only the brand's owner switches it on.
+   */
+  autoApprove: boolean("auto_approve").notNull().default(false),
   /** Why the owner changed it — shown next to the switch and in the log. */
   reason: text("reason"),
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
@@ -1402,6 +1428,25 @@ export const metrics = pgTable("metrics", {
   videoViews: integer("video_views").notNull().default(0),
   raw: jsonb("raw").$type<Record<string, unknown>>().notNull().default({}),
 }, (t) => [index("metrics_target_idx").on(t.targetId, t.fetchedAt)]);
+
+/**
+ * What a brand's own numbers say works, recomputed from its published posts:
+ * "carousels earn 2.1x the usual engagement here". The writer, the strategist
+ * and the format choice read it. Replaced wholesale on each recompute.
+ */
+export const brandLearnings = pgTable("brand_learnings", {
+  id: id(),
+  brandId: text("brand_id").notNull().references(() => brands.id, { onDelete: "cascade" }),
+  /** format | platform_format | pillar | weekday | daypart */
+  dimension: text("dimension").notNull(),
+  key: text("key").notNull(),
+  n: integer("n").notNull(),
+  /** Typical engagement of this group against a typical post on the same platform: 1 = usual. */
+  lift: doublePrecision("lift").notNull(),
+  direction: text("direction").$type<"more" | "less">().notNull(),
+  statement: text("statement").notNull(),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("brand_learnings_brand_idx").on(t.brandId, t.dimension)]);
 
 /* ------------------------------------------------------------ invitations */
 

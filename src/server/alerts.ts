@@ -5,14 +5,15 @@ import { db, activity, brands, memberships, users } from "@/lib/db";
 /**
  * Email to a brand's owners and admins when something needs a person and
  * nobody is watching the screen: a post that ran out of retries, a channel
- * that needs reconnecting, an agent run stopped for a safety reason.
+ * that needs reconnecting, an agent run stopped for a safety reason, work
+ * that has waited too long in the review inbox.
  *
  * Sent through Resend (RESEND_API_KEY, ALERT_FROM). Without a key it does
  * nothing. It never throws, because an alert is never the reason the work it
  * reports on fails. The same alert is not sent twice inside the quiet window.
  */
 
-export type AlertKind = "post_failed" | "post_interrupted" | "channel_reconnect" | "run_stopped";
+export type AlertKind = "post_failed" | "post_interrupted" | "channel_reconnect" | "run_stopped" | "review_waiting" | "approval_stale" | "post_anomaly" | "weekly_report";
 
 export type Alert = {
   brandId: string;
