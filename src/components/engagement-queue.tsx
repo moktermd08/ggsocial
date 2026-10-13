@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle, ArrowUpRight, Check, Clock, Loader2, Plus, Search, Send, Timer, UserRound,
@@ -67,6 +67,11 @@ const SNOOZE_OPTIONS = [
  * work whether it arrived by API or someone pasted it in — and either way the
  * clock on it is the same.
  */
+function subscribeHash(cb: () => void) {
+  window.addEventListener("hashchange", cb);
+  return () => window.removeEventListener("hashchange", cb);
+}
+
 export function EngagementQueue({
   items, brands, canEdit, now,
 }: {
@@ -80,6 +85,10 @@ export function EngagementQueue({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  // Arriving from the dashboard with #i-<id>: that row starts open so the reply box is ready.
+  const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => "");
+  const fromLink = hash.startsWith("#i-") ? hash.slice(3) : null;
+  const openId = open ?? fromLink;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showLog, setShowLog] = useState(false);
 
@@ -214,22 +223,23 @@ export function EngagementQueue({
       ) : (
         <div className="space-y-2">
           {visible.map((item) => (
+            <div key={item.id} id={`i-${item.id}`} className="scroll-mt-20 rounded-xl target:ring-2 target:ring-accent">
             <QueueRow
-              key={item.id}
               item={item}
               now={now}
               canEdit={canEdit}
               pending={pending}
-              expanded={open === item.id}
+              expanded={openId === item.id}
               checked={selected.has(item.id)}
               onCheck={(on) => setSelected((s) => {
                 const next = new Set(s);
                 if (on) next.add(item.id); else next.delete(item.id);
                 return next;
               })}
-              onToggle={() => setOpen(open === item.id ? null : item.id)}
+              onToggle={() => setOpen(openId === item.id ? "" : item.id)}
               onRun={run}
             />
+            </div>
           ))}
         </div>
       )}

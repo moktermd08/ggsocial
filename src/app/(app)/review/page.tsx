@@ -64,7 +64,7 @@ export default async function ReviewPage() {
     const proposed = Array.isArray(item.step.output?.ideas) ? (item.step.output.ideas as ProposedIdea[]) : null;
 
     return (
-      <li key={item.step.id} className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <li key={item.step.id} id={`s-${item.step.id}`} className="grid scroll-mt-20 gap-3 px-4 py-4 target:bg-accent-soft md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <Badge color={meta.color}>{meta.label}</Badge>

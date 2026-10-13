@@ -458,6 +458,21 @@ export async function approveCleanPauses(brandIds: string[], userId: string) {
 }
 
 /**
+ * Approves one review from the dashboard. Only work the reviewer passed cleanly
+ * qualifies, checked here against the brand's pass mark rather than trusted
+ * from the page: a flagged or low-scoring item must be read in the inbox.
+ */
+export async function approveCleanStep(stepId: string, userId: string) {
+  const row = await db.query.workflowRunSteps.findFirst({ where: eq(workflowRunSteps.id, stepId) });
+  if (!row?.pause || row.decision) throw new Error("This is no longer waiting for a decision.");
+  const brand = await db.query.brands.findFirst({ where: eq(brands.id, row.brandId), columns: { reviewThreshold: true } });
+  if (row.pause.kind !== "review" || !isCleanVerdict(row.output?.review, brand?.reviewThreshold ?? 75)) {
+    throw new Error("The reviewer flagged something here. Open it and read it before approving.");
+  }
+  return decide({ stepId, decision: "approve", note: "Approved from the dashboard: the reviewer passed it cleanly.", userId });
+}
+
+/**
  * The same decision made somewhere other than the inbox — a post approved or
  * sent back on its own page. Keeps the run in step with what the person did.
  */

@@ -5,7 +5,7 @@ import { asResult } from "@/lib/action-result";
 import { db, activity, brands, workflowRunSteps } from "@/lib/db";
 import { requireBrandRole, requireUser, getMyBrands, can } from "@/lib/auth";
 import { isWorkflowCode, stepDef } from "@/lib/workflows/meta";
-import { approveCleanPauses, decide, setStepAutoApprove, setStepReview, type Decision } from "@/server/workflows";
+import { approveCleanPauses, approveCleanStep, decide, setStepAutoApprove, setStepReview, type Decision } from "@/server/workflows";
 
 const DECISIONS: Decision[] = ["approve", "send_back", "reject", "done"];
 
@@ -24,6 +24,19 @@ export async function decideStepAction(input: { stepId: string; decision: string
       throw new Error(row.pause.kind === "human" ? "You need editor access to do this." : "You need approver or admin access to decide this.");
     }
     const message = await decide({ stepId: row.id, decision: input.decision as Decision, note: input.note ?? null, userId: user.id });
+    revalidatePath("/", "layout");
+    return { message };
+  });
+}
+
+/** Approve one reviewer-clean item straight from the dashboard. Needs approver access, like the inbox. */
+export async function approveStepAction(input: { stepId: string }) {
+  return asResult(async () => {
+    const row = await db.query.workflowRunSteps.findFirst({ where: eq(workflowRunSteps.id, input.stepId) });
+    if (!row?.pause) throw new Error("This is no longer waiting for a decision.");
+    const { user, role } = await requireBrandRole(row.brandId, "viewer");
+    if (!can.approve(role)) throw new Error("You need approver or admin access to approve this.");
+    const message = await approveCleanStep(row.id, user.id);
     revalidatePath("/", "layout");
     return { message };
   });
