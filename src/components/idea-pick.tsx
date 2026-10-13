@@ -26,19 +26,19 @@ export type PickIdea = {
   pinned: boolean;
 };
 
-type Ctx = { open: (ideaId: string, day?: string | null) => void };
+type Ctx = { open: (ideaId: string, day?: string | null, time?: string | null) => void };
 const PickContext = createContext<Ctx>({ open: () => {} });
 export const useIdeaPick = () => useContext(PickContext);
 
 export function IdeaPickProvider({ ideas, aiReady, children }: { ideas: PickIdea[]; aiReady: boolean; children: ReactNode }) {
-  const [target, setTarget] = useState<{ ideaId: string; day: string | null } | null>(null);
-  const value = useMemo<Ctx>(() => ({ open: (ideaId, day) => setTarget({ ideaId, day: day ?? null }) }), []);
+  const [target, setTarget] = useState<{ ideaId: string; day: string | null; time: string | null } | null>(null);
+  const value = useMemo<Ctx>(() => ({ open: (ideaId, day, time) => setTarget({ ideaId, day: day ?? null, time: time ?? null }) }), []);
   const idea = target ? ideas.find((i) => i.id === target.ideaId) : null;
   return (
     <PickContext.Provider value={value}>
       {children}
       {target && idea && (
-        <PickDialog key={target.ideaId + (target.day ?? "")} idea={idea} day={target.day ?? idea.day} aiReady={aiReady} onClose={() => setTarget(null)} />
+        <PickDialog key={target.ideaId + (target.day ?? "") + (target.time ?? "")} idea={idea} day={target.day ?? idea.day} time={target.time} aiReady={aiReady} onClose={() => setTarget(null)} />
       )}
     </PickContext.Provider>
   );
@@ -48,10 +48,10 @@ function tomorrow() {
   return new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 }
 
-function PickDialog({ idea, day: initialDay, aiReady, onClose }: { idea: PickIdea; day: string | null; aiReady: boolean; onClose: () => void }) {
+function PickDialog({ idea, day: initialDay, time: initialTime, aiReady, onClose }: { idea: PickIdea; day: string | null; time: string | null; aiReady: boolean; onClose: () => void }) {
   const router = useRouter();
   const [day, setDay] = useState(initialDay ?? tomorrow());
-  const [time, setTime] = useState("");
+  const [time, setTime] = useState(initialTime ?? "");
   const [chosen, setChosen] = useState(new Set(idea.brands.map((b) => b.id)));
   const [write, setWrite] = useState(false);
   const [error, setError] = useState<string | null>(null);

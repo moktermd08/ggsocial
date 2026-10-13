@@ -5,6 +5,7 @@ import type { EffectiveRule } from "@/lib/playbook/check";
 import { openSlots } from "@/lib/agents/slots";
 import { fromLocalInput, toLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
+import { parsePin } from "@/lib/pin";
 import { getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
 import { pillarLifts } from "@/server/performance";
@@ -166,8 +167,9 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const usual = resolveSchedule({ postRule: postRule?.limits }).times[0];
   const plan: { candidate: (typeof candidates)[number]; slot: Date; pinned: boolean }[] = [];
   for (const c of candidates) {
-    if (!c.plannedFor || c.plannedFor < tomorrow || c.plannedFor > lastDay) continue;
-    const slot = fromLocalInput(`${c.plannedFor}T${usual}`, brand.timezone);
+    const pin = parsePin(c.plannedFor);
+    if (!pin || pin.day < tomorrow || pin.day > lastDay) continue;
+    const slot = fromLocalInput(`${pin.day}T${pin.time ?? usual}`, brand.timezone);
     if (slot) plan.push({ candidate: c, slot, pinned: true });
   }
   const pinnedIds = new Set(plan.map((p) => p.candidate.id));

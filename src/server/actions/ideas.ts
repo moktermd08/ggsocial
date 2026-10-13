@@ -8,6 +8,7 @@ import { ideaAccess, ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/s
 import { requireUser, requireBrandRole, getMembership, can } from "@/lib/auth";
 import { fromLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
+import { formatPin } from "@/lib/pin";
 import { getBrandPlaybook } from "@/server/playbook";
 
 export type IdeaInput = {
@@ -210,14 +211,15 @@ export async function pickIdeaOnCalendarAction(input: { ideaId: string; brandIds
  * drafts yet. The calendar forecast shows it there and the content writer books
  * it for that day. null clears the pin.
  */
-export async function pinIdeaToDayAction(ideaId: string, day: string | null) {
+export async function pinIdeaToDayAction(ideaId: string, day: string | null, time?: string | null) {
   return asResult(async () => {
     const { idea } = await requireIdea(ideaId, "edit");
     if (day !== null) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Pick a day.");
+      if (time && !/^\d{1,2}:\d{2}$/.test(time)) throw new Error("The time looks like 09:30.");
       if (day < new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)) throw new Error("That day has already passed.");
     }
-    await db.update(contentIdeas).set({ plannedFor: day, updatedAt: new Date() }).where(eq(contentIdeas.id, idea.id));
+    await db.update(contentIdeas).set({ plannedFor: day === null ? null : formatPin(day, time), updatedAt: new Date() }).where(eq(contentIdeas.id, idea.id));
     revalidatePath("/calendar");
     revalidatePath("/ideas");
   });

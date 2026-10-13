@@ -4,6 +4,7 @@ import { db, brandAgents, posts } from "@/lib/db";
 import { openSlots } from "@/lib/agents/slots";
 import { fromLocalInput, toLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
+import { parsePin } from "@/lib/pin";
 import { getBrandPlaybooks } from "@/server/playbook";
 import { goalPostsPerWeek } from "@/server/agents/writer";
 import { unbookedIdeas } from "@/server/ideas";
@@ -66,10 +67,11 @@ export async function projectIdeas(args: {
     // that has passed no longer counts.
     const tomorrow = toLocalInput(new Date(now.getTime() + DAY), brand.timezone).slice(0, 10);
     const usual = resolveSchedule({ postRule: rule?.limits }).times[0];
-    const pins = queue.filter((q) => q.idea.plannedFor && q.idea.plannedFor >= tomorrow);
+    const pins = queue.filter((q) => { const pin = parsePin(q.idea.plannedFor); return pin && pin.day >= tomorrow; });
     const pinnedTimes: Date[] = [];
     for (const item of pins) {
-      const at = fromLocalInput(`${item.idea.plannedFor}T${usual}`, brand.timezone);
+      const pin = parsePin(item.idea.plannedFor)!;
+      const at = fromLocalInput(`${pin.day}T${pin.time ?? usual}`, brand.timezone);
       if (!at) continue;
       pinnedTimes.push(at);
       push(item, at, true);

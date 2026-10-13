@@ -10,6 +10,10 @@ import { IdeaCard, IdeaPickProvider, type PickIdea } from "@/components/idea-pic
 import { db, posts, postVersions } from "@/lib/db";
 import { CalendarGrid, type CalendarItem } from "@/components/calendar-grid";
 import { CalendarAgenda } from "@/components/calendar-agenda";
+import { CalendarDay, type DaySlot } from "@/components/calendar-day";
+import { getBrandChannels } from "@/server/queries";
+import { getBrandPlaybooks } from "@/server/playbook";
+import { scheduleFor } from "@/server/schedule";
 import { LinkButton, PageHeader, buttonClass } from "@/components/ui";
 import { truncate } from "@/lib/format";
 import { FORMAT_META, isFormat } from "@/lib/formats";
@@ -149,6 +153,22 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     id: idea.id, title: idea.title || idea.problem, status: idea.status, pillar: idea.pillar,
     brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null, pinned: Boolean(idea.plannedFor),
   }));
+  // The day view: every time a channel may post that day, from the channels' own schedules.
+  const daySlots: DaySlot[] = [];
+  if (dayView) {
+    const weekday = new Date(`${selected}T00:00:00Z`).getUTCDay();
+    const [chans, books] = await Promise.all([getBrandChannels(scope.brandIds), getBrandPlaybooks(scope.brandIds)]);
+    for (const c of chans) {
+      const brand = brandById.get(c.brandId);
+      if (!brand) continue;
+      const sch = scheduleFor(c, books.get(c.brandId) ?? [], null);
+      if (sch.days && !sch.days.has(weekday)) continue;
+      for (const t of sch.times) {
+        const slot = daySlots.find((x) => x.time === t) ?? (daySlots.push({ time: t, channels: [] }), daySlots[daySlots.length - 1]);
+        slot.channels.push({ id: c.id, platform: c.platform, brandName: brand.name, brandColor: brand.color });
+      }
+    }
+  }
   const all = [...items, ...forecast].filter((i) => !dayView || i.day === selected);
   const visible = all.filter((i) => inFilter(filter, i.status, i.action, i.projected));
   const counts = Object.fromEntries(CALENDAR_FILTERS.map((f) => [f.key, all.filter((i) => inFilter(f.key, i.status, i.action, i.projected)).length])) as Record<CalendarFilter, number>;
@@ -229,7 +249,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
         {dayView
-          ? <CalendarAgenda items={visible} timezone={timezone} onlyDay={selected} />
+          ? <CalendarDay day={selected} items={visible} slots={daySlots} timezone={timezone} />
           : agenda
           ? <CalendarAgenda items={visible} timezone={timezone} />
           : <CalendarGrid days={days} items={visible} timezone={timezone} tall={week} />}
