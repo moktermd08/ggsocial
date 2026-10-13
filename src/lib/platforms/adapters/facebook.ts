@@ -92,14 +92,21 @@ export const facebook: Platform = {
     }
 
     const id = String(result.post_id ?? result.id);
+    // The post is live. A comment that cannot be added must not turn into a failure,
+    // or the retry would post it a second time.
+    let note: string | undefined;
     if (ctx.firstComment) {
-      await apiFetch(`${GRAPH}/${id}/comments`, {
-        label: "Facebook first comment",
-        method: "POST",
-        body: new URLSearchParams({ message: ctx.firstComment, access_token: token }),
-      });
+      try {
+        await apiFetch(`${GRAPH}/${id}/comments`, {
+          label: "Facebook first comment",
+          method: "POST",
+          body: new URLSearchParams({ message: ctx.firstComment, access_token: token }),
+        });
+      } catch (err) {
+        note = `Posted, but the first comment could not be added: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
-    return { externalId: id, externalUrl: `https://www.facebook.com/${id}` };
+    return { externalId: id, externalUrl: `https://www.facebook.com/${id}`, note };
   },
   fetchMetrics: async ({ externalPostId, credentials }) => {
     const token = credentials?.accessToken;

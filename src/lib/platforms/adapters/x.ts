@@ -74,24 +74,33 @@ export const x: Platform = {
 
     let replyTo: string | undefined;
     let firstId = "";
+    let cutNote: string | undefined;
     for (const [i, text] of parts.entries()) {
-      const res = await apiFetch(`${API}/tweets`, {
-        label: "X post",
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          ...(i === 0 && mediaIds.length ? { media: { media_ids: mediaIds } } : {}),
-          ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}),
-          ...(i === 0 && ctx.options.replySettings && ctx.options.replySettings !== "everyone"
-            ? { reply_settings: String(ctx.options.replySettings) } : {}),
-        }),
-      });
+      let res: Record<string, unknown>;
+      try {
+        res = await apiFetch(`${API}/tweets`, {
+          label: "X post",
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            ...(i === 0 && mediaIds.length ? { media: { media_ids: mediaIds } } : {}),
+            ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}),
+            ...(i === 0 && ctx.options.replySettings && ctx.options.replySettings !== "everyone"
+              ? { reply_settings: String(ctx.options.replySettings) } : {}),
+          }),
+        });
+      } catch (err) {
+        // Part one is live. Throwing now would make the retry post it again from the top.
+        if (i === 0) throw err;
+        cutNote = `The thread stopped after part ${i} of ${parts.length}: ${err instanceof Error ? err.message : String(err)}. Post the rest by hand.`;
+        break;
+      }
       const id = String((res.data as { id: string }).id);
       if (i === 0) firstId = id;
       replyTo = id;
     }
-    return { externalId: firstId, externalUrl: `https://x.com/${ctx.channel.handle.replace(/^@/, "")}/status/${firstId}` };
+    return { externalId: firstId, externalUrl: `https://x.com/${ctx.channel.handle.replace(/^@/, "")}/status/${firstId}`, note: cutNote };
   },
   fetchMetrics: async ({ externalPostId, credentials }) => {
     const token = credentials?.accessToken;

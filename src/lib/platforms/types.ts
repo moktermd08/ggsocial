@@ -204,6 +204,31 @@ export class NotConnectedError extends Error {
   }
 }
 
+/**
+ * A platform said no. Carries the HTTP status and, when the platform sent one,
+ * how long it asked us to wait, so the publisher can tell "slow down" (try
+ * again later) from "this will never work" and from "we cannot tell if it landed".
+ */
+export class PlatformError extends Error {
+  status: number;
+  retryAfterMs?: number;
+  constructor(message: string, status: number, retryAfterMs?: number) {
+    super(message);
+    this.name = "PlatformError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** A Retry-After header: seconds, or an HTTP date. */
+function retryAfter(header: string | null) {
+  if (!header) return undefined;
+  const secs = Number(header);
+  if (Number.isFinite(secs)) return Math.max(0, secs) * 1000;
+  const at = Date.parse(header);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
 export async function apiFetch(url: string, init: RequestInit & { label: string }): Promise<Record<string, unknown>> {
   const { label, ...rest } = init;
   const res = await fetch(url, rest);
@@ -212,7 +237,7 @@ export async function apiFetch(url: string, init: RequestInit & { label: string 
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
   if (!res.ok) {
     const detail = typeof json === "object" && json ? JSON.stringify(json).slice(0, 400) : text.slice(0, 400);
-    throw new Error(`${label} failed (${res.status}): ${detail}`);
+    throw new PlatformError(`${label} failed (${res.status}): ${detail}`, res.status, retryAfter(res.headers.get("retry-after")));
   }
   return (json ?? {}) as Record<string, unknown>;
 }

@@ -130,7 +130,8 @@ export function validateTarget(args: {
   const c = p.constraints;
   const issues: ValidationIssue[] = [];
 
-  if (args.body.length > c.textMax) {
+  // A thread is a run of posts; the platform's own check holds each part to the limit.
+  if (args.body.length > c.textMax && !args.options.thread) {
     issues.push({ level: "error", message: `${args.body.length} characters — ${p.name} allows ${c.textMax}.` });
   }
   if (c.requiresMedia && args.media.length < Math.max(1, c.mediaMin)) {
