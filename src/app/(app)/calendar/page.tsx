@@ -5,6 +5,8 @@ import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getCalendarPosts } from "@/server/queries";
 import { projectIdeas } from "@/server/projection";
+import { draftingConfigured } from "@/server/drafting";
+import { IdeaCard, IdeaPickProvider, type PickIdea } from "@/components/idea-pick";
 import { db, posts, postVersions } from "@/lib/db";
 import { CalendarGrid, type CalendarItem } from "@/components/calendar-grid";
 import { CalendarAgenda } from "@/components/calendar-agenda";
@@ -127,6 +129,12 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     action: p.status === "planned" ? "Idea · planned" : "Idea · backlog",
     projected: true, href: "/ideas", canEdit: false,
   }));
+  const firstDay = new Map<string, string>();
+  for (const f of [...forecast].sort((a, b) => (a.day + a.time).localeCompare(b.day + b.time))) if (!firstDay.has(f.id)) firstDay.set(f.id, f.day);
+  const pickIdeas: PickIdea[] = ideas.waiting.map(({ idea, missing }) => ({
+    id: idea.id, title: idea.title || idea.problem, status: idea.status, pillar: idea.pillar,
+    brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null,
+  }));
   const all = [...items, ...forecast];
   const visible = all.filter((i) => inFilter(filter, i.status, i.action, i.projected));
   const counts = Object.fromEntries(CALENDAR_FILTERS.map((f) => [f.key, all.filter((i) => inFilter(f.key, i.status, i.action, i.projected)).length])) as Record<CalendarFilter, number>;
@@ -154,7 +162,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   };
 
   return (
-    <>
+    <IdeaPickProvider ideas={pickIdeas} aiReady={draftingConfigured()}>
       <PageHeader
         icon={CalendarDays}
         title={label}
@@ -207,22 +215,10 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-muted">Ideas waiting ({ideas.waiting.length})</h2>
           {ideas.waiting.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted">Every idea in the plan is on the calendar.</p>
-          ) : ideas.waiting.slice(0, 12).map(({ idea, missing }) => (
-            <Link key={idea.id} href="/ideas" className="block rounded-lg border border-dashed border-border bg-surface p-2.5 text-xs hover:bg-surface-2">
-              <p className="line-clamp-2 font-medium">{idea.title || idea.problem}</p>
-              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-muted">
-                <span>{idea.status === "planned" ? "Planned" : idea.status === "drafting" ? "Drafting" : "Backlog"}{idea.pillar ? ` · ${idea.pillar}` : ""}</span>
-              </p>
-              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                {missing.slice(0, 3).map((b) => (
-                  <span key={b.id} className="inline-flex items-center gap-1"><span className="size-2 rounded-full" style={{ background: b.color }} />{b.name}</span>
-                ))}
-                {missing.length > 3 && <span>+{missing.length - 3} more</span>}
-              </p>
-            </Link>
-          ))}
+          ) : pickIdeas.slice(0, 12).map((idea) => <IdeaCard key={idea.id} idea={idea} />)}
+          {pickIdeas.length > 0 && <p className="text-[11px] text-muted">Click an idea, or drag it onto a day, to put it on the calendar.</p>}
         </aside>
       </div>
-    </>
+    </IdeaPickProvider>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PlatformIcon } from "./platform-icon";
 import { STATUS_META } from "@/lib/format";
 import { tintedInk } from "@/lib/color";
+import { IDEA_DRAG_TYPE, useIdeaPick } from "./idea-pick";
 import { reschedulePostAction } from "@/server/actions/posts";
 import type { PostStatus } from "@/lib/db";
 
@@ -37,6 +38,7 @@ export function CalendarGrid({
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const pick = useIdeaPick();
 
   const drop = (day: string) => {
     const item = items.find((i) => i.id === dragging);
@@ -64,7 +66,11 @@ export function CalendarGrid({
               key={d.date}
               onDragOver={(e) => { e.preventDefault(); setOver(d.date); }}
               onDragLeave={() => setOver((o) => (o === d.date ? null : o))}
-              onDrop={() => drop(d.date)}
+              onDrop={(e) => {
+                const ideaId = e.dataTransfer.getData(IDEA_DRAG_TYPE);
+                if (ideaId) { e.preventDefault(); setOver(null); if (d.date >= new Date().toISOString().slice(0, 10)) pick.open(ideaId, d.date); return; }
+                drop(d.date);
+              }}
               className={`min-h-28 border-b border-r border-border p-1.5 last:border-r-0 ${
                 d.inMonth ? "" : "bg-surface-2/50"
               } ${over === d.date ? "bg-accent-soft" : ""}`}
@@ -88,6 +94,7 @@ export function CalendarGrid({
                   <Link
                     key={`${item.id}-${item.time}-${n}`}
                     href={item.href ?? `/posts/${item.id}`}
+                    onClick={(e) => { if (item.projected) { e.preventDefault(); pick.open(item.id, item.day); } }}
                     draggable={item.canEdit && !item.projected}
                     onDragStart={() => setDragging(item.id)}
                     onDragEnd={() => setDragging(null)}

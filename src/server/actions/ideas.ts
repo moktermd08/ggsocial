@@ -6,6 +6,9 @@ import { db, contentIdeas, ideaVersions, posts, activity, brands, type IdeaStatu
 import { ideaColumns, ideaValues, type IdeaField, type IdeaValues } from "@/lib/ideas";
 import { ideaAccess, ideaForBrand, syncIdeaVersion, syncIdeaVersions } from "@/server/ideas";
 import { requireUser, requireBrandRole, getMembership, can } from "@/lib/auth";
+import { fromLocalInput } from "@/lib/format";
+import { resolveSchedule } from "@/lib/posting-schedule";
+import { getBrandPlaybook } from "@/server/playbook";
 
 export type IdeaInput = {
   ideaId?: string;
@@ -165,6 +168,40 @@ export async function fanOutIdeaAction(ideaId: string, brandIds: string[]) {
     revalidatePath("/posts");
     // Ids, not just a count: the board drafts each one next, one request apiece.
     return { created: created.length, createdPostIds: created, skipped };
+  });
+}
+
+/**
+ * Picking an idea on the calendar: a draft for each chosen brand, dated on the
+ * chosen day at the time given, or else at the brand's own first posting time.
+ * The drafts are then written by hand or by Claude as usual.
+ */
+export async function pickIdeaOnCalendarAction(input: { ideaId: string; brandIds: string[]; day: string; time?: string | null }) {
+  return asResult(async () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.day)) throw new Error("Pick a day.");
+    if (input.time && !/^\d{1,2}:\d{2}$/.test(input.time)) throw new Error("The time looks like 09:30.");
+    const brandRows = input.brandIds.length ? await db.select().from(brands).where(inArray(brands.id, input.brandIds)) : [];
+
+    // Work out each brand's moment first, so nothing is created for a time that has passed.
+    const at = new Map<string, Date>();
+    for (const b of brandRows) {
+      const time = input.time?.padStart(5, "0")
+        ?? resolveSchedule({ postRule: (await getBrandPlaybook(b.id)).find((r) => r.code === "post" && r.enabled)?.limits }).times[0];
+      const when = fromLocalInput(`${input.day}T${time}`, b.timezone);
+      if (!when) throw new Error("Could not read that date and time.");
+      if (when.getTime() < Date.now()) throw new Error(`${b.name}: ${input.day} ${time} has already passed. Pick a later day or time.`);
+      at.set(b.id, when);
+    }
+
+    const res = await fanOutIdeaAction(input.ideaId, input.brandIds);
+    if (!res.ok) throw new Error(res.error);
+    for (const postId of res.createdPostIds) {
+      const post = await db.query.posts.findFirst({ where: eq(posts.id, postId), columns: { brandId: true } });
+      const when = post && at.get(post.brandId);
+      if (when) await db.update(posts).set({ scheduledAt: when, updatedAt: new Date() }).where(eq(posts.id, postId));
+    }
+    revalidatePath("/calendar");
+    return { createdPostIds: res.createdPostIds, skipped: res.skipped };
   });
 }
 
