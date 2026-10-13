@@ -38,14 +38,15 @@ function localParts(at: Date, zone: string) {
   return { day: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour") === "24" ? "00" : get("hour")}:${get("minute")}` };
 }
 
-export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ m?: string; w?: string; show?: string; view?: string }> }) {
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ m?: string; w?: string; d?: string; show?: string; view?: string }> }) {
   const user = await requireUser();
   const brands = await getMyBrands(user.id);
   const scope = await getScope(brands);
-  const { m, w, show, view } = await searchParams;
+  const { m, w, d, show, view } = await searchParams;
   const filter: CalendarFilter = CALENDAR_FILTERS.some((f) => f.key === show) ? (show as CalendarFilter) : "all";
   const agenda = view === "agenda";
   const week = view === "week";
+  const dayView = view === "day";
 
   const now = new Date();
   const [y, mo] = m ? m.split("-").map(Number) : [now.getUTCFullYear(), now.getUTCMonth() + 1];
@@ -56,6 +57,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const anchor = w && /^\d{4}-\d{2}-\d{2}$/.test(w) ? new Date(`${w}T00:00:00Z`) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const weekStart = new Date(anchor.getTime() - ((anchor.getUTCDay() + 6) % 7) * 86400_000);
   const todayKey = now.toISOString().slice(0, 10);
+  // The day view shows the one day `d` (today when absent); its data window is padded a day each side for timezones.
+  const selected = d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey;
   const days = week
     ? Array.from({ length: 7 }, (_, i) => {
         const d = new Date(weekStart.getTime() + i * 86400_000);
@@ -63,8 +66,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         return { date: key, inMonth: true, isToday: key === todayKey, label: String(d.getUTCDate()) };
       })
     : monthGrid(year, month);
-  const from = new Date(`${days[0].date}T00:00:00Z`);
-  const to = new Date(`${days[days.length - 1].date}T23:59:59Z`);
+  const from = dayView ? new Date(Date.parse(`${selected}T00:00:00Z`) - 86400_000) : new Date(`${days[0].date}T00:00:00Z`);
+  const to = dayView ? new Date(Date.parse(`${selected}T23:59:59Z`) + 86400_000) : new Date(`${days[days.length - 1].date}T23:59:59Z`);
   const [dated, undated, ideas] = await Promise.all([
     getCalendarPosts(scope.brandIds, from, to),
     // Work with no date yet: it belongs on the calendar's to-do side, not nowhere.
@@ -146,7 +149,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     id: idea.id, title: idea.title || idea.problem, status: idea.status, pillar: idea.pillar,
     brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null, pinned: Boolean(idea.plannedFor),
   }));
-  const all = [...items, ...forecast];
+  const all = [...items, ...forecast].filter((i) => !dayView || i.day === selected);
   const visible = all.filter((i) => inFilter(filter, i.status, i.action, i.projected));
   const counts = Object.fromEntries(CALENDAR_FILTERS.map((f) => [f.key, all.filter((i) => inFilter(f.key, i.status, i.action, i.projected)).length])) as Record<CalendarFilter, number>;
 
@@ -159,21 +162,26 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
   const fmtDay = (d: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(d);
   const weekEnd = new Date(weekStart.getTime() + 6 * 86400_000);
-  const label = week
+  const label = dayView
+    ? fmtDay(new Date(`${selected}T00:00:00Z`), { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : week
     ? `${fmtDay(weekStart, { day: "numeric", ...(weekStart.getUTCMonth() === weekEnd.getUTCMonth() ? {} : { month: "short" }) })}–${fmtDay(weekEnd, { day: "numeric", month: "long", year: "numeric" })}`
     : fmtDay(new Date(Date.UTC(year, month, 1)), { month: "long", year: "numeric" });
   const dayKey = (d: Date) => d.toISOString().slice(0, 10);
   const prevWeek = dayKey(new Date(weekStart.getTime() - 7 * 86400_000));
   const nextWeek = dayKey(new Date(weekStart.getTime() + 7 * 86400_000));
+  const prevDay = dayKey(new Date(Date.parse(`${selected}T00:00:00Z`) - 86400_000));
+  const nextDay = dayKey(new Date(Date.parse(`${selected}T00:00:00Z`) + 86400_000));
   const prev = new Date(Date.UTC(year, month - 1, 1));
   const next = new Date(Date.UTC(year, month + 1, 1));
   const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-  const href = (over: { m?: string; w?: string; show?: string; view?: string }) => {
+  const href = (over: { m?: string; w?: string; d?: string; show?: string; view?: string }) => {
     const q = new URLSearchParams();
-    const pick = (k: "m" | "w" | "show" | "view", cur: string | undefined) => (over[k] !== undefined ? over[k] : cur);
-    const mm = pick("m", m); const ww = pick("w", w); const ss = pick("show", filter); const vv = pick("view", agenda ? "agenda" : week ? "week" : "");
+    const pick = (k: "m" | "w" | "d" | "show" | "view", cur: string | undefined) => (over[k] !== undefined ? over[k] : cur);
+    const mm = pick("m", m); const ww = pick("w", w); const dd = pick("d", d); const ss = pick("show", filter); const vv = pick("view", agenda ? "agenda" : week ? "week" : dayView ? "day" : "");
     if (mm) q.set("m", mm);
     if (ww) q.set("w", ww);
+    if (dd) q.set("d", dd);
     if (ss && ss !== "all") q.set("show", ss);
     if (vv) q.set("view", vv);
     const str = q.toString();
@@ -189,13 +197,14 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         action={
           <div className="flex items-center gap-2">
             <div className="flex overflow-hidden rounded-lg border border-border text-xs">
-              <Link href={href({ view: "", w: "" })} className={`px-2.5 py-1 ${!agenda && !week ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Month</Link>
-              <Link href={href({ view: "week" })} className={`px-2.5 py-1 ${week ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Week</Link>
-              <Link href={href({ view: "agenda" })} className={`px-2.5 py-1 ${agenda ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Agenda</Link>
+              <Link href={href({ view: "", w: "", d: "" })} className={`px-2.5 py-1 ${!agenda && !week && !dayView ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Month</Link>
+              <Link href={href({ view: "week", d: "" })} className={`px-2.5 py-1 ${week ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Week</Link>
+              <Link href={href({ view: "day" })} className={`px-2.5 py-1 ${dayView ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Day</Link>
+              <Link href={href({ view: "agenda", d: "" })} className={`px-2.5 py-1 ${agenda ? "bg-accent-soft font-medium" : "hover:bg-surface-2"}`}>Agenda</Link>
             </div>
-            <Link href={week ? href({ w: prevWeek }) : href({ m: key(prev) })} className={buttonClass("subtle", "sm")}><ChevronLeft className="size-4" /></Link>
-            <Link href={href({ m: "", w: "" })} className={buttonClass("subtle", "sm")}>Today</Link>
-            <Link href={week ? href({ w: nextWeek }) : href({ m: key(next) })} className={buttonClass("subtle", "sm")}><ChevronRight className="size-4" /></Link>
+            <Link href={dayView ? href({ d: prevDay }) : week ? href({ w: prevWeek }) : href({ m: key(prev) })} className={buttonClass("subtle", "sm")}><ChevronLeft className="size-4" /></Link>
+            <Link href={href({ m: "", w: "", d: "" })} className={buttonClass("subtle", "sm")}>Today</Link>
+            <Link href={dayView ? href({ d: nextDay }) : week ? href({ w: nextWeek }) : href({ m: key(next) })} className={buttonClass("subtle", "sm")}><ChevronRight className="size-4" /></Link>
             <LinkButton href="/posts/new" variant="primary" size="sm">New post</LinkButton>
           </div>
         }
@@ -219,7 +228,9 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
-        {agenda
+        {dayView
+          ? <CalendarAgenda items={visible} timezone={timezone} onlyDay={selected} />
+          : agenda
           ? <CalendarAgenda items={visible} timezone={timezone} />
           : <CalendarGrid days={days} items={visible} timezone={timezone} tall={week} />}
         <aside className="space-y-2">

@@ -10,14 +10,15 @@ import { DayDrop, PickEntry } from "./idea-pick";
  * someone. Today onwards, grouped by day. An idea's forecast entry opens the
  * picker; everything else opens its post.
  */
-export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; timezone: string }) {
+export function CalendarAgenda({ items, timezone, onlyDay }: { items: CalendarItem[]; timezone: string; onlyDay?: string }) {
   const today = new Date().toISOString().slice(0, 10);
-  const upcoming = items.filter((i) => i.day >= today).sort((a, b) => (a.day + a.time).localeCompare(b.day + b.time));
+  const upcoming = items.filter((i) => (onlyDay ? i.day === onlyDay : i.day >= today)).sort((a, b) => (a.day + a.time).localeCompare(b.day + b.time));
   const byDay = new Map<string, CalendarItem[]>();
   for (const i of upcoming) byDay.set(i.day, [...(byDay.get(i.day) ?? []), i]);
 
   // The next two weeks always show, so an idea can be dropped on a day with nothing in it yet.
-  for (let n = 0; n < 14; n++) {
+  if (onlyDay && !byDay.has(onlyDay)) byDay.set(onlyDay, []);
+  for (let n = 0; n < (onlyDay ? 0 : 14); n++) {
     const d = new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
     if (!byDay.has(d)) byDay.set(d, []);
   }
@@ -25,7 +26,7 @@ export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; tim
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] text-muted">Drag an idea (dashed purple) to another day to pin it there.</p>
+      {!onlyDay && <p className="text-[11px] text-muted">Drag an idea (dashed purple) to another day to pin it there.</p>}
       {days.map(([day, list]) => (
         <DayDrop key={day} day={day}>
           <h2 className="mb-1.5 text-xs font-semibold text-muted">
@@ -33,7 +34,7 @@ export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; tim
             {day === today ? " · today" : ""}
           </h2>
           {list.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted">Nothing planned. Drop an idea here.</p>
+            <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted">{onlyDay ? "Nothing planned for this day." : "Nothing planned. Drop an idea here."}</p>
           ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {list.map((i, n) => {
