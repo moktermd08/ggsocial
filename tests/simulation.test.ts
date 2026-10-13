@@ -67,6 +67,10 @@ const fakeClaude = vi.hoisted(() => async (args: any) => {
       sim.prompts.push({ kind: "community", system, task });
       const ids = [...task.matchAll(/- id: (\S+)/g)].map((m) => m[1]);
       parsed = { replies: ids.map((id) => ({ id, reply: "Thanks for the note, we are on it.", sentiment: "neutral", priority: "normal", handToPerson: false, note: "" })) };
+    } else if (schema.includes('"angle"') && schema.includes('"outcome"')) {
+      sim.prompts.push({ kind: "adapt", system, task });
+      const who = /Brand: (.+)/.exec(task)?.[1]?.trim() ?? "brand";
+      parsed = { angle: "Angle for " + who, title: "Take for " + who, problem: "[" + who + "] " + (/Problem: (.+)/.exec(task)?.[1] ?? "a problem"), action: "Do it the " + who + " way", outcome: "Result in " + who + " terms", tone: "plain" };
     } else if (schema.includes('"standouts"')) {
       sim.prompts.push({ kind: "analyst", system, task });
       const hit = sim.postIds.find((id) => task.includes(id));
@@ -128,7 +132,7 @@ vi.stubEnv("ANTHROPIC_API_KEY", "sim");
 vi.stubEnv("ANTHROPIC_BASE_URL", "https://api.anthropic.com");
 
 import { WORKFLOWS } from "@/lib/workflows/meta";
-import { attachments, brandAgents, integrations, media, db, users, brands, memberships, channels, contentIdeas, goals, posts, postTargets, interactions, workflowRuns, workflowRunSteps, agentRuns, metrics } from "@/lib/db";
+import { campaigns, ideaVersions, attachments, brandAgents, integrations, media, db, users, brands, memberships, channels, contentIdeas, goals, posts, postTargets, interactions, workflowRuns, workflowRunSteps, agentRuns, metrics } from "@/lib/db";
 import { ensureBrandAgent, runDueAgents } from "@/server/agents";
 import { approveCleanPauses, decide, getOpenPauses, runDueWorkflows, setStepAutoApprove } from "@/server/workflows";
 import { remindReviews } from "@/server/review-reminders";
@@ -197,7 +201,7 @@ async function snapshot(label: string, brandIds: string[]) {
   say("[" + label + "] posts{" + tally(p) + "} targets{" + tally(t) + "} runs{" + tally(r) + "}");
 }
 
-type World = { tag: string; autoApprove: boolean; bulk: boolean; canva: boolean; doMediaTasks: boolean };
+type World = { tag: string; autoApprove: boolean; bulk: boolean; canva: boolean; doMediaTasks: boolean; campaign?: boolean };
 
 async function runWorld(w: World) {
   log.length = 0; gaps.length = 0; clicks.decisions = 0; clicks.manualTasks = 0; clicks.bulk = 0;
@@ -237,6 +241,18 @@ async function runWorld(w: World) {
     { ownerId: owner.id, sequence: 1, title: t + " seed 1", problem: "p1", status: "planned" },
     { ownerId: owner.id, sequence: 2, title: t + " seed 2", problem: "p2", status: "planned", postType: "Carousel" },
   ]);
+
+  const seeded: { campaign: string[]; paused: string[]; bareOnly: string[]; richOnly: string[] } = { campaign: [], paused: [], bareOnly: [], richOnly: [] };
+  if (w.campaign) {
+    const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    await db.insert(campaigns).values({ brandId: rich.id, ownerId: owner.id, name: t + " Spring push", status: "active", startDate: day(-1), endDate: day(6), postsPerWeek: 4, keyMessage: "Fewer no-shows this spring", cta: "Book a demo", landingUrl: "https://rich.test/demo" });
+    await db.insert(campaigns).values({ brandId: rich.id, ownerId: owner.id, name: t + " Paused one", status: "paused", postsPerWeek: 4 });
+    const mkIdea = async (title: string, over: Record<string, unknown>) => (await db.insert(contentIdeas).values({ ownerId: owner.id, sequence: 10 + Math.floor(Math.random() * 1000), title, problem: title, status: "planned", ...over } as never).returning())[0].id;
+    for (let i = 0; i < 3; i++) seeded.campaign.push(await mkIdea(t + " camp idea " + i, { brandIds: [rich.id], campaign: t + " Spring push" }));
+    seeded.paused.push(await mkIdea(t + " paused idea", { brandIds: [rich.id], campaign: t + " Paused one" }));
+    seeded.bareOnly.push(await mkIdea(t + " bakery only", { brandIds: [bare.id] }));
+    seeded.richOnly.push(await mkIdea(t + " clinic only", { brandIds: [rich.id] }));
+  }
 
   let now = new Date(Date.now() + 60_000);
   const tick = async (label: string) => {
@@ -339,13 +355,23 @@ async function runWorld(w: World) {
   const pubCount = (await db.select({ id: postTargets.id }).from(postTargets).innerJoin(posts, eq(posts.id, postTargets.postId)).where(and(inArray(posts.brandId, [rich.id, bare.id]), eq(postTargets.status, "published")))).length;
   const left = await getOpenPauses([rich.id, bare.id]);
   say("HUMAN WORKLOAD: " + clicks.decisions + " one-by-one clicks, " + clicks.bulk + " bulk click(s), " + clicks.manualTasks + " manual tasks -> " + pubCount + " channel posts published, " + sim.replies.length + " replies sent. Still waiting on a person: " + left.length);
-  return { sent: [...sim.published], retryWaits: [...retryWaits], log: [...log], gaps: [...gaps], workload: { ...clicks }, pubCount, nonIgPublished, canvaCalls: sim.canvaCalls.length, left: left.length };
+  const allPosts = await db.select().from(posts).where(inArray(posts.brandId, [rich.id, bare.id]));
+  const ideaVers = await db.select().from(ideaVersions).where(inArray(ideaVersions.brandId, [rich.id, bare.id]));
+  const campaignName = t + " Spring push";
+  const campaignPosts = allPosts.filter((x) => x.campaign === campaignName);
+  const leaks = {
+    bareFromRichIdeas: allPosts.filter((x) => x.brandId === bare.id && x.ideaId && [...seeded.campaign, ...seeded.paused, ...seeded.richOnly].includes(x.ideaId)).length,
+    richFromBareIdea: allPosts.filter((x) => x.brandId === rich.id && x.ideaId && seeded.bareOnly.includes(x.ideaId)).length,
+    pausedWritten: allPosts.filter((x) => x.ideaId && seeded.paused.includes(x.ideaId)).length,
+  };
+  say("CAMPAIGN: " + campaignPosts.length + " campaign post(s) " + campaignPosts.map((x) => x.scheduledAt?.toISOString().slice(0, 10)).join(",") + "; leaks " + JSON.stringify(leaks) + "; shared-idea versions " + ideaVers.length);
+  return { campaignPosts, leaks, ideaVers, sent: [...sim.published], retryWaits: [...retryWaits], log: [...log], gaps: [...gaps], workload: { ...clicks }, pubCount, nonIgPublished, canvaCalls: sim.canvaCalls.length, left: left.length };
 }
 
 describe("simulation", () => {
   it("runs the whole loop twice: baseline, then with auto-approve + Canva images", async () => {
     const a = await runWorld({ tag: "A", autoApprove: false, bulk: false, canva: false, doMediaTasks: false });
-    const b = await runWorld({ tag: "B", autoApprove: true, bulk: false, canva: true, doMediaTasks: false });
+    const b = await runWorld({ tag: "B", autoApprove: true, bulk: false, canva: true, doMediaTasks: false, campaign: true });
     const c = await runWorld({ tag: "C", autoApprove: false, bulk: true, canva: false, doMediaTasks: false });
     const out = "==== WORLD A: no automation, nobody makes images ====\n" + a.log.join("\n") + "\n\n==== WORLD B: auto-approve clean work + Canva template ====\n" + b.log.join("\n") + "\n\n==== WORLD C: only the bulk Approve-all-clean button ====\n" + c.log.join("\n")
       + "\n\n==== GAPS ====\nA: " + (a.gaps.join(" | ") || "none") + "\nB: " + (b.gaps.join(" | ") || "none") + "\nC: " + (c.gaps.join(" | ") || "none");
@@ -357,6 +383,16 @@ describe("simulation", () => {
     expect(a.sent.filter((x) => x.platform === "bluesky").every((x) => !x.options.thread)).toBe(true);
     // Gap 4: a rate-limited post waits at least ten minutes.
     expect(Math.min(...a.retryWaits)).toBeGreaterThanOrEqual(9);
+    // Ideas stay with their brand; a campaign's posts are written, inside its dates, from its brief.
+    expect(b.leaks).toEqual({ bareFromRichIdeas: 0, richFromBareIdea: 0, pausedWritten: 0 });
+    expect(b.campaignPosts.length).toBeGreaterThan(0);
+    const lastDay = new Date(Date.now() + 7 * 86_400_000);
+    expect(b.campaignPosts.every((x) => x.scheduledAt && x.scheduledAt < lastDay)).toBe(true);
+    expect(sim.prompts.some((p) => p.kind === "draft" && p.task.includes("Campaign: B Spring push") && p.task.includes("Fewer no-shows this spring"))).toBe(true);
+    // An idea two brands share is told differently by each.
+    const adapted = b.ideaVers.filter((v) => v.notes?.includes("Adapted"));
+    expect(new Set(adapted.map((v) => v.brandId)).size).toBeGreaterThanOrEqual(2);
+    expect(new Set(adapted.map((v) => v.problem)).size).toBe(adapted.length);
     // Gap 1: one channel's missing image does not hold up the others.
     expect(a.nonIgPublished).toBeGreaterThan(0);
     // Gap 1: with a Canva template the agent makes the images itself.
