@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, ExternalLink, Loader2, RotateCcw, Square, Undo2 } from "lucide-react";
 import { Button, buttonClass } from "./ui";
-import { decideStepAction, setAutomationAction, setStepReviewAction } from "@/server/actions/workflows";
+import { approveCleanAction, decideStepAction, setAutomationAction, setStepAutoApproveAction, setStepReviewAction } from "@/server/actions/workflows";
+import { setCanvaBrandTemplateAction } from "@/server/actions/integrations";
 import { formatUsd } from "@/lib/ai-cost";
 import type { PauseKind } from "@/lib/workflows/meta";
 
@@ -105,9 +106,11 @@ export function PauseControls({ stepId, kind, after, sendBack, href, reviewOnPag
  * The review switch on one step for one brand. Switching off asks why, and
  * only the owner can; the reason stays next to the switch and in the log.
  */
-export function StepReviewSwitch({ brandId, code, stepKey, review, reason, canTurnOff, canTurnOn }: {
+export function StepReviewSwitch({ brandId, code, stepKey, review, reason, canTurnOff, canTurnOn, autoApprove = false }: {
   brandId: string; code: string; stepKey: string; review: boolean; reason: string | null;
   canTurnOff: boolean; canTurnOn: boolean;
+  /** Review is on, but work the reviewer passes cleanly goes on by itself. */
+  autoApprove?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -147,6 +150,9 @@ export function StepReviewSwitch({ brandId, code, stepKey, review, reason, canTu
         {pending && <Loader2 className="size-3.5 animate-spin text-muted" />}
       </div>
       {!review && reason && <p className="text-[11px] text-muted">Why: {reason}</p>}
+      {review && (
+        <AutoApproveToggle brandId={brandId} code={code} stepKey={stepKey} on={autoApprove} reason={reason} canTurnOn={canTurnOff} canTurnOff={canTurnOn} />
+      )}
       {asking && (
         <div className="space-y-2">
           <textarea className={input} rows={2} value={why} onChange={(e) => setWhy(e.target.value)}
@@ -163,11 +169,100 @@ export function StepReviewSwitch({ brandId, code, stepKey, review, reason, canTu
 }
 
 /**
+ * "Let clean work through" on one step: review stays on, but work the
+ * reviewer passes with no risk flag goes on without a person. Safety stops
+ * still pause it. Owner switches it on, with a reason.
+ */
+function AutoApproveToggle({ brandId, code, stepKey, on, reason, canTurnOn, canTurnOff }: {
+  brandId: string; code: string; stepKey: string; on: boolean; reason: string | null; canTurnOn: boolean; canTurnOff: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const allowed = on ? canTurnOff : canTurnOn;
+
+  const save = (next: boolean) => {
+    setError(null);
+    start(async () => {
+      try {
+        const r = await setStepAutoApproveAction({ brandId, code, stepKey, autoApprove: next, reason: next ? why : null });
+        if (!r.ok) { setError(r.error); return; }
+        setAsking(false);
+        setWhy("");
+        router.refresh();
+      } catch {
+        setError("Could not reach the server. Check your connection and try again.");
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="flex items-center gap-2 text-xs text-muted">
+        <input
+          type="checkbox" checked={on} disabled={!allowed || pending}
+          onChange={() => (on ? save(false) : setAsking((a) => !a))}
+          title={allowed ? undefined : on ? "You need approver access or above." : "Only the brand's owner can turn this on."}
+        />
+        Let work the reviewer passes cleanly go on without waiting
+        {pending && <Loader2 className="size-3.5 animate-spin" />}
+      </label>
+      {on && reason && <p className="text-[11px] text-muted">Why: {reason}</p>}
+      {asking && (
+        <div className="space-y-2">
+          <textarea className={input} rows={2} value={why} onChange={(e) => setWhy(e.target.value)}
+            placeholder="Why can clean work skip a person? A flag, a low score or a broken playbook rule still stops it." />
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" disabled={pending || !why.trim()} onClick={() => save(true)}>Turn on</Button>
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => setAsking(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
+/** One click for every review the reviewer passed cleanly. */
+export function ApproveCleanButton({ count }: { count: number }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <Button
+        size="sm" variant="primary" disabled={pending || count === 0}
+        onClick={() => {
+          setMessage(null);
+          start(async () => {
+            try {
+              const r = await approveCleanAction();
+              setMessage(r.ok ? { ok: true, text: r.message } : { ok: false, text: r.error });
+              if (r.ok) router.refresh();
+            } catch {
+              setMessage({ ok: false, text: "Could not reach the server. Check your connection and try again." });
+            }
+          });
+        }}
+      >
+        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Approve all {count} that passed the reviewer cleanly
+      </Button>
+      <span className="text-xs text-muted">Score at the pass mark, no risk flag. Anything with a reason to look stays below.</span>
+      {message && <span className={`text-xs ${message.ok ? "text-muted" : "text-danger"}`}>{message.text}</span>}
+    </div>
+  );
+}
+
+/**
  * A brand's daily AI budget, with today's spend, and the reviewer score its
  * agents' work must reach to go on without a person. Owner-set.
  */
-export function AutomationSettings({ brandId, budget, threshold, spent, canEdit }: {
+export function AutomationSettings({ brandId, budget, threshold, spent, canEdit, autoTune = false }: {
   brandId: string; budget: number; threshold: number; spent: number; canEdit: boolean;
+  /** The daily tuning applies the posting windows the numbers favour, rather than leaving them for a person. */
+  autoTune?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -175,13 +270,14 @@ export function AutomationSettings({ brandId, budget, threshold, spent, canEdit 
   const [t, setT] = useState(String(threshold));
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const share = budget > 0 ? Math.min(1, spent / budget) : 1;
-  const dirty = Number(b) !== budget || Number(t) !== threshold;
+  const [tune, setTune] = useState(autoTune);
+  const dirty = Number(b) !== budget || Number(t) !== threshold || tune !== autoTune;
 
   const save = () => {
     setMessage(null);
     start(async () => {
       try {
-        const r = await setAutomationAction({ brandId, aiDailyBudget: Number(b), reviewThreshold: Number(t) });
+        const r = await setAutomationAction({ brandId, aiDailyBudget: Number(b), reviewThreshold: Number(t), autoApplyTuning: tune });
         if (!r.ok) { setMessage({ ok: false, text: r.error }); return; }
         setMessage({ ok: true, text: "Saved. Agents follow it from their next run." });
         router.refresh();
@@ -213,7 +309,50 @@ export function AutomationSettings({ brandId, budget, threshold, spent, canEdit 
       {canEdit ? (
         <Button size="sm" variant="primary" disabled={pending || !dirty} onClick={save}>{pending && <Loader2 className="size-3.5 animate-spin" />} Save</Button>
       ) : <span className="text-[11px] text-muted md:pb-2">Owner only</span>}
+      <label className="flex items-center gap-2 text-xs text-muted md:col-span-4">
+        <input type="checkbox" checked={tune} disabled={!canEdit || pending} onChange={(e) => setTune(e.target.checked)} />
+        Let the daily tuning change posting times by itself when the numbers clearly favour other hours (otherwise it suggests, and a person decides)
+      </label>
       {message && <p className={`text-xs md:col-span-4 ${message.ok ? "text-muted" : "text-danger"}`}>{message.text}</p>}
+    </div>
+  );
+}
+
+/**
+ * The Canva brand template the agents fill in to make a post's images, so an
+ * Instagram or carousel post does not wait for a person to design one.
+ */
+export function CanvaTemplateSetting({ brandId, templateId, canEdit }: { brandId: string; templateId: string | null; canEdit: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [value, setValue] = useState(templateId ?? "");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = (next: string | null) => {
+    setMessage(null);
+    start(async () => {
+      try {
+        const r = await setCanvaBrandTemplateAction(brandId, next);
+        if (!r.ok) { setMessage({ ok: false, text: r.error }); return; }
+        setMessage({ ok: true, text: next ? `Saved. The agent fills: ${r.fields.join(", ")}.` : "Cleared. Posts that need an image wait for a person." });
+        if (!next) setValue("");
+        router.refresh();
+      } catch {
+        setMessage({ ok: false, text: "Could not reach the server. Check your connection and try again." });
+      }
+    });
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${input} max-w-md`} value={value} disabled={!canEdit || pending} onChange={(e) => setValue(e.target.value)}
+          placeholder="Brand template link or ID from Canva" />
+        <Button size="sm" variant="primary" disabled={!canEdit || pending || !value.trim() || value.trim() === templateId} onClick={() => save(value)}>
+          {pending && <Loader2 className="size-3.5 animate-spin" />} Save
+        </Button>
+        {templateId && <Button size="sm" variant="ghost" disabled={!canEdit || pending} onClick={() => save(null)}>Clear</Button>}
+        {!canEdit && <span className="text-[11px] text-muted">Admin or owner only</span>}
+      </div>
+      {message && <p className={`text-xs ${message.ok ? "text-muted" : "text-danger"}`}>{message.text}</p>}
     </div>
   );
 }

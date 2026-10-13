@@ -6,7 +6,7 @@ import { RUN_STATUS_META, WORKFLOWS, WORKFLOW_BY_CODE, type StepPerformer } from
 import { relativeTime } from "@/lib/format";
 import { getRecentRuns, getStepSettings } from "@/server/workflows";
 import { Badge, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui";
-import { AutomationSettings, StepReviewSwitch } from "@/components/review-inbox";
+import { AutomationSettings, CanvaTemplateSetting, StepReviewSwitch } from "@/components/review-inbox";
 import { spendByBrand } from "@/server/ai-usage";
 
 const PERFORMER: Record<StepPerformer, { label: string; icon: typeof Bot }> = {
@@ -53,7 +53,22 @@ export default async function WorkflowsPage() {
               <div key={brand.id}>
                 <p className="mb-1.5 flex items-center gap-2 text-sm font-medium text-text"><span className="size-2.5 rounded-full" style={{ background: brand.color }} />{brand.name}</p>
                 <AutomationSettings brandId={brand.id} budget={brand.aiDailyBudget} threshold={brand.reviewThreshold}
-                  spent={spend.get(brand.id) ?? 0} canEdit={brand.role === "owner"} />
+                  spent={spend.get(brand.id) ?? 0} canEdit={brand.role === "owner"} autoTune={brand.autoApplyTuning} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {inScope.length > 0 && (
+        <Card className="mb-5">
+          <CardHeader icon={Wrench} title="Images"
+            subtitle="When a post needs an image and none is filed, the agent fills this Canva brand template with the post's words and files the result, so one Instagram post does not hold up the rest. Needs an owner or admin with Canva connected (Canva Enterprise). Without it, only that channel waits for a person." />
+          <div className="space-y-3 px-4 pb-4">
+            {inScope.map((brand) => (
+              <div key={brand.id}>
+                <p className="mb-1.5 flex items-center gap-2 text-sm font-medium text-text"><span className="size-2.5 rounded-full" style={{ background: brand.color }} />{brand.name}</p>
+                <CanvaTemplateSetting brandId={brand.id} templateId={brand.canvaTemplateId ?? null} canEdit={brand.role === "owner" || brand.role === "admin"} />
               </div>
             ))}
           </div>
@@ -89,7 +104,7 @@ export default async function WorkflowsPage() {
                         {step.reviewable ? (
                           <StepReviewSwitch
                             brandId={brand.id} code={wf.code} stepKey={step.key}
-                            review={row?.review ?? true} reason={row?.reason ?? null}
+                            review={row?.review ?? true} reason={row?.reason ?? null} autoApprove={row?.autoApprove ?? false}
                             canTurnOff={brand.role === "owner"} canTurnOn={brand.role === "owner" || can.approve(brand.role)}
                           />
                         ) : (

@@ -6,13 +6,13 @@ import { getScope } from "@/lib/scope";
 import { db, channels, interactions, posts, postTargets } from "@/lib/db";
 import { INTERACTION_KIND_LABELS } from "@/lib/db/engagement";
 import { PAUSE_META, WORKFLOW_BY_CODE, stepDef } from "@/lib/workflows/meta";
-import { isVerdict } from "@/lib/workflows/review";
+import { isCleanVerdict, isVerdict } from "@/lib/workflows/review";
 import type { ProposedIdea } from "@/server/workflows/plan-ideas";
 import { inZone, relativeTime, truncate } from "@/lib/format";
 import { getOpenPauses } from "@/server/workflows";
 import { Badge, Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { PlatformIcon } from "@/components/platform-icon";
-import { PauseControls } from "@/components/review-inbox";
+import { ApproveCleanButton, PauseControls } from "@/components/review-inbox";
 
 type Item = Awaited<ReturnType<typeof getOpenPauses>>[number];
 
@@ -42,6 +42,10 @@ export default async function ReviewPage() {
   const itemById = new Map(itemRows.map((r) => [r.i.id, r]));
 
   const decide = items.filter((i) => i.step.pause?.kind !== "human");
+  const clean = decide.filter((i) => {
+    const brand = byId.get(i.run.brandId);
+    return brand && can.approve(brand.role) && i.step.pause?.kind === "review" && isCleanVerdict(i.step.output?.review, brand.reviewThreshold);
+  });
   const hands = items.filter((i) => i.step.pause?.kind === "human");
 
   const render = (item: Item) => {
@@ -153,6 +157,7 @@ export default async function ReviewPage() {
             <Card>
               <CardHeader icon={Inbox} title={`Needs your decision (${decide.length})`}
                 subtitle="Approve to let the run carry on, send it back with a note for the agent to redo, or stop it." />
+              {clean.length > 1 && <div className="border-b border-border"><ApproveCleanButton count={clean.length} /></div>}
               <ul className="divide-y divide-border">{decide.map(render)}</ul>
             </Card>
           )}

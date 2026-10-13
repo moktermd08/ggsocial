@@ -729,7 +729,7 @@ export function Composer({
               disabled={pending || errorCount > 0 || holes.length > 0 || !when || targets.length === 0}
               className={`${buttonClass("primary")} w-full`}
             >
-              {pending ? <Loader2 className="size-4 animate-spin" /> : null} Schedule
+              {pending ? <Loader2 className="size-4 animate-spin" /> : null} {canApprove ? "Schedule" : "Schedule (an approver signs it off)"}
             </button>
             {canApprove && (
               <button
