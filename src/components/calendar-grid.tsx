@@ -4,7 +4,8 @@ import Link from "next/link";
 import { PlatformIcon } from "./platform-icon";
 import { STATUS_META } from "@/lib/format";
 import { tintedInk } from "@/lib/color";
-import { IDEA_DRAG_TYPE, useIdeaPick } from "./idea-pick";
+import { IDEA_DRAG_TYPE, IDEA_MOVE_TYPE, useIdeaPick } from "./idea-pick";
+import { pinIdeaToDayAction } from "@/server/actions/ideas";
 import { reschedulePostAction } from "@/server/actions/posts";
 import type { PostStatus } from "@/lib/db";
 
@@ -39,6 +40,7 @@ export function CalendarGrid({
   const [over, setOver] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const pick = useIdeaPick();
+  const [error, setError] = useState<string | null>(null);
 
   const drop = (day: string) => {
     const item = items.find((i) => i.id === dragging);
@@ -52,6 +54,7 @@ export function CalendarGrid({
 
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-surface ${pending ? "opacity-70" : ""}`}>
+      {error && <p role="alert" className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
       <div className="grid grid-cols-7 border-b border-border bg-surface-2 text-[11px] font-medium text-muted">
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
           <div key={d} className="px-2 py-1.5 text-center">{d}</div>
@@ -67,6 +70,17 @@ export function CalendarGrid({
               onDragOver={(e) => { e.preventDefault(); setOver(d.date); }}
               onDragLeave={() => setOver((o) => (o === d.date ? null : o))}
               onDrop={(e) => {
+                const moved = e.dataTransfer.getData(IDEA_MOVE_TYPE);
+                if (moved) {
+                  e.preventDefault(); setOver(null); setDragging(null);
+                  if (d.date >= new Date().toISOString().slice(0, 10)) {
+                    start(async () => {
+                      const r = await pinIdeaToDayAction(moved, d.date);
+                      if (!r.ok) setError(r.error);
+                    });
+                  }
+                  return;
+                }
                 const ideaId = e.dataTransfer.getData(IDEA_DRAG_TYPE);
                 if (ideaId) { e.preventDefault(); setOver(null); if (d.date >= new Date().toISOString().slice(0, 10)) pick.open(ideaId, d.date); return; }
                 drop(d.date);
@@ -97,8 +111,8 @@ export function CalendarGrid({
                     onClick={(e) => { if (item.projected) { e.preventDefault(); pick.open(item.id, item.day); } }}
                     draggable={item.canEdit || item.projected}
                     onDragStart={(e) => {
-                      // A forecast idea carries its id, so dropping it on a day opens the picker there.
-                      if (item.projected) { e.dataTransfer.setData(IDEA_DRAG_TYPE, item.id); e.dataTransfer.effectAllowed = "copyMove"; }
+                      // A forecast idea carries its id; dropping it on a day pins it there.
+                      if (item.projected) { e.dataTransfer.setData(IDEA_MOVE_TYPE, item.id); e.dataTransfer.effectAllowed = "move"; }
                       setDragging(item.id);
                     }}
                     onDragEnd={() => setDragging(null)}

@@ -2,6 +2,8 @@ import "server-only";
 import { and, eq, gte, lte, ne, inArray } from "drizzle-orm";
 import { db, brandAgents, posts } from "@/lib/db";
 import { openSlots } from "@/lib/agents/slots";
+import { fromLocalInput, toLocalInput } from "@/lib/format";
+import { resolveSchedule } from "@/lib/posting-schedule";
 import { getBrandPlaybooks } from "@/server/playbook";
 import { goalPostsPerWeek } from "@/server/agents/writer";
 import { unbookedIdeas } from "@/server/ideas";
@@ -17,6 +19,8 @@ export type ProjectedIdea = {
   brandName: string;
   brandColor: string;
   at: Date;
+  /** Pinned to this day by dragging, rather than forecast into the next open slot. */
+  pinned: boolean;
   /** False when the brand's content writer is off, so nothing will write it by itself. */
   writerOn: boolean;
 };
@@ -53,19 +57,31 @@ export async function projectIdeas(args: {
     const rule = playbooks.get(brand.id)?.find((r) => r.code === "post" && r.enabled);
     const setting = Number(agent?.settings?.perWeek);
     const perWeek = Math.min(21, Math.max(1, Number.isFinite(setting) && setting > 0 ? Math.round(setting) : (await goalPostsPerWeek(brand.id)) ?? rule?.limits.perWeek ?? 5));
+    const push = (item: (typeof queue)[number], at: Date, pinned: boolean) => projected.push({
+      ideaId: item.idea.id, title: item.idea.title || item.idea.problem, status: item.idea.status,
+      brandId: brand.id, brandName: meta.name, brandColor: meta.color, at, pinned, writerOn: Boolean(agent?.enabled),
+    });
+
+    // Ideas a person pinned to a day go there, at the brand's usual time; a pin
+    // that has passed no longer counts.
+    const tomorrow = toLocalInput(new Date(now.getTime() + DAY), brand.timezone).slice(0, 10);
+    const usual = resolveSchedule({ postRule: rule?.limits }).times[0];
+    const pins = queue.filter((q) => q.idea.plannedFor && q.idea.plannedFor >= tomorrow);
+    const pinnedTimes: Date[] = [];
+    for (const item of pins) {
+      const at = fromLocalInput(`${item.idea.plannedFor}T${usual}`, brand.timezone);
+      if (!at) continue;
+      pinnedTimes.push(at);
+      push(item, at, true);
+    }
+    const free = queue.filter((q) => !pins.includes(q));
+
     const slots = openSlots({
       timezone: brand.timezone, now, daysAhead: AHEAD_DAYS, perWeek,
       days: rule?.limits.days, windows: rule?.limits.windows,
-      taken: taken.filter((t) => t.brandId === brand.id).flatMap((t) => (t.at ? [t.at] : [])),
+      taken: [...taken.filter((t) => t.brandId === brand.id).flatMap((t) => (t.at ? [t.at] : [])), ...pinnedTimes],
     });
-    slots.forEach((at, i) => {
-      const item = queue[i];
-      if (!item) return;
-      projected.push({
-        ideaId: item.idea.id, title: item.idea.title || item.idea.problem, status: item.idea.status,
-        brandId: brand.id, brandName: meta.name, brandColor: meta.color, at, writerOn: Boolean(agent?.enabled),
-      });
-    });
+    slots.forEach((at, i) => { if (free[i]) push(free[i], at, false); });
   }
   return { projected, waiting };
 }

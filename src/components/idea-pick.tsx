@@ -3,7 +3,7 @@ import { createContext, useContext, useMemo, useState, useTransition, type React
 import { useRouter } from "next/navigation";
 import { Sparkles, X } from "lucide-react";
 import { buttonClass, Field } from "./ui";
-import { pickIdeaOnCalendarAction } from "@/server/actions/ideas";
+import { pickIdeaOnCalendarAction, pinIdeaToDayAction } from "@/server/actions/ideas";
 import { draftPostAction } from "@/server/actions/drafting";
 
 /**
@@ -12,13 +12,18 @@ import { draftPostAction } from "@/server/actions/drafting";
  * on that day, and Claude can write them straight away.
  */
 
+/** An idea dragged out of the waiting list: dropping it on a day asks which brands to draft it for. */
 export const IDEA_DRAG_TYPE = "application/x-ggsocial-idea";
+/** A forecast idea dragged between days: dropping it pins it to that day, with nothing to confirm. */
+export const IDEA_MOVE_TYPE = "application/x-ggsocial-idea-move";
 
 export type PickIdea = {
   id: string; title: string; status: string; pillar: string | null;
   brands: { id: string; name: string; color: string }[];
   /** The day the content writer would book it, when it has one. */
   day: string | null;
+  /** Pinned to that day by a person, rather than forecast. */
+  pinned: boolean;
 };
 
 type Ctx = { open: (ideaId: string, day?: string | null) => void };
@@ -120,7 +125,14 @@ function PickDialog({ idea, day: initialDay, aiReady, onClose }: { idea: PickIde
         {error && <p className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
         {progress && !error && <p className="mt-3 text-xs text-muted">{progress}</p>}
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex items-center justify-end gap-2">
+          {idea.pinned && (
+            <button
+              className={`${buttonClass("ghost", "sm")} mr-auto`} disabled={pending}
+              title="Stop holding this idea to its day; the writer forecasts it again"
+              onClick={() => start(async () => { const r = await pinIdeaToDayAction(idea.id, null); if (!r.ok) { setError(r.error); return; } router.refresh(); onClose(); })}
+            >Clear pinned day</button>
+          )}
           <button className={buttonClass("ghost", "sm")} onClick={onClose} disabled={pending}>Cancel</button>
           <button className={buttonClass("primary", "sm")} onClick={submit} disabled={pending || chosen.size === 0 || !day}>
             {pending ? "Working…" : `Put on ${chosen.size} brand${chosen.size === 1 ? "" : "s"}`}

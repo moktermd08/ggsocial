@@ -382,6 +382,8 @@ export const contentIdeas = pgTable("content_ideas", {
   needsMedia: boolean("needs_media").notNull().default(false),
   hashtags: jsonb("hashtags").$type<string[]>().notNull().default([]),
   status: text("status").$type<IdeaStatus>().notNull().default("backlog"),
+  /** A day ("YYYY-MM-DD") the plan pins the idea to, set by dragging it on the calendar. The writer books it then. */
+  plannedFor: text("planned_for"),
   /** What you are aiming at per post. What you reached comes from metrics. */
   targetImpressions: integer("target_impressions"),
   notes: text("notes"),

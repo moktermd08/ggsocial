@@ -114,26 +114,26 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
   // Ideas not yet written, on the days the content writer would book them.
   // One entry per idea per time: brands that would tell it together share it.
-  const merged = new Map<string, { p: (typeof ideas.projected)[number]; day: string; time: string; names: string[] }>();
+  const merged = new Map<string, { p: (typeof ideas.projected)[number]; day: string; time: string; names: string[]; pinned: boolean }>();
   for (const p of ideas.projected) {
     const { day, time } = localParts(p.at, scope.activeBrand ? timezone : brandById.get(p.brandId)?.timezone ?? "UTC");
     const k = `${p.ideaId}|${day}|${time}`;
     const g = merged.get(k);
-    if (g) g.names.push(p.brandName); else merged.set(k, { p, day, time, names: [p.brandName] });
+    if (g) g.names.push(p.brandName); else merged.set(k, { p, day, time, names: [p.brandName], pinned: p.pinned });
   }
-  const forecast: CalendarItem[] = [...merged.values()].map(({ p, day, time, names }) => ({
+  const forecast: CalendarItem[] = [...merged.values()].map(({ p, day, time, names, pinned }) => ({
     id: p.ideaId, title: p.title, status: "draft" as const,
     brandName: names.length > 2 ? `${names.length} brands` : names.join(", "),
     brandColor: names.length > 1 ? "#a855f7" : p.brandColor,
     day, time, platforms: [], formats: [],
-    action: p.status === "planned" ? "Idea · planned" : "Idea · backlog",
+    action: pinned ? "Idea · pinned" : p.status === "planned" ? "Idea · planned" : "Idea · backlog",
     projected: true, href: "/ideas", canEdit: false,
   }));
   const firstDay = new Map<string, string>();
   for (const f of [...forecast].sort((a, b) => (a.day + a.time).localeCompare(b.day + b.time))) if (!firstDay.has(f.id)) firstDay.set(f.id, f.day);
   const pickIdeas: PickIdea[] = ideas.waiting.map(({ idea, missing }) => ({
     id: idea.id, title: idea.title || idea.problem, status: idea.status, pillar: idea.pillar,
-    brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null,
+    brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null, pinned: Boolean(idea.plannedFor),
   }));
   const all = [...items, ...forecast];
   const visible = all.filter((i) => inFilter(filter, i.status, i.action, i.projected));

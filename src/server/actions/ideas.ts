@@ -205,6 +205,24 @@ export async function pickIdeaOnCalendarAction(input: { ideaId: string; brandIds
   });
 }
 
+/**
+ * Dragging a forecast idea to another day: pins the idea to that day, with no
+ * drafts yet. The calendar forecast shows it there and the content writer books
+ * it for that day. null clears the pin.
+ */
+export async function pinIdeaToDayAction(ideaId: string, day: string | null) {
+  return asResult(async () => {
+    const { idea } = await requireIdea(ideaId, "edit");
+    if (day !== null) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Pick a day.");
+      if (day < new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)) throw new Error("That day has already passed.");
+    }
+    await db.update(contentIdeas).set({ plannedFor: day, updatedAt: new Date() }).where(eq(contentIdeas.id, idea.id));
+    revalidatePath("/calendar");
+    revalidatePath("/ideas");
+  });
+}
+
 /** The per-post plan fields the grid reports on but the composer does not own. */
 export async function updatePostPlanAction(input: {
   postId: string;

@@ -3,6 +3,8 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray } from "d
 import { db, comments, contentIdeas, goals, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
 import type { EffectiveRule } from "@/lib/playbook/check";
 import { openSlots } from "@/lib/agents/slots";
+import { fromLocalInput, toLocalInput } from "@/lib/format";
+import { resolveSchedule } from "@/lib/posting-schedule";
 import { getBrandPlaybook } from "@/server/playbook";
 import { ideaForBrand } from "@/server/ideas";
 import { writerChannels } from "@/server/workflows/publish-post";
@@ -131,15 +133,6 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
     taken: taken.flatMap((t) => (t.at ? [t.at] : [])),
   });
 
-  if (slots.length === 0) {
-    out.summary = [
-      revised ? `Revised ${revised} post${revised === 1 ? "" : "s"}.` : "",
-      `The next ${daysAhead} days are already planned.`,
-      adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
-    ].filter(Boolean).join(" ");
-    return out;
-  }
-
   /* ------------------------------------------------ 3. the next ideas */
   // The plans this brand works from: those of the people who run it.
   const owners = (await db.select({ userId: memberships.userId }).from(memberships)
@@ -160,15 +153,40 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   // Planned before backlog, each in plan order.
   candidates.sort((a, b) => (a.status === b.status ? a.sequence - b.sequence : a.status === "planned" ? -1 : 1));
 
-  let written = 0;
-  for (const candidate of candidates) {
-    if (done >= perRun || written >= slots.length) break;
+  // Ideas pinned to a day by dragging them on the calendar are booked for that
+  // day, once it is within reach; the rest take the open slots in plan order.
+  const tomorrow = toLocalInput(new Date(now.getTime() + DAY), brand.timezone).slice(0, 10);
+  const lastDay = toLocalInput(new Date(now.getTime() + daysAhead * DAY), brand.timezone).slice(0, 10);
+  const usual = resolveSchedule({ postRule: postRule?.limits }).times[0];
+  const plan: { candidate: (typeof candidates)[number]; slot: Date; pinned: boolean }[] = [];
+  for (const c of candidates) {
+    if (!c.plannedFor || c.plannedFor < tomorrow || c.plannedFor > lastDay) continue;
+    const slot = fromLocalInput(`${c.plannedFor}T${usual}`, brand.timezone);
+    if (slot) plan.push({ candidate: c, slot, pinned: true });
+  }
+  const pinnedIds = new Set(plan.map((p) => p.candidate.id));
+  candidates.filter((c) => !pinnedIds.has(c.id)).slice(0, slots.length)
+    .forEach((candidate, i) => plan.push({ candidate, slot: slots[i], pinned: false }));
+
+  // Nothing open and nothing pinned for these days.
+  if (plan.length === 0 && slots.length === 0) {
+    out.summary = [
+      revised ? `Revised ${revised} post${revised === 1 ? "" : "s"}.` : "",
+      `The next ${daysAhead} days are already planned.`,
+      adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
+    ].filter(Boolean).join(" ");
+    return out;
+  }
+
+  let written = 0, freeWritten = 0;
+  for (const { candidate, slot, pinned } of plan) {
+    if (done >= perRun) break;
     const mine = await ideaForBrand(candidate.id, brand.id);
     if (!mine || mine.skipped) continue;
 
     const run = await startRun({
       brandId: brand.id, code: "publish-post", startedBy: "writer",
-      context: { ideaId: candidate.id, slot: slots[written].toISOString() },
+      context: { ideaId: candidate.id, slot: slot.toISOString() },
     });
     const report = await advance(run.id, { agentSteps: true, now: job.now });
     if (!report) continue;
@@ -181,18 +199,19 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
       const stopped = report.run.status === "waiting_review" ? "waiting for review" : report.run.status === "waiting_human" ? "waiting for a person" : "on its way";
       out.items.push({ kind: "post", id: postId, label: `${report.run.summary ?? candidate.title} — ${stopped}`, href: `/posts/${postId}` });
       written++;
+      if (!pinned) freeWritten++;
     }
     done++;
   }
 
-  const open = slots.length - written;
+  const open = slots.length - freeWritten;
   if (written === 0 && open > 0 && done < perRun) {
     out.issues.push(`${open} open slot${open === 1 ? "" : "s"} in the next ${daysAhead} days, and no planned or backlog idea left that this brand has not told. Add ideas to the content plan.`);
   }
   out.summary = [
     revised ? `Revised ${revised} sent-back post${revised === 1 ? "" : "s"}.` : "",
     written ? `Wrote ${written} new post${written === 1 ? "" : "s"}.` : "",
-    open > 0 && written > 0 ? `${open} slot${open === 1 ? "" : "s"} still open for later runs.` : "",
+    open > 0 && freeWritten > 0 ? `${open} slot${open === 1 ? "" : "s"} still open for later runs.` : "",
     adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
   ].filter(Boolean).join(" ") || "Nothing to write.";
   return out;
