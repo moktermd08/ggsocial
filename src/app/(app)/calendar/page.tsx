@@ -11,6 +11,7 @@ import { db, posts, postVersions } from "@/lib/db";
 import { CalendarGrid, type CalendarItem } from "@/components/calendar-grid";
 import { CalendarAgenda } from "@/components/calendar-agenda";
 import { CalendarDay, type DaySlot } from "@/components/calendar-day";
+import { CalendarWeekSlots } from "@/components/calendar-week-slots";
 import { getBrandChannels } from "@/server/queries";
 import { getBrandPlaybooks } from "@/server/playbook";
 import { scheduleFor } from "@/server/schedule";
@@ -153,19 +154,23 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     id: idea.id, title: idea.title || idea.problem, status: idea.status, pillar: idea.pillar,
     brands: missing.map((b) => ({ id: b.id, name: b.name, color: b.color })), day: firstDay.get(idea.id) ?? null, pinned: Boolean(idea.plannedFor),
   }));
-  // The day view: every time a channel may post that day, from the channels' own schedules.
-  const daySlots: DaySlot[] = [];
-  if (dayView) {
-    const weekday = new Date(`${selected}T00:00:00Z`).getUTCDay();
+  // The day and week views: every time a channel may post on each day shown, from the channels' own schedules.
+  const slotsByDay: Record<string, DaySlot[]> = {};
+  if (dayView || week) {
+    const shown = dayView ? [selected] : days.map((d) => d.date);
     const [chans, books] = await Promise.all([getBrandChannels(scope.brandIds), getBrandPlaybooks(scope.brandIds)]);
-    for (const c of chans) {
-      const brand = brandById.get(c.brandId);
-      if (!brand) continue;
-      const sch = scheduleFor(c, books.get(c.brandId) ?? [], null);
-      if (sch.days && !sch.days.has(weekday)) continue;
-      for (const t of sch.times) {
-        const slot = daySlots.find((x) => x.time === t) ?? (daySlots.push({ time: t, channels: [] }), daySlots[daySlots.length - 1]);
-        slot.channels.push({ id: c.id, platform: c.platform, brandName: brand.name, brandColor: brand.color });
+    for (const day of shown) {
+      const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+      const list: DaySlot[] = (slotsByDay[day] = []);
+      for (const c of chans) {
+        const brand = brandById.get(c.brandId);
+        if (!brand) continue;
+        const sch = scheduleFor(c, books.get(c.brandId) ?? [], null);
+        if (sch.days && !sch.days.has(weekday)) continue;
+        for (const t of sch.times) {
+          const slot = list.find((x) => x.time === t) ?? (list.push({ time: t, channels: [] }), list[list.length - 1]);
+          slot.channels.push({ id: c.id, platform: c.platform, brandName: brand.name, brandColor: brand.color });
+        }
       }
     }
   }
@@ -213,7 +218,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       <PageHeader
         icon={CalendarDays}
         title={label}
-        subtitle={`Times in ${scope.activeBrand ? timezone : "each brand's timezone"} · drag to move a post · channels post only at their own times`}
+        subtitle={`Times in ${scope.activeBrand ? timezone : "each brand's timezone"}`}
         action={
           <div className="flex items-center gap-2">
             <div className="flex overflow-hidden rounded-lg border border-border text-xs">
@@ -247,9 +252,13 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
+      <p className="mb-3 text-[11px] text-muted">Drag a post or idea to move it. Channels post only at their own times; an idea you drop is pinned there.</p>
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
         {dayView
-          ? <CalendarDay day={selected} items={visible} slots={daySlots} timezone={timezone} />
+          ? <CalendarDay day={selected} items={visible} slots={slotsByDay[selected] ?? []} timezone={timezone} />
+          : week
+          ? <CalendarWeekSlots days={days} items={visible} slotsByDay={slotsByDay} timezone={timezone} />
           : agenda
           ? <CalendarAgenda items={visible} timezone={timezone} />
           : <CalendarGrid days={days} items={visible} timezone={timezone} tall={week} />}
