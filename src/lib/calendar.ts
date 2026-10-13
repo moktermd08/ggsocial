@@ -10,6 +10,7 @@ export const CALENDAR_FILTERS = [
   { key: "review", label: "In review", color: "#b45309" },
   { key: "scheduled", label: "Scheduled", color: "#4f46e5" },
   { key: "published", label: "Published", color: "#15803d" },
+  { key: "ideas", label: "Ideas", color: "#a855f7" },
 ] as const;
 export type CalendarFilter = (typeof CALENDAR_FILTERS)[number]["key"];
 
@@ -27,12 +28,15 @@ export function calendarAction(status: PostStatus, targetStatuses: string[]): st
   return null;
 }
 
-export function inFilter(filter: CalendarFilter, status: PostStatus, action: string | null) {
+export function inFilter(filter: CalendarFilter, status: PostStatus, action: string | null, projected = false) {
+  if (filter === "ideas") return projected;
+  if (projected) return filter === "all";
   switch (filter) {
     case "all": return true;
     case "action": return action !== null;
     case "review": return status === "in_review" || status === "changes_requested";
     case "scheduled": return status === "scheduled" || status === "publishing" || status === "approved";
     case "published": return status === "published" || status === "partially_published";
+    default: return false;
   }
 }

@@ -30,18 +30,18 @@ export function CalendarAgenda({ items, timezone }: { items: CalendarItem[]; tim
               const meta = STATUS_META[i.status];
               return (
                 <li key={`${i.id}-${i.time}-${n}`}>
-                  <Link href={`/posts/${i.id}`} className="flex items-start gap-3 px-3 py-2.5 hover:bg-surface-2" style={{ borderLeft: `3px solid ${i.brandColor}` }}>
+                  <Link href={i.href ?? `/posts/${i.id}`} className={`flex items-start gap-3 px-3 py-2.5 hover:bg-surface-2 ${i.projected ? "bg-surface-2/40" : ""}`} style={{ borderLeft: `3px solid ${i.brandColor}` }}>
                     <span className="w-12 shrink-0 pt-0.5 text-xs tabular-nums text-muted" title={timezone}>{i.time}</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{i.title}</p>
                       <p className="mt-0.5 text-[11px] text-muted">
-                        {i.brandName}{i.formats.length ? ` · ${i.formats.join(", ")}` : ""}
+                        {i.brandName}{i.projected ? " · forecast, not booked" : i.formats.length ? ` · ${i.formats.join(", ")}` : ""}
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-0.5 pt-0.5">
                       {i.platforms.slice(0, 5).map((p, k) => <PlatformIcon key={k} platform={p} size={16} />)}
                     </div>
-                    <span className="w-32 shrink-0 text-right text-[11px] font-medium" style={{ color: tintedInk(meta.color) }}>
+                    <span className="w-32 shrink-0 text-right text-[11px] font-medium" style={{ color: tintedInk(i.projected ? "#a855f7" : meta.color) }}>
                       {i.action ?? meta.label}
                     </span>
                   </Link>

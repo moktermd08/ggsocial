@@ -21,6 +21,9 @@ export type CalendarItem = {
   formats: string[];
   /** What it needs from a person, or null. */
   action: string | null;
+  /** An idea on the day the content writer would book it, not a post. */
+  projected?: boolean;
+  href?: string;
   canEdit: boolean;
 };
 
@@ -81,21 +84,21 @@ export function CalendarGrid({
               </div>
 
               <div className="space-y-1">
-                {dayItems.map((item) => (
+                {dayItems.map((item, n) => (
                   <Link
-                    key={item.id}
-                    href={`/posts/${item.id}`}
-                    draggable={item.canEdit}
+                    key={`${item.id}-${item.time}-${n}`}
+                    href={item.href ?? `/posts/${item.id}`}
+                    draggable={item.canEdit && !item.projected}
                     onDragStart={() => setDragging(item.id)}
                     onDragEnd={() => setDragging(null)}
-                    className={`block rounded-md border-l-2 bg-surface-2 px-1.5 py-1 text-[11px] leading-tight hover:bg-surface ${
-                      dragging === item.id ? "opacity-40" : ""
-                    }`}
+                    className={`block rounded-md border-l-2 px-1.5 py-1 text-[11px] leading-tight hover:bg-surface ${
+                      item.projected ? "border border-dashed border-border bg-transparent" : "bg-surface-2"
+                    } ${dragging === item.id ? "opacity-40" : ""}`}
                     style={{ borderLeftColor: item.brandColor }}
-                    title={`${item.brandName} · ${STATUS_META[item.status].label}${item.formats.length ? " · " + item.formats.join(", ") : ""} · ${item.time} ${timezone}`}
+                    title={item.projected ? `${item.brandName} · ${item.action} · the writer would book this around ${item.time} ${timezone}. A forecast, not a booking.` : `${item.brandName} · ${STATUS_META[item.status].label}${item.formats.length ? " · " + item.formats.join(", ") : ""} · ${item.time} ${timezone}`}
                   >
                     <div className="flex items-center gap-1">
-                      <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_META[item.status].color }} />
+                      <span className="size-1.5 shrink-0 rounded-full" style={{ background: item.projected ? "#a855f7" : STATUS_META[item.status].color }} />
                       <span className="tabular-nums text-muted">{item.time}</span>
                       <div className="flex gap-0.5">
                         {item.platforms.slice(0, 3).map((p, i) => <PlatformIcon key={i} platform={p} size={13} />)}
@@ -103,7 +106,7 @@ export function CalendarGrid({
                     </div>
                     <p className="mt-0.5 line-clamp-2">{item.title}</p>
                     {item.formats.length > 0 && <p className="mt-0.5 truncate text-[10px] text-muted">{item.formats.join(" · ")}</p>}
-                    <p className="mt-0.5 truncate text-[10px] font-medium" style={{ color: tintedInk(STATUS_META[item.status].color) }}>
+                    <p className="mt-0.5 truncate text-[10px] font-medium" style={{ color: tintedInk(item.projected ? "#a855f7" : STATUS_META[item.status].color) }}>
                       {item.action ?? STATUS_META[item.status].label}
                     </p>
                   </Link>

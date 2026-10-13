@@ -4,7 +4,7 @@ import { and, asc, inArray, isNull } from "drizzle-orm";
 import { requireUser, getMyBrands, can } from "@/lib/auth";
 import { getScope } from "@/lib/scope";
 import { getCalendarPosts } from "@/server/queries";
-import { unbookedIdeas } from "@/server/ideas";
+import { projectIdeas } from "@/server/projection";
 import { db, posts, postVersions } from "@/lib/db";
 import { CalendarGrid, type CalendarItem } from "@/components/calendar-grid";
 import { CalendarAgenda } from "@/components/calendar-agenda";
@@ -61,7 +61,10 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           inArray(posts.status, ["draft", "in_review", "changes_requested", "approved"]),
         )).orderBy(asc(posts.updatedAt)).limit(40)
       : [],
-    unbookedIdeas(user.id, brands.map((b) => b.id), scope.brandIds),
+    projectIdeas({
+      userId: user.id, myBrandIds: brands.map((b) => b.id),
+      brands: brands.filter((b) => scope.brandIds.includes(b.id)).map((b) => ({ id: b.id, timezone: b.timezone })),
+    }),
   ]);
 
   const timezone = scope.activeBrand?.timezone ?? "UTC";
@@ -107,8 +110,26 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     }));
   });
 
-  const visible = items.filter((i) => inFilter(filter, i.status, i.action));
-  const counts = Object.fromEntries(CALENDAR_FILTERS.map((f) => [f.key, items.filter((i) => inFilter(f.key, i.status, i.action)).length])) as Record<CalendarFilter, number>;
+  // Ideas not yet written, on the days the content writer would book them.
+  // One entry per idea per time: brands that would tell it together share it.
+  const merged = new Map<string, { p: (typeof ideas.projected)[number]; day: string; time: string; names: string[] }>();
+  for (const p of ideas.projected) {
+    const { day, time } = localParts(p.at, scope.activeBrand ? timezone : brandById.get(p.brandId)?.timezone ?? "UTC");
+    const k = `${p.ideaId}|${day}|${time}`;
+    const g = merged.get(k);
+    if (g) g.names.push(p.brandName); else merged.set(k, { p, day, time, names: [p.brandName] });
+  }
+  const forecast: CalendarItem[] = [...merged.values()].map(({ p, day, time, names }) => ({
+    id: p.ideaId, title: p.title, status: "draft" as const,
+    brandName: names.length > 2 ? `${names.length} brands` : names.join(", "),
+    brandColor: names.length > 1 ? "#a855f7" : p.brandColor,
+    day, time, platforms: [], formats: [],
+    action: p.status === "planned" ? "Idea · planned" : "Idea · backlog",
+    projected: true, href: "/ideas", canEdit: false,
+  }));
+  const all = [...items, ...forecast];
+  const visible = all.filter((i) => inFilter(filter, i.status, i.action, i.projected));
+  const counts = Object.fromEntries(CALENDAR_FILTERS.map((f) => [f.key, all.filter((i) => inFilter(f.key, i.status, i.action, i.projected)).length])) as Record<CalendarFilter, number>;
 
   const todo: CalendarItem[] = undated.map((p) => ({
     id: p.id, title: p.title || truncate(p.body, 48) || "Untitled", status: p.status,
@@ -183,10 +204,10 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
               <p className="mt-0.5 text-muted">{t.brandName}{t.action ? ` · ${t.action}` : ""}</p>
             </Link>
           ))}
-          <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-muted">Ideas to schedule ({ideas.length}{ideas.length === 12 ? "+" : ""})</h2>
-          {ideas.length === 0 ? (
+          <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-muted">Ideas waiting ({ideas.waiting.length})</h2>
+          {ideas.waiting.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted">Every idea in the plan is on the calendar.</p>
-          ) : ideas.map(({ idea, missing }) => (
+          ) : ideas.waiting.slice(0, 12).map(({ idea, missing }) => (
             <Link key={idea.id} href="/ideas" className="block rounded-lg border border-dashed border-border bg-surface p-2.5 text-xs hover:bg-surface-2">
               <p className="line-clamp-2 font-medium">{idea.title || idea.problem}</p>
               <p className="mt-1 flex flex-wrap items-center gap-1.5 text-muted">
