@@ -103,6 +103,27 @@ async function playbookTick() {
 }
 
 /**
+ * Numbers: reads each published post's engagement as it comes due (an hour,
+ * six hours, a day, two days… after posting) and refreshes the brand's
+ * lessons from the settled ones. Every half hour keeps the checkpoints close.
+ */
+async function metricsTick() {
+  try {
+    const res = await fetch(`${url}/api/cron/metrics`, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
+    });
+    if (!res.ok) {
+      console.error(`metrics tick got ${res.status} from ${url}`);
+      return;
+    }
+    const json = await res.json();
+    if (json.read || json.removed || json.failed?.length) console.log(new Date().toISOString(), "metrics", JSON.stringify(json));
+  } catch (err) {
+    console.error("metrics tick failed:", err.message);
+  }
+}
+
+/**
  * Workflow runs and brand agents. Runs that are due move on first (a post
  * someone approved gets scheduled, a publish is watched); then each
  * switched-on agent decides whether it is due (community
@@ -131,7 +152,7 @@ async function agentsTick() {
   }
 }
 
-console.log(`scheduler watching ${url} every 60s (agents every 5 min; goals, pages and playbook hourly)`);
+console.log(`scheduler watching ${url} every 60s (agents every 5 min, numbers every 30; goals, pages and playbook hourly)`);
 tick();
 setInterval(tick, 60_000);
 goalsTick();
@@ -142,3 +163,5 @@ playbookTick();
 setInterval(playbookTick, 60 * 60_000);
 agentsTick();
 setInterval(agentsTick, 5 * 60_000);
+metricsTick();
+setInterval(metricsTick, 30 * 60_000);

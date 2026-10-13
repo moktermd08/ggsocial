@@ -4,6 +4,7 @@
     { "path": "/api/cron/goals", "schedule": "7 * * * *" },
     { "path": "/api/cron/pages", "schedule": "23 * * * *" },
     { "path": "/api/cron/playbook", "schedule": "41 * * * *" },
-    { "path": "/api/cron/agents", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/agents", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/metrics", "schedule": "*/30 * * * *" }
   ]
 }

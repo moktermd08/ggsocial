@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cronDenied } from "@/server/cron-auth";
 import { runPageChecks } from "@/server/page-checks";
 
 /**
@@ -9,11 +10,8 @@ import { runPageChecks } from "@/server/page-checks";
  * Same auth as the publish tick: `Authorization: Bearer $CRON_SECRET`.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  const auth = req.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = cronDenied(req);
+  if (denied) return denied;
   return NextResponse.json(await runPageChecks());
 }
 

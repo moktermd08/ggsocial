@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { cronDenied } from "@/server/cron-auth";
 import { runDueAgents } from "@/server/agents";
 import { runDueWorkflows } from "@/server/workflows";
 import { pullInbound } from "@/server/inbox";
+import { remindReviews } from "@/server/review-reminders";
 
 /**
  * Brand agent tick, every few minutes. New comments are pulled in from every
@@ -14,15 +16,17 @@ import { pullInbound } from "@/server/inbox";
  * Same auth as the publish tick: `Authorization: Bearer $CRON_SECRET`.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  const auth = req.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = cronDenied(req);
+  if (denied) return denied;
   const inbound = await pullInbound(new Date(), 45_000);
   const workflows = await runDueWorkflows(new Date(), 75_000);
   const agents = await runDueAgents(new Date(), 150_000);
-  return NextResponse.json({ inbound, workflows, ...agents });
+  // Last, so a post the agents just wrote is counted. Quiet unless something has waited hours.
+  const reminders = await remindReviews(new Date()).catch((err) => {
+    console.error("[cron/agents] review reminders failed", err);
+    return [];
+  });
+  return NextResponse.json({ inbound, workflows, reminders, ...agents });
 }
 
 export const dynamic = "force-dynamic";

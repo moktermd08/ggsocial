@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { cronDenied } from "@/server/cron-auth";
 import { runDuePublishes } from "@/server/publish";
+import { stampLegacyApprovals } from "@/server/approval";
 
 /**
  * Scheduler tick. Publishes everything that is due.
@@ -8,12 +10,11 @@ import { runDuePublishes } from "@/server/publish";
  * vercel.json. Locally, run `npm run scheduler` in a second terminal.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  const auth = req.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = cronDenied(req);
+  if (denied) return denied;
 
+  // Posts approved before approvals were fingerprinted are taken as approved in their current words.
+  await stampLegacyApprovals().catch((err) => console.error("[cron/publish] could not stamp legacy approvals", err));
   const results = await runDuePublishes();
   return NextResponse.json({
     ran: results.length,
