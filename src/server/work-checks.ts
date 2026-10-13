@@ -6,10 +6,8 @@ import {
 import { fromLocalInput } from "@/lib/format";
 import { periodFor, todayIn } from "@/lib/activities/periods";
 import type { CheckStatus } from "@/lib/activities/meta";
-import type { EffectiveRule } from "@/lib/playbook/check";
 import { ensureActivityLibrary, recordChecks, type CheckInput } from "@/server/activities";
-import { getBrandPlaybook } from "@/server/playbook";
-import { goalPostsPerWeek } from "@/server/agents/writer";
+import { weeklyVolume } from "@/server/volume";
 
 /**
  * Ticks the activity checklist from the work that actually happened: posts
@@ -99,9 +97,7 @@ async function factsFor(brand: Brand, date: string): Promise<Want[]> {
     gte(posts.scheduledAt, nextFrom), lt(posts.scheduledAt, nextTo),
   ));
   if (booked) {
-    const playbook = await getBrandPlaybook(brand.id);
-    const postRule: EffectiveRule | undefined = playbook.find((r) => r.code === "post" && r.enabled);
-    const perWeek = (await goalPostsPerWeek(brand.id)) ?? postRule?.limits.perWeek ?? 5;
+    const { perWeek } = await weeklyVolume(brand.id);
     out.push({
       code: "W-01", date, status: booked >= perWeek ? "done" : "partial", count: booked,
       notes: `${booked} of ${perWeek} posts booked for next week.`,

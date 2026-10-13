@@ -6,7 +6,7 @@ import { fromLocalInput, toLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
 import { parsePin } from "@/lib/pin";
 import { getBrandPlaybooks } from "@/server/playbook";
-import { goalPostsPerWeek } from "@/server/agents/writer";
+import { weeklyVolume } from "@/server/volume";
 import { unbookedIdeas } from "@/server/ideas";
 
 const DAY = 86_400_000;
@@ -56,8 +56,7 @@ export async function projectIdeas(args: {
     const meta = queue[0].missing.find((m) => m.id === brand.id)!;
     const agent = agents.find((a) => a.brandId === brand.id);
     const rule = playbooks.get(brand.id)?.find((r) => r.code === "post" && r.enabled);
-    const setting = Number(agent?.settings?.perWeek);
-    const perWeek = Math.min(21, Math.max(1, Number.isFinite(setting) && setting > 0 ? Math.round(setting) : (await goalPostsPerWeek(brand.id)) ?? rule?.limits.perWeek ?? 5));
+    const { perWeek } = await weeklyVolume(brand.id, now);
     const push = (item: (typeof queue)[number], at: Date, pinned: boolean) => projected.push({
       ideaId: item.idea.id, title: item.idea.title || item.idea.problem, status: item.idea.status,
       brandId: brand.id, brandName: meta.name, brandColor: meta.color, at, pinned, writerOn: Boolean(agent?.enabled),

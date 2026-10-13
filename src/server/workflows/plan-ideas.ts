@@ -9,6 +9,7 @@ import { POST_TYPES } from "@/lib/templates";
 import { platformOrNull } from "@/lib/platforms";
 import { askClaude } from "@/server/agents/claude";
 import { learningLines } from "@/server/performance";
+import { ideaVisibleToBrand } from "@/server/ideas";
 import { fetchSignals, researchQueries, signalsBlock } from "@/server/research";
 import { ANGLE_SPREAD, HOOK_CRAFT, STRATEGY_CRAFT } from "@/server/agents/craft";
 import type { StepContext, StepResult, WorkflowImpl } from "@/server/workflows/types";
@@ -71,7 +72,7 @@ async function planOwner(brandId: string) {
  * Ideas this brand could still tell: planned or backlog ideas in its owners'
  * plans that it has neither told nor skipped. The writer draws on exactly these.
  */
-export async function unusedIdeas(brandId: string) {
+export async function unusedIdeas(brandId: string, opts: { campaign?: string | null | "any" } = {}) {
   const owners = (await db.select({ userId: memberships.userId }).from(memberships)
     .where(and(eq(memberships.brandId, brandId), inArray(memberships.role, ["owner", "admin"])))).map((m) => m.userId);
   if (owners.length === 0) return [];
@@ -83,6 +84,9 @@ export async function unusedIdeas(brandId: string) {
   return db.select({ id: contentIdeas.id, title: contentIdeas.title, problem: contentIdeas.problem }).from(contentIdeas).where(and(
     inArray(contentIdeas.ownerId, owners), isNull(contentIdeas.archivedAt),
     inArray(contentIdeas.status, ["planned", "backlog"]),
+    ideaVisibleToBrand(brandId),
+    // The general plan is what is not meant for a campaign; a campaign's ideas are counted against that campaign.
+    opts.campaign === "any" ? undefined : opts.campaign ? eq(contentIdeas.campaign, opts.campaign) : isNull(contentIdeas.campaign),
     exclude.length ? notInArray(contentIdeas.id, exclude) : undefined,
   ));
 }
@@ -114,16 +118,28 @@ async function briefing(brandId: string) {
   return { active, lessons, numbers, recent, existing, pillars, everIdeas, platforms: [...new Set(chans.map((c) => platformOrNull(c.platform)?.name ?? c.platform))] };
 }
 
+/** The campaign a run was started for, if any. */
+function campaignOf(v: unknown): { name: string; brief: string; until: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const c = v as { name?: unknown; brief?: unknown; until?: unknown };
+  return typeof c.name === "string" && typeof c.brief === "string"
+    ? { name: c.name, brief: c.brief, until: typeof c.until === "string" ? c.until : "the campaign's end" }
+    : null;
+}
+
 async function propose(ctx: StepContext): Promise<StepResult> {
   const { run, brand } = ctx;
   const count = Math.max(1, Math.min(10, Number(run.context.count) || 5));
   const b = await briefing(brand.id);
   const signals = await fetchSignals(researchQueries(b.pillars, brand.defaultHashtags));
   const guidelines = typeof run.context.guidelines === "string" ? run.context.guidelines : null;
+  const campaign = campaignOf(run.context.campaign);
 
   const task = [
     guidelines?.trim() ? `Standing guidelines from the brand's team (follow these):\n${guidelines.trim()}\n` : "",
-    `Propose ${count} new idea${count === 1 ? "" : "s"}.`,
+    campaign
+      ? `Propose ${count} new idea${count === 1 ? "" : "s"} for a campaign. Every one must serve it, land its message and fit its audience, and each must take a different angle or format from the others. They will be told until ${campaign.until}.\n\n${campaign.brief}`
+      : `Propose ${count} new idea${count === 1 ? "" : "s"}.`,
     b.active.length
       ? `\nWhat the brand is working towards:\n${b.active.map((g) => `- ${g.name}: ${METRIC_META[g.metric]?.label ?? g.metric} to ${g.targetValue}${g.platform ? ` on ${platformOrNull(g.platform)?.name ?? g.platform}` : ""} by ${g.deadline}`).join("\n")}`
       : "\nThe brand has no active goals; aim for steady reach and conversation.",
@@ -146,13 +162,13 @@ async function propose(ctx: StepContext): Promise<StepResult> {
 
   return {
     outcome: "done",
-    summary: `Proposed ${ideas.length} new idea${ideas.length === 1 ? "" : "s"} for the plan${signals.length ? `, with ${signals.length} outside signals as input` : ""}.`,
+    summary: `Proposed ${ideas.length} new idea${ideas.length === 1 ? "" : "s"} for ${campaign ? `the "${campaign.name}" campaign` : "the plan"}${signals.length ? `, with ${signals.length} outside signals as input` : ""}.`,
     output: { ideas, signals: signals.map((x) => ({ source: x.source, title: x.title, url: x.url, score: x.score })) },
     context: { ideas },
     usage,
     href: "/ideas",
     review: {
-      kind: "set of content ideas for the brand's plan",
+      kind: campaign ? `set of content ideas for the "${campaign.name}" campaign` : "set of content ideas for the brand's plan",
       text: ideas.map((i, n) => `${n + 1}. ${i.title} [${i.postType}, ${i.pillar}]\nProblem: ${i.problem}\nAction: ${i.action}\nOutcome: ${i.outcome}`).join("\n\n"),
       screen: ideas.flatMap((i) => [i.title, i.problem, i.action, i.outcome]),
     },
@@ -168,26 +184,18 @@ async function add(ctx: StepContext): Promise<StepResult> {
   if (!owner) return { outcome: "cancel", summary: "The brand has no owner whose plan the ideas could go in." };
 
   const [{ top }] = await db.select({ top: max(contentIdeas.sequence) }).from(contentIdeas).where(eq(contentIdeas.ownerId, owner));
-  // The plan is shared by every brand its owner runs; these ideas were written for this one.
-  const others = (await db.selectDistinct({ brandId: memberships.brandId }).from(memberships)
-    .where(and(eq(memberships.userId, owner), inArray(memberships.role, ["owner", "admin"]), ne(memberships.brandId, brand.id))))
-    .map((r) => r.brandId);
-
+  // The plan is shared by every brand its owner runs, but these ideas were written for this one, so they are aimed at it.
+  const campaign = campaignOf(run.context.campaign);
   const ids: string[] = [];
   for (const [n, i] of ideas.entries()) {
     const [row] = await db.insert(contentIdeas).values({
       ownerId: owner, sequence: (top ?? 0) + n + 1, pillar: i.pillar,
       title: i.title, problem: i.problem, action: i.action, outcome: i.outcome,
       postType: i.postType, tone: i.tone, needsMedia: i.needsMedia, hashtags: i.hashtags.map((h) => h.replace(/^#/, "")),
-      status: "planned", notes: `Proposed by the content strategist agent for ${brand.name}: ${i.why}`,
+      status: "planned", notes: `Proposed by the content strategist agent for ${brand.name}${campaign ? ` for the "${campaign.name}" campaign` : ""}: ${i.why}`,
+      brandIds: [brand.id], campaign: campaign?.name ?? null,
     }).returning({ id: contentIdeas.id });
     ids.push(row.id);
-    for (const other of others) {
-      await db.insert(ideaVersions).values({
-        ideaId: row.id, brandId: other, title: i.title, problem: i.problem, skipped: true,
-        notes: `Written for ${brand.name}; skipped here unless you choose to tell it.`,
-      }).onConflictDoNothing();
-    }
   }
   await db.insert(activity).values({
     brandId: brand.id, actorId: null, action: "agent.ideas_added", entity: "idea", entityId: null,

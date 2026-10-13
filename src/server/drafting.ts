@@ -88,6 +88,8 @@ export type DraftBrief = {
   feedback?: string | null;
   /** What the brand's own numbers say works and does not, worked out from its published posts. */
   learnings?: { more: string[]; less: string[] };
+  /** The brief of the campaign this post is part of: message, audience, call to action, link, hashtags. */
+  campaign?: string;
   /** How the brand's latest posts opened, so this one does not open the same way. */
   recentOpenings?: string[];
   /** Who asked, for the spend ledger: "workflow:publish-post", say. A person in the composer when unset. */
@@ -238,6 +240,9 @@ export function draftRequestText(brief: DraftBrief) {
     parts.push("", "The reviewer sent the last version back. Their note, which this revision must address:", brief.feedback.trim());
   }
 
+  if (brief.campaign) {
+    parts.push("", "This post is part of a campaign. Serve it: land its message for its audience, use its call to action and link where the channel allows, and carry its hashtags where they are useful.", brief.campaign);
+  }
   if (brief.learnings && (brief.learnings.more.length || brief.learnings.less.length)) {
     parts.push("", "What this brand's own numbers show (use it where it fits the idea; never force it):",
       ...brief.learnings.more.map((s) => `- works: ${s}`), ...brief.learnings.less.map((s) => `- weaker: ${s}`));

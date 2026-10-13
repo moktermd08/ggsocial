@@ -15,6 +15,8 @@ import { generateVersions } from "@/server/versions";
 import { generatePostImages } from "@/server/media-generate";
 import { platformLimitProblems, settleFormats } from "@/server/format-fit";
 import { stampApproval } from "@/server/approval";
+import { adaptIdeaForBrand } from "@/server/idea-adapt";
+import { campaignBrief, campaignFor } from "@/server/campaign-plan";
 import { learningLines, recentOpenings } from "@/server/performance";
 import { publishBody } from "@/server/versions";
 import { FORMAT_META, type ContentFormat } from "@/lib/formats";
@@ -121,6 +123,12 @@ async function inspect(postId: string) {
   return { reasons, review: { kind: "social post", text, screen: texts.filter((t): t is string => Boolean(t)) } };
 }
 
+/** The brief of a campaign by name, for a draft, or undefined when the post is in none. */
+async function campaignBriefFor(brandId: string, name: string | null | undefined) {
+  const c = await campaignFor(brandId, name);
+  return c ? campaignBrief(c) : undefined;
+}
+
 async function loadPost(run: WorkflowRun) {
   if (run.subjectType !== "post" || !run.subjectId) return null;
   return (await db.query.posts.findFirst({ where: eq(posts.id, run.subjectId) })) ?? null;
@@ -153,6 +161,7 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     const result = await draftPost({
       brand, idea, title: existing.title, body: existing.body, channels: chans, playbook,
       postType: existing.postType, guidelines: config?.guidelines, feedback, source: "workflow:publish-post",
+      campaign: await campaignBriefFor(brand.id, existing.campaign),
       learnings: await learningLines(brand.id, { platforms: chans.map((c) => c.platform) }), recentOpenings: await recentOpenings(brand.id),
     });
     await db.update(posts).set({
@@ -175,8 +184,11 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     const ideaId = typeof run.context.ideaId === "string" ? run.context.ideaId : null;
     const slot = typeof run.context.slot === "string" ? new Date(run.context.slot) : null;
     if (!ideaId || !slot) return { outcome: "cancel", summary: "No idea or slot was given to write for." };
-    const mine = await ideaForBrand(ideaId, brand.id);
+    let mine = await ideaForBrand(ideaId, brand.id);
     if (!mine || mine.skipped) return { outcome: "cancel", summary: "The idea is gone, or this brand skips it." };
+    // An idea several brands will tell is told differently by each: this brand gets its own take first.
+    const adaptUsage = await adaptIdeaForBrand(ideaId, brand.id);
+    if (adaptUsage) mine = (await ideaForBrand(ideaId, brand.id)) ?? mine;
     const idea = mine.idea;
     const chanRows = await writerChannels(brand.id, config?.settings?.channelIds);
     if (chanRows.length === 0) return { outcome: "cancel", summary: "This brand has no channels to write for." };
@@ -185,12 +197,13 @@ async function draft(ctx: StepContext): Promise<StepResult> {
     // Draft first, so a failed call leaves no empty post behind.
     const result = await draftPost({
       brand, idea, channels: chans, playbook, postType: idea.postType, guidelines: config?.guidelines, source: "workflow:publish-post",
+      campaign: await campaignBriefFor(brand.id, idea.campaign),
       learnings: await learningLines(brand.id, { platforms: chans.map((c) => c.platform) }), recentOpenings: await recentOpenings(brand.id),
     });
     const d = result.draft;
     const [post] = await db.insert(posts).values({
       brandId: brand.id, ideaId: idea.id, title: d.title, body: d.body,
-      status: "in_review", scheduledAt: slot, postType: idea.postType, tone: idea.tone,
+      status: "in_review", scheduledAt: slot, postType: idea.postType, tone: idea.tone, campaign: idea.campaign,
       targetImpressions: idea.targetImpressions, agentCode: "writer",
       notes: [reviewNote(d, result.issues), idea.needsMedia ? "This idea needs media: attach an image or video before it can go out." : ""].filter(Boolean).join("\n\n"),
     }).returning({ id: posts.id });

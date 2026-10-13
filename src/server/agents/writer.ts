@@ -1,14 +1,18 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray } from "drizzle-orm";
-import { db, comments, contentIdeas, goals, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
+import { db, comments, contentIdeas, memberships, posts, workflowRuns, workflowRunSteps } from "@/lib/db";
 import type { EffectiveRule } from "@/lib/playbook/check";
 import { openSlots } from "@/lib/agents/slots";
 import { fromLocalInput, toLocalInput } from "@/lib/format";
 import { resolveSchedule } from "@/lib/posting-schedule";
 import { parsePin } from "@/lib/pin";
 import { getBrandPlaybook } from "@/server/playbook";
-import { ideaForBrand } from "@/server/ideas";
+import { ideaForBrand, ideaVisibleToBrand } from "@/server/ideas";
 import { pillarLifts } from "@/server/performance";
+import { weeklyVolume } from "@/server/volume";
+import { brandCampaigns } from "@/server/campaign-plan";
+import { dayInWindow, isBookable } from "@/lib/campaign-window";
+import { todayIn } from "@/lib/activities/periods";
 import { writerChannels } from "@/server/workflows/publish-post";
 import { advance, runsForSubjects, startRun } from "@/server/workflows";
 import { addUsage } from "@/server/agents/claude";
@@ -65,16 +69,7 @@ async function adoptOldPosts(brandId: string) {
   return adopted;
 }
 
-/**
- * Feed posts a week the brand's active goals ask for: the largest of their
- * plans, since one post serves every goal at once. null = no goal asks.
- */
-export async function goalPostsPerWeek(brandId: string) {
-  const active = await db.select({ plan: goals.plan }).from(goals)
-    .where(and(eq(goals.brandId, brandId), eq(goals.status, "active")));
-  const asks = active.map((g) => g.plan?.units?.["D-01"] ?? 0).filter((n) => n > 0);
-  return asks.length ? Math.ceil(Math.max(...asks)) : null;
-}
+export { goalPostsPerWeek } from "@/server/volume";
 
 export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const { brand, config } = job;
@@ -119,9 +114,8 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const playbook = await getBrandPlaybook(brand.id);
   const postRule: EffectiveRule | undefined = playbook.find((r) => r.code === "post" && r.enabled);
   const daysAhead = num(s.daysAhead, 7, 1, 30);
-  // A person's number wins; then what the brand's goals need; then the playbook.
-  const goalWeek = await goalPostsPerWeek(brand.id);
-  const perWeek = num(s.perWeek, goalWeek ?? postRule?.limits.perWeek ?? 5, 1, 21);
+  // One answer for how many a week, shared with the strategist and the calendar forecast.
+  const { perWeek } = await weeklyVolume(brand.id, job.now);
   const now = new Date();
   const taken = await db.select({ at: posts.scheduledAt }).from(posts).where(and(
     eq(posts.brandId, brand.id),
@@ -142,23 +136,38 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
   const told = (await db.select({ ideaId: posts.ideaId }).from(posts)
     .where(and(eq(posts.brandId, brand.id), ne(posts.status, "failed"))))
     .flatMap((r) => (r.ideaId ? [r.ideaId] : []));
-  const candidates = owners.length
+  let candidates = owners.length
     ? await db.select().from(contentIdeas).where(and(
         inArray(contentIdeas.ownerId, owners),
         isNull(contentIdeas.archivedAt),
+        ideaVisibleToBrand(brand.id),
         inArray(contentIdeas.status, ["planned", "backlog"]),
         told.length ? notInArray(contentIdeas.id, told) : undefined,
       ))
       .orderBy(asc(contentIdeas.sequence))
       .limit(40)
     : [];
-  // Planned before backlog. A person's plan keeps its order; the backlog has no order of its own, so it is
-  // worked through best-performing topic first, then in plan order.
+  // Ideas made for a campaign are told only while it can be: not before it is set up, not once it is paused or over.
+  // An idea whose campaign no longer exists is just an idea.
+  const today = todayIn(brand.timezone, now);
+  const campaignRows = await brandCampaigns(brand.id);
+  const bookable = new Map(campaignRows.filter((c) => isBookable(c, today)).map((c) => [c.name, c]));
+  const known = new Set(campaignRows.map((c) => c.name));
+  candidates = candidates.filter((c) => !c.campaign || bookable.has(c.campaign) || !known.has(c.campaign));
+  const campaignEnd = (c: (typeof candidates)[number]) => (c.campaign && bookable.has(c.campaign) ? bookable.get(c.campaign)!.endDate ?? "9999-12-31" : null);
+
+  // Campaign ideas first, the one ending soonest first. Then planned before backlog. A person's plan keeps its order;
+  // the backlog has no order of its own, so it is worked through best-performing topic first, then in plan order.
   const lifts = await pillarLifts(brand.id);
   const lift = (c: (typeof candidates)[number]) => (c.pillar ? lifts.get(c.pillar) ?? 1 : 1);
-  candidates.sort((a, b) => a.status === b.status
-    ? (a.status === "backlog" && lift(a) !== lift(b) ? lift(b) - lift(a) : a.sequence - b.sequence)
-    : a.status === "planned" ? -1 : 1);
+  candidates.sort((a, b) => {
+    const ca = campaignEnd(a), cb = campaignEnd(b);
+    if (ca && cb && ca !== cb) return ca < cb ? -1 : 1;
+    if (Boolean(ca) !== Boolean(cb)) return ca ? -1 : 1;
+    return a.status === b.status
+      ? (a.status === "backlog" && lift(a) !== lift(b) ? lift(b) - lift(a) : a.sequence - b.sequence)
+      : a.status === "planned" ? -1 : 1;
+  });
 
   // Ideas pinned to a day by dragging them on the calendar are booked for that
   // day, once it is within reach; the rest take the open slots in plan order.
@@ -173,8 +182,15 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
     if (slot) plan.push({ candidate: c, slot, pinned: true });
   }
   const pinnedIds = new Set(plan.map((p) => p.candidate.id));
-  candidates.filter((c) => !pinnedIds.has(c.id)).slice(0, slots.length)
-    .forEach((candidate, i) => plan.push({ candidate, slot: slots[i], pinned: false }));
+  // The rest take the open slots, a campaign's idea only one that falls inside the campaign's dates.
+  const open = [...slots];
+  for (const candidate of candidates.filter((c) => !pinnedIds.has(c.id))) {
+    if (open.length === 0) break;
+    const camp = candidate.campaign ? bookable.get(candidate.campaign) : undefined;
+    const at = camp ? open.findIndex((s) => dayInWindow(camp, toLocalInput(s, brand.timezone).slice(0, 10))) : 0;
+    if (at < 0) continue;
+    plan.push({ candidate, slot: open.splice(at, 1)[0], pinned: false });
+  }
 
   // Nothing open and nothing pinned for these days.
   if (plan.length === 0 && slots.length === 0) {
@@ -212,14 +228,14 @@ export async function runWriter(job: AgentJob): Promise<AgentOutcome> {
     done++;
   }
 
-  const open = slots.length - freeWritten;
-  if (written === 0 && open > 0 && done < perRun) {
-    out.issues.push(`${open} open slot${open === 1 ? "" : "s"} in the next ${daysAhead} days, and no planned or backlog idea left that this brand has not told. Add ideas to the content plan.`);
+  const stillOpen = slots.length - freeWritten;
+  if (written === 0 && stillOpen > 0 && done < perRun) {
+    out.issues.push(`${stillOpen} open slot${stillOpen === 1 ? "" : "s"} in the next ${daysAhead} days, and no planned or backlog idea left that this brand has not told. Add ideas to the content plan.`);
   }
   out.summary = [
     revised ? `Revised ${revised} sent-back post${revised === 1 ? "" : "s"}.` : "",
     written ? `Wrote ${written} new post${written === 1 ? "" : "s"}.` : "",
-    open > 0 && freeWritten > 0 ? `${open} slot${open === 1 ? "" : "s"} still open for later runs.` : "",
+    stillOpen > 0 && freeWritten > 0 ? `${stillOpen} slot${stillOpen === 1 ? "" : "s"} still open for later runs.` : "",
     adopted ? `Moved ${adopted} earlier post${adopted === 1 ? "" : "s"} into the review inbox.` : "",
   ].filter(Boolean).join(" ") || "Nothing to write.";
   return out;

@@ -14,6 +14,7 @@ import { refreshMetrics } from "@/server/publish";
 import { engagementOf as engagementsOfReading, engagementRate, matureReading } from "@/lib/performance";
 import { learningLines, refreshLearnings } from "@/server/performance";
 import { sendAlert } from "@/server/alerts";
+import { brandCampaigns, campaignProgress, progressLine } from "@/server/campaign-plan";
 import { askClaude, addUsage } from "@/server/agents/claude";
 import type { AgentJob, AgentOutcome } from "@/server/agents/types";
 
@@ -218,6 +219,12 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
   const active = await db.select({ name: goals.name, metric: goals.metric, targetValue: goals.targetValue, deadline: goals.deadline })
     .from(goals).where(and(eq(goals.brandId, brand.id), eq(goals.status, "active")));
   const posted = new Set(inWindow.map((r) => r.postId)).size;
+  // Campaigns running or just finished, against their own targets.
+  const campaignLines: string[] = [];
+  for (const c of (await brandCampaigns(brand.id)).filter((x) => x.status === "active" || x.status === "done")) {
+    if (c.status === "done" && c.updatedAt.getTime() < now.getTime() - 14 * DAY) continue;
+    campaignLines.push(`- ${progressLine(c, await campaignProgress(brand.id, c))}${c.status === "done" ? " (finished)" : ""}`);
+  }
 
   const task = [
     config.guidelines?.trim() ? `Standing guidelines from the brand's team (follow these):\n${config.guidelines.trim()}\n` : "",
@@ -232,6 +239,7 @@ async function period(job: AgentJob, out: AgentOutcome, span: "weekly" | "monthl
     top.length ? `\nBest posts by engagement rate:\n${top.map((r) => `- postId: ${r.postId} | ${name(r.platform)} | "${r.title}" — ${got(r.m)}`).join("\n")}` : "",
     bottom.length ? `\nWeakest posts:\n${bottom.map((r) => `- postId: ${r.postId} | ${name(r.platform)} | "${r.title}" — ${got(r.m)}`).join("\n")}` : "",
     await findings(brand.id),
+    campaignLines.length ? `\nIts campaigns, against their targets:\n${campaignLines.join("\n")}` : "",
     active.length ? `\nThe brand's goals:\n${active.map((g) => `- ${g.name}: ${METRIC_META[g.metric]?.label ?? g.metric} to ${g.targetValue} by ${g.deadline}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 
