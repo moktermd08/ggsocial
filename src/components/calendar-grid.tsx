@@ -95,8 +95,12 @@ export function CalendarGrid({
                     key={`${item.id}-${item.time}-${n}`}
                     href={item.href ?? `/posts/${item.id}`}
                     onClick={(e) => { if (item.projected) { e.preventDefault(); pick.open(item.id, item.day); } }}
-                    draggable={item.canEdit && !item.projected}
-                    onDragStart={() => setDragging(item.id)}
+                    draggable={item.canEdit || item.projected}
+                    onDragStart={(e) => {
+                      // A forecast idea carries its id, so dropping it on a day opens the picker there.
+                      if (item.projected) { e.dataTransfer.setData(IDEA_DRAG_TYPE, item.id); e.dataTransfer.effectAllowed = "copyMove"; }
+                      setDragging(item.id);
+                    }}
                     onDragEnd={() => setDragging(null)}
                     className={`block rounded-md border-l-2 px-1.5 py-1 text-[11px] leading-tight hover:bg-surface ${
                       item.projected ? "border border-dashed border-border bg-transparent" : "bg-surface-2"
