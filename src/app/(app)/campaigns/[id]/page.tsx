@@ -112,7 +112,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         key={c.updatedAt.toISOString()}
         campaign={{
           id: c.id, brandId: c.brandId, values: campaignValues(c), status: c.status,
-          guidelines: c.guidelines, notes: c.notes,
+          guidelines: c.guidelines, notes: c.notes, postsPerWeek: c.postsPerWeek,
         }}
         master={masterValues}
         canEdit={access.canEdit}

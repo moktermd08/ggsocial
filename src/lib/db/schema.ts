@@ -393,6 +393,14 @@ export const contentIdeas = pgTable("content_ideas", {
   notes: text("notes"),
   /** Filled in after the fact — what this idea taught you. */
   keyLearning: text("key_learning"),
+  /**
+   * The brands this idea is for. null = every brand its author runs (how ideas
+   * worked before they could be aimed); a list limits it to those brands, so
+   * the writer of any other brand never picks it up.
+   */
+  brandIds: jsonb("brand_ids").$type<string[] | null>(),
+  /** The campaign (by name, as posts carry it) this idea was made for. It is told within that campaign's dates. */
+  campaign: text("campaign"),
 
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: now(),
@@ -570,6 +578,8 @@ export const campaigns = pgTable("campaigns", {
   targetImpressions: integer("target_impressions"),
   targetClicks: integer("target_clicks"),
   targetLeads: integer("target_leads"),
+  /** Brand campaigns: how many posts a week the campaign should get while it runs. null = three. */
+  postsPerWeek: integer("posts_per_week"),
 
   /** Master only: how brands should run their version. */
   guidelines: text("guidelines"),

@@ -1,6 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
-import { db, campaigns, campaignComments, posts, masterPosts, users } from "@/lib/db";
+import { db, campaigns, campaignComments, contentIdeas, posts, masterPosts, users } from "@/lib/db";
+import { ideaVisibleToBrand } from "@/server/ideas";
 import { can, type BrandWithRole } from "@/lib/auth";
 import { inheritState, planSync } from "@/lib/masters";
 import {
@@ -190,6 +191,8 @@ export async function renameCampaignLabel(row: CampaignRow, from: string, to: st
   if (row.brandId) {
     await db.update(posts).set({ campaign: to })
       .where(and(eq(posts.brandId, row.brandId), eq(posts.campaign, from)));
+    // The ideas made for it follow the name, or they would stop being told.
+    await db.update(contentIdeas).set({ campaign: to }).where(and(eq(contentIdeas.campaign, from), ideaVisibleToBrand(row.brandId)));
     return;
   }
   const moved = await db.update(masterPosts).set({ campaign: to, updatedAt: new Date() })

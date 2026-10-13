@@ -133,7 +133,8 @@ export function IdeaBoard({ rows, scopeLabel, brandScope = null }: {
     setError(null);
     startTransition(async () => {
       try {
-        const res = await saveIdeaAction({ problem, action: action ?? null, outcome: outcome ?? null });
+        // Added while one brand is selected, an idea is for that brand; added across all brands, it is shared.
+        const res = await saveIdeaAction({ problem, action: action ?? null, outcome: outcome ?? null, brandIds: brandScope ? [brandScope.id] : null });
         if (!res.ok) { setError(res.error); return; }
         setAdding("");
         router.refresh();

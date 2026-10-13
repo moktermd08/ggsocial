@@ -1,8 +1,9 @@
 import "server-only";
-import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, brands, contentIdeas, ideaVersions, memberships, posts } from "@/lib/db";
 import { masterOwnersFor } from "@/server/media-library";
 import { inheritState, planSync } from "@/lib/masters";
+import { ideaAudience, ideaIsFor } from "@/lib/idea-scope";
 import { IDEA_FIELDS, ideaColumns, ideaValues, type IdeaField, type IdeaVersionView } from "@/lib/ideas";
 
 /** Every brand version of these ideas in these brands, keyed "ideaId:brandId". */
@@ -49,6 +50,8 @@ export async function syncIdeaVersions(ideaId: string) {
 export async function ideaForBrand(ideaId: string, brandId: string) {
   const idea = await db.query.contentIdeas.findFirst({ where: eq(contentIdeas.id, ideaId) });
   if (!idea) return null;
+  // An idea aimed at other brands is sat out here, whatever versions exist.
+  if (!ideaIsFor(idea, brandId)) return { idea, skipped: true };
   const v = await db.query.ideaVersions.findFirst({
     where: and(eq(ideaVersions.ideaId, ideaId), eq(ideaVersions.brandId, brandId)),
   });
@@ -66,6 +69,19 @@ export async function ideaForBrand(ideaId: string, brandId: string) {
     },
     skipped: v.skipped,
   };
+}
+
+/** SQL: ideas this brand may tell — open to every brand, or aimed at this one. */
+export function ideaVisibleToBrand(brandId: string) {
+  return or(isNull(contentIdeas.brandIds), sql`${contentIdeas.brandIds} @> ${JSON.stringify([brandId])}::jsonb`);
+}
+
+/** The brands an idea reaches: the ones it is aimed at, or every brand its author runs. */
+export async function audienceOf(idea: typeof contentIdeas.$inferSelect) {
+  const mine = await db.select({ brandId: memberships.brandId }).from(memberships)
+    .innerJoin(brands, eq(brands.id, memberships.brandId))
+    .where(and(eq(memberships.userId, idea.ownerId), inArray(memberships.role, ["owner", "admin"]), isNull(brands.archivedAt)));
+  return ideaAudience(idea, mine.map((m) => m.brandId));
 }
 
 /**
@@ -121,7 +137,7 @@ export async function unbookedIdeas(userId: string, myBrandIds: string[], scopeB
   const done = new Set([...told, ...skipped].map((r) => `${r.ideaId}:${r.brandId}`));
 
   return ideas
-    .map((idea) => ({ idea, missing: brandRows.filter((b) => !done.has(`${idea.id}:${b.id}`)) }))
+    .map((idea) => ({ idea, missing: brandRows.filter((b) => ideaIsFor(idea, b.id) && !done.has(`${idea.id}:${b.id}`)) }))
     .filter((r) => r.missing.length > 0)
     .sort((a, b) => Number(b.idea.status === "planned") - Number(a.idea.status === "planned") || a.idea.sequence - b.idea.sequence)
     .slice(0, limit);

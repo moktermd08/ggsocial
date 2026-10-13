@@ -18,6 +18,8 @@ export type CampaignEditorCampaign = {
   status: CampaignStatus;
   guidelines: string | null;
   notes: string | null;
+  /** Posts a week while it runs (brand campaigns). null = three. */
+  postsPerWeek?: number | null;
 };
 export type CampaignWhere = { value: string; label: string; color?: string };
 
@@ -52,6 +54,7 @@ export function CampaignEditor({
   const [status, setStatus] = useState<CampaignStatus>(campaign?.status ?? "planning");
   const [guidelines, setGuidelines] = useState(campaign?.guidelines ?? "");
   const [notes, setNotes] = useState(campaign?.notes ?? "");
+  const [perWeek, setPerWeek] = useState(campaign?.postsPerWeek ? String(campaign.postsPerWeek) : "");
   const [target, setTarget] = useState(defaultWhere ?? where?.[0]?.value ?? "master");
   const [copyIds, setCopyIds] = useState<string[]>(copyBrands?.map((b) => b.id) ?? []);
 
@@ -93,6 +96,7 @@ export function CampaignEditor({
           status,
           guidelines: guidelines || null,
           notes: notes || null,
+          postsPerWeek: perWeek.trim() ? Number(perWeek) : null,
           copyBrandIds: !campaign && target === "master" ? copyIds : undefined,
         });
         if (!res.ok) { setError(res.error); return; }
@@ -142,6 +146,11 @@ export function CampaignEditor({
               {text("targetClicks", "Clicks target", { type: "number" })}
               {text("targetLeads", "Leads target", { type: "number" })}
             </div>
+            {!isMaster && (
+              <Field label="Posts a week while it runs" hint="The strategist plans this many ideas a week for the campaign and the writer books them between the dates above. Blank means three.">
+                <input type="number" min={1} max={14} value={perWeek} onChange={(e) => setPerWeek(e.target.value)} placeholder="3" />
+              </Field>
+            )}
             {isMaster && (
               <Field label="Guidelines for brands" hint="How each brand should run its version. Shown beside every copy.">
                 <textarea

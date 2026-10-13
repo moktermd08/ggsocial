@@ -27,6 +27,9 @@ export type IdeaInput = {
   targetImpressions?: number | null;
   notes?: string | null;
   keyLearning?: string | null;
+  /** The brands it is for. null/omitted on a new idea = every brand the author runs. Left alone on an edit unless given. */
+  brandIds?: string[] | null;
+  campaign?: string | null;
 };
 
 /**
@@ -67,7 +70,11 @@ export async function saveIdeaAction(input: IdeaInput) {
       notes: input.notes?.trim() || null,
       keyLearning: input.keyLearning?.trim() || null,
       updatedAt: new Date(),
+      ...(input.brandIds !== undefined ? { brandIds: input.brandIds && input.brandIds.length ? input.brandIds : null } : {}),
+      ...(input.campaign !== undefined ? { campaign: input.campaign?.trim() || null } : {}),
     };
+    // Aiming an idea at a brand needs a say in that brand.
+    for (const brandId of fields.brandIds ?? []) await requireBrandRole(brandId, "editor");
 
     let ideaId = input.ideaId;
     if (ideaId) {

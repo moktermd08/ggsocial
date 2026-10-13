@@ -18,6 +18,8 @@ export type CampaignInput = {
   status: CampaignStatus;
   guidelines: string | null;
   notes: string | null;
+  /** Brand campaigns: posts a week while it runs. */
+  postsPerWeek?: number | null;
   /** New master campaigns only: brands to create a linked copy in. */
   copyBrandIds?: string[];
 };
@@ -79,9 +81,12 @@ export async function saveCampaignAction(input: CampaignInput) {
     const name = input.values.name.trim();
     if (!name) throw new Error("Give the campaign a name.");
     const values = { ...input.values, name };
+    const perWeek = input.postsPerWeek == null ? null : Math.round(Number(input.postsPerWeek));
+    if (perWeek !== null && (!Number.isFinite(perWeek) || perWeek < 1 || perWeek > 14)) throw new Error("Posts a week must be between 1 and 14.");
     const own = {
       status: input.status,
       notes: input.notes?.trim() || null,
+      postsPerWeek: perWeek,
       updatedAt: new Date(),
     };
 

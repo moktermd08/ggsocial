@@ -13,7 +13,7 @@ import { db, activity, brands, memberships, users } from "@/lib/db";
  * reports on fails. The same alert is not sent twice inside the quiet window.
  */
 
-export type AlertKind = "post_failed" | "post_interrupted" | "channel_reconnect" | "run_stopped" | "review_waiting" | "approval_stale" | "post_anomaly" | "weekly_report";
+export type AlertKind = "post_failed" | "post_interrupted" | "channel_reconnect" | "run_stopped" | "review_waiting" | "approval_stale" | "post_anomaly" | "weekly_report" | "campaign_finished";
 
 export type Alert = {
   brandId: string;

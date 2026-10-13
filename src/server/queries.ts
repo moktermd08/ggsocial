@@ -288,9 +288,11 @@ export type IdeaBoardRow = IdeaRow & {
 export async function getIdeaBoard(userId: string, brandIds: string[], myBrandIds: string[] = brandIds): Promise<IdeaBoardRow[]> {
   // The shared plan: this person's ideas and those of anyone who admins a brand they are on.
   const owners = await planOwnersFor(userId, myBrandIds);
-  const ideaRows = await db.select().from(contentIdeas)
+  // Ideas aimed at other brands are not in this view.
+  const ideaRows = (await db.select().from(contentIdeas)
     .where(and(inArray(contentIdeas.ownerId, owners), isNull(contentIdeas.archivedAt)))
-    .orderBy(asc(contentIdeas.sequence), asc(contentIdeas.createdAt));
+    .orderBy(asc(contentIdeas.sequence), asc(contentIdeas.createdAt)))
+    .filter((i) => !i.brandIds || brandIds.length === 0 || i.brandIds.some((b) => brandIds.includes(b)));
   if (ideaRows.length === 0) return [];
 
   const ownerIds = [...new Set(ideaRows.map((r) => r.ownerId))];
@@ -344,7 +346,7 @@ export async function getIdeaBoard(userId: string, brandIds: string[], myBrandId
   const postByIdeaBrand = new Map(postRows.map((p) => [`${p.ideaId}:${p.brandId}`, p]));
 
   return ideaRows.map((idea) => {
-    const lanes: IdeaLane[] = brandRows.map((brand) => {
+    const lanes: IdeaLane[] = brandRows.filter((b) => !idea.brandIds || idea.brandIds.includes(b.id)).map((brand) => {
       const post = postByIdeaBrand.get(`${idea.id}:${brand.id}`) ?? null;
       const version = versions.get(`${idea.id}:${brand.id}`) ?? null;
       if (!post) {
