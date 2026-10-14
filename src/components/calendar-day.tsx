@@ -30,6 +30,7 @@ export function CalendarDay({ day, items, slots, timezone }: { day: string; item
   }
 
   const drop = (e: React.DragEvent, time: string) => {
+    e.stopPropagation(); // a surrounding day (the agenda) must not also pin it to the day alone
     setOver(null);
     const moved = e.dataTransfer.getData(IDEA_MOVE_TYPE);
     const listed = e.dataTransfer.getData(IDEA_DRAG_TYPE);

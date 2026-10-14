@@ -156,8 +156,13 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   }));
   // The day and week views: every time a channel may post on each day shown, from the channels' own schedules.
   const slotsByDay: Record<string, DaySlot[]> = {};
-  if (!agenda) {
-    const shown = dayView ? [selected] : days.map((d) => d.date);
+  {
+    // Agenda: the next two weeks, and any later day that already has something on it.
+    const agendaDays = [...new Set([
+      ...Array.from({ length: 14 }, (_, n) => new Date(Date.parse(`${todayKey}T00:00:00Z`) + n * 86400_000).toISOString().slice(0, 10)),
+      ...[...items, ...forecast].filter((i) => i.day >= todayKey).map((i) => i.day),
+    ])].sort();
+    const shown = dayView ? [selected] : agenda ? agendaDays : days.map((d) => d.date);
     const [chans, books] = await Promise.all([getBrandChannels(scope.brandIds), getBrandPlaybooks(scope.brandIds)]);
     for (const day of shown) {
       const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
@@ -260,7 +265,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           : week
           ? <CalendarWeekSlots days={days} items={visible} slotsByDay={slotsByDay} timezone={timezone} />
           : agenda
-          ? <CalendarAgenda items={visible} timezone={timezone} />
+          ? <CalendarAgenda items={visible} slotsByDay={slotsByDay} timezone={timezone} />
           : <CalendarGrid days={days} items={visible} timezone={timezone} slotsByDay={slotsByDay} />}
         <aside className="space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Needs a date ({todo.length})</h2>
