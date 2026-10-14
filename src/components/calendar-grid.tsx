@@ -8,6 +8,7 @@ import { IDEA_DRAG_TYPE, IDEA_MOVE_TYPE, useIdeaPick } from "./idea-pick";
 import { pinIdeaToDayAction } from "@/server/actions/ideas";
 import { reschedulePostAction } from "@/server/actions/posts";
 import type { PostStatus } from "@/lib/db";
+import type { DaySlot } from "./calendar-day";
 
 export type CalendarItem = {
   id: string;
@@ -30,14 +31,17 @@ export type CalendarItem = {
 };
 
 export function CalendarGrid({
-  days, items, timezone, tall = false,
+  days, items, timezone, tall = false, slotsByDay,
 }: {
   days: { date: string; inMonth: boolean; isToday: boolean; label: string }[];
   items: CalendarItem[];
   timezone: string;
   /** The week view: one row of taller days. */
   tall?: boolean;
+  /** The times each day's channels post at. Free ones show as slots to drop an idea or a post on. */
+  slotsByDay?: Record<string, DaySlot[]>;
 }) {
+  const [overSlot, setOverSlot] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -53,6 +57,28 @@ export function CalendarGrid({
     const iso = new Date(`${day}T${item.time}:00`).toISOString();
     start(() => { void reschedulePostAction(item.id, iso); });
   };
+
+  const dropOnSlot = (e: React.DragEvent, day: string, time: string) => {
+    e.stopPropagation();
+    setOverSlot(null); setOver(null);
+    const moved = e.dataTransfer.getData(IDEA_MOVE_TYPE);
+    const listed = e.dataTransfer.getData(IDEA_DRAG_TYPE);
+    const post = items.find((i) => i.id === dragging && !i.projected);
+    setDragging(null);
+    setError(null);
+    if (!moved && !listed && !post) return;
+    e.preventDefault();
+    if (listed) { pick.open(listed, day, time); return; }
+    if (moved) {
+      start(async () => { const r = await pinIdeaToDayAction(moved, day, time); if (!r.ok) setError(r.error); });
+      return;
+    }
+    if (post && post.canEdit && !(post.day === day && post.time === time)) {
+      start(() => { void reschedulePostAction(post.id, new Date(`${day}T${time}:00`).toISOString()); });
+    }
+  };
+
+  const todayKey = new Date().toISOString().slice(0, 10);
 
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-surface ${pending ? "opacity-70" : ""}`}>
@@ -138,6 +164,25 @@ export function CalendarGrid({
                     </p>
                   </Link>
                 ))}
+                {/* Slots nothing is booked in yet, so an idea or a post can be dropped on its time. */}
+                {d.date >= todayKey && (slotsByDay?.[d.date] ?? [])
+                  .filter((sl) => !dayItems.some((i) => i.time === sl.time))
+                  .map((sl) => {
+                    const key = `${d.date} ${sl.time}`;
+                    return (
+                      <div
+                        key={key}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setOverSlot(key); }}
+                        onDragLeave={() => setOverSlot((o) => (o === key ? null : o))}
+                        onDrop={(e) => dropOnSlot(e, d.date, sl.time)}
+                        title={`Open slot · ${[...new Set(sl.channels.map((c) => c.brandName))].join(", ")}. Drop an idea or a post here.`}
+                        className={`flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-[10px] tabular-nums text-muted ${overSlot === key ? "border-accent bg-accent-soft" : "border-border/70"}`}
+                      >
+                        <span>{sl.time}</span>
+                        <span className="flex gap-0.5 opacity-70">{sl.channels.slice(0, 2).map((c) => <PlatformIcon key={c.id} platform={c.platform} size={10} />)}</span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           );
